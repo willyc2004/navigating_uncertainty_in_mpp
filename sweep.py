@@ -7,7 +7,7 @@ if __name__ == "__main__":
     def train():
         try:
             # Initialize W&B
-            wandb.init(project="mpp_ppo", entity="stowage_planning_research")
+            wandb.init()
             sweep_config = wandb.config
 
             # Load static configuration from the YAML file
@@ -69,4 +69,4 @@ if __name__ == "__main__":
     sweep_id = "h32jsx7f"  # Use this line to manually set the sweep ID
 
     # Start the sweep agent, which runs the 'train' function with different hyperparameters
-    wandb.agent(sweep_id, function=train, )
+    wandb.agent(sweep_id, function=train, project="mpp_ppo", entity="stowage_planning_research")
