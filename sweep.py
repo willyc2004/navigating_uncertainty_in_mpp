@@ -7,7 +7,7 @@ if __name__ == "__main__":
     def train():
         try:
             # Initialize W&B
-            wandb.init(project="mpp_ppo",)
+            wandb.init(project="mpp_ppo", entity="stowage_planning_research")
             sweep_config = wandb.config
 
             # Load static configuration from the YAML file
