@@ -1,0 +1,50 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="PyPackageRequirementsInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredPackages">
+        <value>
+          <list size="10">
+            <item index="0" class="java.lang.String" itemvalue="triton" />
+            <item index="1" class="java.lang.String" itemvalue="Shimmy" />
+            <item index="2" class="java.lang.String" itemvalue="torch" />
+            <item index="3" class="java.lang.String" itemvalue="pip" />
+            <item index="4" class="java.lang.String" itemvalue="threadpoolctl" />
+            <item index="5" class="java.lang.String" itemvalue="typing_extensions" />
+            <item index="6" class="java.lang.String" itemvalue="fsspec" />
+            <item index="7" class="java.lang.String" itemvalue="wandb" />
+            <item index="8" class="java.lang.String" itemvalue="MarkupSafe" />
+            <item index="9" class="java.lang.String" itemvalue="cvxpylayers" />
+          </list>
+        </value>
+      </option>
+    </inspection_tool>
+    <inspection_tool class="PyPep8Inspection" enabled="true" level="WEAK WARNING" enabled_by_default="true">
+      <option name="ignoredErrors">
+        <list>
+          <option value="E302" />
+          <option value="E305" />
+          <option value="E231" />
+          <option value="E266" />
+          <option value="W605" />
+        </list>
+      </option>
+    </inspection_tool>
+    <inspection_tool class="PyUnresolvedReferencesInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredIdentifiers">
+        <list>
+          <option value="jax._src.basearray._IndexUpdateRef.set" />
+          <option value="tuple.reshape" />
+          <option value="str.report" />
+          <option value="object.reshape" />
+          <option value="gymnasium.core.Env.*" />
+          <option value="torch.backends.cudnn" />
+          <option value="tuple.feasibility_layer" />
+          <option value="tuple.projection_layer" />
+          <option value="tuple.env_name" />
+          <option value="tuple.n_envs" />
+        </list>
+      </option>
+    </inspection_tool>
+  </profile>
+</component>

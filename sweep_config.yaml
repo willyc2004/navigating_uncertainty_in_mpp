@@ -1,0 +1,21 @@
+method: bayes  # Bayesian optimization
+metric:
+  name: val/reward  # The metric to optimize
+  goal: maximize  # We're maximizing the validation reward
+run_cap: 50  # The sweep will perform a maximum of 50 trials
+parameters:
+  feedforward_hidden:
+    values: [512, 1024,]
+  num_encoder_layers:
+    values: [1, 2, 3,]
+  num_decoder_layers:
+    values: [1, 2, 3,]
+  num_heads:
+    values: [4, 8, 16,]
+  ppo_epochs:
+    values: [3, 5, 7]
+  mini_batch_size:
+    values: [64, 128, 256, 512]
+  lr:
+    min: 0.000001
+    max: 0.001

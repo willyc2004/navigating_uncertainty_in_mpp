@@ -1,0 +1,70 @@
+# Environment settings
+env:
+  ports: 4 # [4, 5, 6]
+  bays: 10 # [10, 20,]
+  decks: 2
+  cargo_classes: 6
+  weight_classes: 3
+  customer_classes: 2
+  capacity: [50] # [50, 500]
+  TEU: 1000  # 1000, 20000
+  LCG_target: 0.95
+  VCG_target: 1.05
+  stability_difference: 0.10
+  CI_target: 1.25
+  hatch_overstowage_costs: 0.333333
+  hatch_overstowage_mask: False
+  long_crane_costs: 0.5
+  seed: 42
+  utilization_rate_initial_demand: 1.1
+  spot_percentage: 0.3
+
+# Model settings
+model:
+  lr_end_factor: 0.1
+  batch_size: [1024]
+  init_dim: 8
+  embed_dim: 128
+  feedforward_hidden: 1024
+  num_encoder_layers: 2 # 2
+  num_decoder_layers: 1 # 2
+  num_heads: 4
+  dropout_rate: 0.05
+  normalization: "layer"
+  out_bias_pointer_attn: False
+  temperature: 1.0
+  tanh_clipping: 0
+  train_decode_type: "continuous_sampling"
+  val_decode_type: "continuous_sampling"
+  test_decode_type: "continuous_sampling"
+  phase: "train" # train, val, test
+  logger: wandb #wandb #"wandb" # wandb, tensorboard
+
+# PPO parameters
+ppo:
+  clip_range: 0.3 # 0.2
+  ppo_epochs: 5 # 2, 3, 5, 7, 10
+  mini_batch_size: 512 # [256, 512, 1024]
+  normalize_adv: False
+  max_grad_norm: 0.5
+  kl_threshold: None #0.01 - 0.1
+  kl_penalty_lambda: None # 1.0
+  gamma: 0.99
+  gae_lambda: 0.95
+  vf_lambda: 0.5
+  entropy_lambda: 0.01
+  feasibility_lambda: 0.5
+  demand_lambda: 1
+  stability_lambda: 1
+  projection_lambda: 0.2
+
+# AM PPO parameters
+am_ppo:
+  lr: 0.0001
+  projection_type: "worst_case_violation" #None, convex_program, linear_program, worst_case_violation, worst_case_violation_iter
+  projection_kwargs:
+    iters: 5
+  optimizer: "Adam" #AdamW, Adam
+  train_data_size: 1000000 # 1000000
+  val_data_size: 100000 # 100000
+  test_data_size: 100000 # 100000
