@@ -2,3 +2,4 @@
 /lightning_logs/
 /.idea/
 /checkpoints/
+/output_files/
