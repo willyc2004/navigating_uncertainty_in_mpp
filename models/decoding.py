@@ -448,6 +448,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
 
             # Project selected action to ensure feasibility (if needed with cvxp and lp)
             if self.projection_type == "convex_program" or self.projection_type == "linear_program":
+                print("Projection type:", self.projection_type)
                 selected_action = self.projection_layer(selected_action, td["lhs_A"], td["rhs"],)
 
             # Update logprobs and actions
