@@ -267,7 +267,7 @@ def main(config=None):
         # Rollouts with trained model
         out = policy(td_init.clone(), test_env, phase="test", decode_type="continuous_sampling",
                      return_actions=True, return_td=True, return_feasibility=True,
-                     projection_layer=am_ppo_params["projection_type"], projection_kwargs=projection_kwargs)
+                     projection_type=am_ppo_params["projection_type"], projection_kwargs=projection_kwargs)
         # Analyze rollout results
         rollout_results(test_env, out, td, batch_size, checkpoint_path,
                         am_ppo_params["projection_type"], config["env"]["utilization_rate_initial_demand"],)

@@ -114,7 +114,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
         lr_scheduler_monitor=None,
         **kwargs,
     ):
-        self.projection_layer = kwargs.pop("projection_type", None)  # pop before passing to super
+        self.projection_type = kwargs.pop("projection_type", None)  # pop before passing to super
         self.projection_kwargs = kwargs.pop("projection_kwargs", None)  # pop before passing to super
         super().__init__(
             env,
@@ -172,7 +172,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
         if phase != "train":
             td = self.env.reset(batch)
             out = self.policy.generate(td, env=self.env, phase=phase, return_feasibility=True,
-                                       projection_layer=self.projection_layer, projection_kwargs=self.projection_kwargs)
+                                       projection_type=self.projection_type, projection_kwargs=self.projection_kwargs)
         else:
             # init the training
             memory = Memory(batch.batch_size, self.ppo_cfg["n_step"],self.env)
