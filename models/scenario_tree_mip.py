@@ -45,10 +45,11 @@ transport_idx = env.transport_idx.detach().cpu().numpy()
 # Scenario tree parameters
 M = 10 ** 3 # Big M
 stages = P - 1  # Number of load ports (P-1)
-scenarios_per_stage = 10 #16 # Number of scenarios per stage
+scenarios_per_stage = 32 #16 # Number of scenarios per stage
 max_paths = scenarios_per_stage ** (stages-1) + 1
 num_nodes_per_stage = [1*scenarios_per_stage**stage for stage in range(stages)]
 perfect_information = False
+deterministic = False
 
 # Precompute functions
 def precompute_node_list(stages, scenarios_per_stage):
@@ -89,13 +90,13 @@ def precompute_demand(node_list):
         real_demand[stage, max_paths, 0] = demand_[stage, -1, :, :]
 
     # Allow for perfect information
-    if perfect_information:
+    if deterministic:
         for (stage, node_id) in node_list:
             demand_scenarios[stage, node_id] = real_demand[stage, max_paths, 0]
 
     return demand_scenarios, real_demand
 
-def get_demand_history(stage, node_id, demand):
+def get_demand_history(stage, demand):
     """Get the demand history up to the given stage for the given scenario"""
     if stage > 0:
         demand_history = []
@@ -176,9 +177,7 @@ def build_tree(stages, demand):
 
         # constraints for the current stage and node
         for node_id in range(num_nodes_per_stage[stage]):
-            # Realize demand in demand tree, last scenario is the true scenario
-            demand[stage, node_id] = real_demand[stage, max_paths, 0]
-
+            print(f"Stage {stage}, Node {node_id}")
             for (i, j) in on_board:
                 for k in range(K):
                     # Demand satisfaction
@@ -196,18 +195,18 @@ def build_tree(stages, demand):
                         <= capacity[b, d]
                     )
 
-                    # todo: continue with non-anticipation constraints
-                    demand_history1 = get_demand_history(stage, node_id, demand)
-                    other_nodes = [node_id2 for node_id2 in range(num_nodes_per_stage[stage]) if node_id2 != node_id]
-                    for node_id2 in other_nodes:
-                        demand_history2 = get_demand_history(stage, node_id2, demand)
-                        if np.array_equal(demand_history1, demand_history2):
-                            for k in range(K):
-                                for (i, j) in load_moves:
-                                    # Non-anticipation at stage, provided demand history is similar
-                                    mdl.add_constraint(
-                                        x[stage, node_id, b, d, k, i, j] == x[stage, node_id2, b, d, k, i, j]
-                                    )
+                    if not perfect_information:
+                        # todo: non-anticipation not working yet!
+                        demand_history1 = get_demand_history(stage, demand)
+                        for node_id2 in range(node_id + 1, num_nodes_per_stage[stage]):
+                            demand_history2 = get_demand_history(stage, demand)
+                            if np.allclose(demand_history1, demand_history2, atol=1e-5):  # Use a tolerance if floats
+                                for k in range(K):
+                                    for (i, j) in load_moves:
+                                        # Non-anticipation at stage, provided demand history is similar
+                                        mdl.add_constraint(
+                                            x[stage, node_id, b, d, k, i, j] == x[stage, node_id2, b, d, k, i, j]
+                                        )
 
                 # Open hatch (d=1 is below deck)
                 mdl.add_constraint(
