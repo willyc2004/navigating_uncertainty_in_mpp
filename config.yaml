@@ -22,7 +22,7 @@ env:
 # Model settings
 model:
   lr_end_factor: 0.1
-  batch_size: [1024]
+  batch_size: [8]
   init_dim: 8
   embed_dim: 128
   feedforward_hidden: 512
