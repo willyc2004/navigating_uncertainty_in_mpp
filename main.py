@@ -287,6 +287,7 @@ if __name__ == "__main__":
 
     # Call your main() function
     try:
+        wandb.init()
         model = main(config)
     except Exception as e:
         # Log the error to WandB
