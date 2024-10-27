@@ -169,10 +169,6 @@ class Projection_Nstep_PPO(RL4COLitModule):
     def shared_step(
         self, batch: Any, batch_idx: int, phase: str, dataloader_idx: int = None
     ):
-        print("self.projection_layer", self.projection_layer)
-        print("self.projection_kwargs", self.projection_kwargs)
-        breakpoint()
-
         if phase != "train":
             td = self.env.reset(batch)
             out = self.policy.generate(td, env=self.env, phase=phase, return_feasibility=True,
