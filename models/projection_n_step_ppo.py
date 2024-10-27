@@ -326,7 +326,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
                     "adv": adv,
                     "value_pred": value_preds,
                     "total_loaded": td["state"]["total_loaded"].mean(),
-                    "violations": violation.mean(),
+                    "violations": violation.mean(dim=0).sum(), # total violation
                     # "ll": ll.sum(),
                     # "old_ll": old_ll.sum(),
                     # "action": action.mean(),
