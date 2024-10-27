@@ -251,9 +251,9 @@ def main(config=None):
         trainer.fit(model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
     # Load the checkpoint model for testing
     elif config.model.phase == "test":
-        date_stamp = f"2024/10/24/23-59-59"
+        date_stamp = f"2024/10/27/10-58-15"
         checkpoint_path = f"checkpoints/{date_stamp}/"
-        ckpt_name = "/epoch_epoch=00-val_loss=0.00.ckpt"
+        ckpt_name = "/last.ckpt" #"/epoch_epoch=00-val_loss=0.00.ckpt"
         checkpoint = torch.load(checkpoint_path + ckpt_name,)
         model.load_state_dict(checkpoint['state_dict'], strict=True)
 
