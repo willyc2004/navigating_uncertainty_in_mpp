@@ -37,7 +37,7 @@ model:
   train_decode_type: "continuous_sampling"
   val_decode_type: "continuous_sampling"
   test_decode_type: "continuous_sampling"
-  phase: "test" # train, test
+  phase: "train" # train, test
   logger: wandb #wandb #"wandb" # wandb, tensorboard
 
 # PPO parameters
@@ -61,7 +61,7 @@ ppo:
 # AM PPO parameters
 am_ppo:
   lr: 0.0001
-  projection_type: "linear_program" #None, convex_program, linear_program, worst_case_violation, worst_case_violation_iter
+  projection_type: "worst_case_violation" #None, convex_program, linear_program, worst_case_violation,
   projection_kwargs:
     iters: 5
   optimizer: "Adam" #AdamW, Adam
