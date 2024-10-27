@@ -104,6 +104,7 @@ class AttentionModelPolicy4PPO(AttentionModelPolicy):
             mask_logits=self.mask_logits,
             projection_type = self.projection_type,
             projection_kwargs = self.projection_kwargs,
+            env = env,
         )
         # Pre-decoding hook: used for the initial step(s) of the decoding strategy
         td, env, num_starts = decode_strategy.pre_decoder_hook(td, env)
@@ -139,6 +140,7 @@ class AttentionModelPolicy4PPO(AttentionModelPolicy):
             mask_logits=self.mask_logits,
             projection_type = self.projection_type,
             projection_kwargs = self.projection_kwargs,
+            env = env,
         )
         # Pre-decoding hook: used for the initial step(s) of the decoding strategy
         td, env, num_starts = decode_strategy.pre_decoder_hook(td, env)

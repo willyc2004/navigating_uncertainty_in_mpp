@@ -320,6 +320,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
         self.rhs = []
         self.utilization = []
         # create projection layer
+        self.env = kwargs.get("env", None)
         self.projection_type = kwargs.get("projection_type", None)
         self.projection_kwargs = kwargs.get("projection_kwargs", None)
         self.projection_layer = ProjectionFactory.create_class(
@@ -447,7 +448,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             )
 
             # Project selected action to ensure feasibility (if needed with cvxp and lp)
-            print("Projection type:", self.projection_type)
+            # todo: we need to gather all actions per port, then perform: A*(x-s) <= b, with min s
             if self.projection_type == "convex_program" or self.projection_type == "linear_program":
                 selected_action = self.projection_layer(selected_action, td["lhs_A"], td["rhs"],)
 

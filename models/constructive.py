@@ -218,6 +218,7 @@ class ConstructivePolicy(nn.Module):
             tanh_clipping=decoding_kwargs.pop("tanh_clipping", self.tanh_clipping),
             mask_logits=decoding_kwargs.pop("mask_logits", self.mask_logits),
             store_all_logp=decoding_kwargs.pop("store_all_logp", return_entropy),
+            env=env,
             **decoding_kwargs,
         )
         # Pre-decoding hook: used for the initial step(s) of the decoding strategy
