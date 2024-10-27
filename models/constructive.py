@@ -270,8 +270,8 @@ class ConstructivePolicy(nn.Module):
         if return_feasibility:
             outdict["lhs_A"] = dict_out["lhs_A"]
             outdict["rhs"] = dict_out["rhs"]
-            lhs = (dict_out["lhs_A"] *  dict_out["proj_mean_logits"].unsqueeze(-2)).sum(dim=-1)
-            outdict["violation"] = torch.clamp(lhs - dict_out["rhs"], min=0)
+            lhs = (dict_out["lhs_A"] * dict_out["proj_mean_logits"].unsqueeze(-2)).sum(dim=-1)
+            outdict["violation"] = torch.clamp(lhs - dict_out["rhs"], min=0) # shape [batch_size, seq, num_constraints]
             outdict["reward"] -= outdict["violation"].sum(dim=(-1,-2)) / 10
         if return_entropy:
             outdict["entropy"] = calculate_entropy(dict_out["logprobs"])
