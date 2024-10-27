@@ -37,20 +37,28 @@ def stepwise_lp(action, A, b, verbose=True,):
 
     # Add variables to the model
     s_min = mdl.continuous_var_list(num_vars, lb=0, name="s-")
-    s_slack = mdl.continuous_var_list(num_constraints, lb=0, name="s_slack")
     # s_plus = mdl.continuous_var_list(num_vars, lb=0, name="s+")
     x_ = mdl.continuous_var_list(num_vars, lb=0, name="x_")
+    z = mdl.continuous_var_list(num_constraints, lb=0, name="z")
+
+    # # Add constraints to the model
+    # for j in range(num_vars):
+    #     mdl.add_constraint(x_[j] == (action[j] - s_min[j]))
+    #
+    # for i in range(num_constraints):
+    #     mdl.add_constraint(mdl.sum(A[i][j] * x_[j] for j in range(num_vars)) <= b[i])
+    #
+    # # Set the objective function
+    # mdl.minimize(mdl.sum(s_min[j] for j in range(num_vars)))
 
     # Add constraints to the model
     for j in range(num_vars):
         mdl.add_constraint(x_[j] == (action[j] - s_min[j]))
 
     for i in range(num_constraints):
-        mdl.add_constraint(mdl.sum(A[i][j] * x_[j] for j in range(num_vars)) <= b[i] + s_slack[i])
+        mdl.add_constraint(mdl.sum(A[i][j] * x_[j] for j in range(num_vars)) - b[i] <= z[i])
 
-    # Set the objective function
-    # mdl.minimize(mdl.sum(s_min[j] for j in range(num_vars)))
-    mdl.minimize(mdl.sum(s_min[j] for j in range(num_vars)) + 2*mdl.sum(s_slack[i] for i in range(num_constraints)))
+    mdl.minimize(mdl.sum(z[i] for i in range(num_constraints)))
 
     # Solve the problem
     mdl.set_time_limit(100) #3600
