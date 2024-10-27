@@ -213,6 +213,7 @@ class ConstructivePolicy(nn.Module):
 
         # Setup decoding strategy
         # we pop arguments that are not part of the decoding strategy
+        print(f"decoding_kwargs: {decoding_kwargs}")
         decode_strategy: DecodingStrategy = get_decoding_strategy(
             decode_type,
             temperature=decoding_kwargs.pop("temperature", self.temperature),
