@@ -209,7 +209,6 @@ class ConstructivePolicy(nn.Module):
                 decode_type = "continuous_evaluate"
             else:
                 decode_type = getattr(self, f"{phase}_decode_type")
-        print(f"decode_type: {decode_type}")
 
         # Setup decoding strategy
         # we pop arguments that are not part of the decoding strategy
