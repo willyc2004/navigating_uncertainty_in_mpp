@@ -58,7 +58,9 @@ def stepwise_lp(action, A, b, verbose=True,):
     for i in range(num_constraints):
         mdl.add_constraint(mdl.sum(A[i][j] * x_[j] for j in range(num_vars)) - b[i] <= z[i])
 
-    mdl.minimize(mdl.sum(z[i] for i in range(num_constraints)))
+    mdl.minimize(mdl.sum(z[i] for i in range(num_constraints)) +
+                    mdl.sum(s_min[j] for j in range(num_vars))
+                 )
 
     # Solve the problem
     mdl.set_time_limit(100) #3600
