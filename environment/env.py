@@ -230,7 +230,8 @@ class MasterPlanningEnv(RL4COEnvBase):
         total_revenue += revenue
         total_cost += cost
         # we normalize reward outside the environment
-        reward = (total_revenue - total_cost) #/ self.total_capacity # profit per container
+        reward = profit
+            # (total_revenue - total_cost) / self.total_capacity # profit per container
         # print(f"reward_{t[0]}", reward.mean(dim=0), relative_revenue.mean(dim=0), relative_cost.mean(dim=0))
         scale_factor = self.teus_episode[t]
 
