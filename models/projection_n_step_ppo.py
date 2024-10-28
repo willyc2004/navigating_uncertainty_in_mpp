@@ -160,6 +160,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
         self.return_mean = 0
         self.return_var = 0
         self.return_count = 0
+        self.epsilon = 1e-4
 
     def configure_optimizers(self):
         parameters = list(self.policy.parameters()) + list(self.critic.parameters())
@@ -301,8 +302,11 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
                 # Normalize returns
                 if self.ppo_cfg["normalize_return"]:
-                    self.update_running_return_stats(returns)
-                    returns = self.normalize_returns(returns)
+                    # todo: issue with normalization to differentiate
+                    # self.update_running_return_stats(returns)
+                    # returns = self.normalize_returns(returns)
+
+                    returns = (returns - returns.mean()) / (returns.std() + 1e-8)
 
                 # Compute the surrogate loss
                 surrogate_loss = -torch.min(ratios * adv, clipped_ratios * adv,).mean()
@@ -332,8 +336,8 @@ class Projection_Nstep_PPO(RL4COLitModule):
                         + self.ppo_cfg["projection_lambda"] * projection_loss
                 ).mean()
 
-            # perform manual optimization following the Lightning routine
-            # https://lightning.ai/docs/pytorch/stable/common/optimization.html
+                # perform manual optimization following the Lightning routine
+                # https://lightning.ai/docs/pytorch/stable/common/optimization.html
                 opt = self.optimizers()
                 opt.zero_grad()
                 self.manual_backward(loss)
