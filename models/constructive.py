@@ -271,7 +271,7 @@ class ConstructivePolicy(nn.Module):
 
             # Run solver for each batch
             for i in range(batch_size):
-                util_lp, _, _, _ = polwise_lp(lp_input[i], demand_input[i], env)
+                util_lp, _, _, _ = polwise_lp(lp_input[i], demand_input[i], env, verbose=False)
                 lp_output.append(util_lp)
         else:
             # Main decoding: loop until all sequences are done
