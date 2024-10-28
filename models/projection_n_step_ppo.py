@@ -159,8 +159,8 @@ class Projection_Nstep_PPO(RL4COLitModule):
         parameters = list(self.policy.parameters()) + list(self.critic.parameters())
 
         # Define the optimizer with weight decay
-        print("lr", self.lr)
-        optimizer = torch.optim.Adam(parameters, lr=self.lr, weight_decay=0.01)  # Specify the weight_decay value here
+        print("lr", self.ppo_cfg["lr"])
+        optimizer = torch.optim.Adam(parameters, lr=self.ppo_cfg["lr"], weight_decay=0.01)  # Specify the weight_decay value here
         return optimizer
 
     # def configure_optimizers(self):
