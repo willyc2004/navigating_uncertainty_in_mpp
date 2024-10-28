@@ -25,7 +25,7 @@ def to_numpy(*args):
             result.append(arg)
     return result
 
-def stepwise_lp(action, A, b, param, verbose=True,):
+def stepwise_lp(action, A, b, verbose=True,):
     """Stepwise LP to find feasible action"""
     # Create environment and MIP model
     mdl = Model(name='stepwise_lp')
@@ -102,3 +102,153 @@ def stepwise_lp(action, A, b, param, verbose=True,):
 
         pass
     return x_sol, obj, opt_gap, time
+
+def polwise_lp(util, demand, env, verbose=True,):
+    """POL-wise LP to find feasible action"""
+    # Create environment and MIP model
+    mdl = Model(name='pol_wise_lp')
+
+    # add mdl variables
+    P = env.P
+    B, D, T, K = env.B, env.D, env.T, env.K
+
+    # detach
+    vertical_position = env.vertical_position.detach().cpu().numpy()
+    longitudinal_position = env.longitudinal_position.detach().cpu().numpy()
+    weights = env.weights.detach().cpu().numpy()
+    stab_delta = env.stab_delta
+    LCG_target = env.LCG_target
+    VCG_target = env.VCG_target
+
+    # Util of shape [Sequence, num_actions]
+    util = util.reshape(env.B, env.D, env.T, env.K)  # Reshape util to [B, D, T, K]
+    demand = demand.reshape(env.T, env.K)  # Reshape demand to [P, P, K]
+
+    # create continuous variables
+    LM = {}  # Longitudinal moment
+    VM = {}  # Vertical moment
+    TW = {}  # Total weight
+
+    # Stability:
+    for pol in range(P):
+        LM[pol] = mdl.continuous_var(name=f'LM_{pol}')
+        VM[pol] = mdl.continuous_var(name=f'VM_{pol}')
+        TW[pol] = mdl.continuous_var(name=f'TW_{pol}')
+
+    # Utilization
+    s = {} # Slack variable
+    for pol in range(P):
+        for b in range(B):
+            for d in range(D):
+                for tau in range(T):
+                    for k in range(env.K):
+                        s[b, d, tau, k] = mdl.continuous_var(name=f's_{pol}_{b}_{d}_{tau}_{k}')
+
+    # Add constraints to the model
+    for pol in range(P):
+        # get sets
+        transport_indices = [(i, j) for i in range(P) for j in range(P) if i < j]
+        on_board = [transport_indices.index((i, j)) for i in range(P) for j in range(P) if i <= pol and j > pol]
+
+        for tau in on_board:
+            for k in range(env.K):
+                # Demand satisfaction
+                mdl.add_constraint(
+                    mdl.sum(util[b, d, tau, k] - s[b, d, tau, k] for b in range(B) for d in range(D)) <= demand[tau, k]
+                )
+
+        # Stability
+        mdl.add_constraint(
+            TW[pol] == mdl.sum(weights[k] * mdl.sum(util[b, d, tau, k] - s[b, d, tau, k]
+                                               for tau in on_board for d in range(D))
+                          for k in range(K) for b in range(B))
+        )
+
+        # LCG
+        mdl.add_constraint(
+            LM[pol] == mdl.sum(longitudinal_position[b] * mdl.sum(weights[k] * mdl.sum(util[b, d, tau, k] - s[b, d, tau, k]
+                                                                                  for tau in on_board for d in range(D))
+                                                             for k in range(K)) for b in range(B)))
+        mdl.add_constraint(
+            stab_delta * mdl.sum(
+                weights[k] * mdl.sum(util[b, d, tau, k] - s[b, d, tau, k] for tau in on_board for d in range(D))
+                for k in range(K) for b in range(B)) >= mdl.sum(longitudinal_position[b] * mdl.sum(
+                weights[k] * mdl.sum(util[b, d, tau, k] - s[b, d, tau, k] for tau in on_board for d in range(D)) for
+                k in range(K)) for b in range(B)) - LCG_target * mdl.sum(
+                weights[k] * mdl.sum(util[b, d, tau, k] - s[b, d, tau, k] for tau in on_board for d in range(D)) for
+                k in range(K) for b in range(B)))
+        mdl.add_constraint(stab_delta * mdl.sum(
+            weights[k] * mdl.sum(util[b, d, tau, k] - s[b, d, tau, k] for tau in on_board for d in range(D)) for k in
+            range(K) for b in range(B)) >= - mdl.sum(longitudinal_position[b] * mdl.sum(
+            weights[k] * mdl.sum(util[b, d, tau, k] - s[b, d, tau, k] for tau in on_board for d in range(D)) for k in
+            range(K)) for b in range(B)) + LCG_target * mdl.sum(
+            weights[k] * mdl.sum(util[b, d, tau, k] - s[b, d, tau, k] for tau in on_board for d in range(D)) for k in
+            range(K) for b in range(B)))
+
+        # VCG
+        mdl.add_constraint(VM[pol] == mdl.sum(vertical_position[d] * mdl.sum(
+            weights[k] * mdl.sum(util[b, d, tau, k] - s[b, d, tau, k] for tau in on_board for b in range(B)) for k in
+            range(K)) for d in range(D)))
+        mdl.add_constraint(stab_delta * mdl.sum(
+            weights[k] * mdl.sum(util[b, d, tau, k] - s[b, d, tau, k] for tau in on_board for b in range(B)) for k in
+            range(K) for d in range(D)) >= mdl.sum(vertical_position[d] * mdl.sum(
+            weights[k] * mdl.sum(util[b, d, tau, k] - s[b, d, tau, k] for tau in on_board for b in range(B)) for k in
+            range(K)) for d in range(D)) - VCG_target * mdl.sum(
+            weights[k] * mdl.sum(util[b, d, tau, k] - s[b, d, tau, k] for tau in on_board for b in range(B)) for k in
+            range(K) for d in range(D)))
+        mdl.add_constraint(stab_delta * mdl.sum(
+            weights[k] * mdl.sum(util[b, d, tau, k] - s[b, d, tau, k] for tau in on_board for b in range(B)) for k in
+            range(K) for d in range(D)) >= - mdl.sum(vertical_position[d] * mdl.sum(
+            weights[k] * mdl.sum(util[b, d, tau, k] - s[b, d, tau, k] for tau in on_board for b in range(B)) for k in
+            range(K)) for d in range(D)) + VCG_target * mdl.sum(
+            weights[k] * mdl.sum(util[b, d, tau, k] - s[b, d, tau, k] for tau in on_board for b in range(B)) for k in
+            range(K) for d in range(D)))
+
+    # Set the objective function
+    mdl.minimize(mdl.sum(s[b, d, tau, k] for b in range(B) for d in range(D)
+                         for tau in range(T) for k in range(K)))
+
+    # Solve the problem
+    mdl.set_time_limit(100) #3600
+    mdl.parameters.mip.tolerances.mipgap = 0.0001  # 0.01%
+    solution = mdl.solve(log_output=verbose)
+
+    # Extract solution, objective value, optimality gap and time
+    s_sol = np.zeros((B, D, T, K))
+    try:
+        # Extract solution
+        for b in range(B):
+            for d in range(D):
+                for tau in range(T):
+                    for k in range(K):
+                        for pol in range(P):
+                            s_sol[b, d, tau, k] = s[b, d, tau, k].solution_value
+        # Compute objective value, optimality gap and time
+        obj = solution.get_objective_value()
+        opt_gap = mdl.solve_details.mip_relative_gap
+        time = mdl.solve_details.time
+
+        # Get utilization
+        util_output = util - s_sol
+
+    except:
+        obj = np.nan
+        opt_gap = np.nan
+        time = np.nan
+        util_output = util
+
+        # Find violations
+        print("-"*50)
+        print("Infeasible MIP")
+        print("-"*50)
+        print("util", util)
+        print("demand", demand)
+        print("weights", weights)
+        print("vertical_position", vertical_position)
+        print("longitudinal_position", longitudinal_position)
+        print("stab_delta", stab_delta)
+        print("LCG_target", LCG_target)
+        print("VCG_target", VCG_target)
+        breakpoint()
+
+    return util_output, obj, opt_gap, time
