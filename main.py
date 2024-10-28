@@ -132,7 +132,7 @@ def main(config=None):
 
 
     # Embedding initialization
-    init_embed = MPPInitEmbedding(embed_dim)
+    init_embed = MPPInitEmbedding(embed_dim, env)
     context_embed = MPPContextEmbedding(action_dim, embed_dim, env, device,)
     dynamic_embed = StaticEmbedding(obs_dim, embed_dim)
 

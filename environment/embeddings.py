@@ -1,15 +1,20 @@
 import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.jit as jit
 from torch import Tensor
 from tensordict import TensorDict
 from torch.cuda.amp import autocast
 from rl4co.utils.ops import gather_by_index
 
+
 class MPPInitEmbedding(nn.Module):
-    def __init__(self, embed_dim,):
+    def __init__(self, embed_dim, env):
         super(MPPInitEmbedding, self).__init__()
+        # Env
+        self.env = env
+
         # Layers
         self.embed_dim = embed_dim
         self.origin_port = nn.Linear(1, embed_dim)
@@ -27,6 +32,13 @@ class MPPInitEmbedding(nn.Module):
 
     def forward(self, td:TensorDict):
         batch_size, step_size = td["POL"].shape
+        # Convert origin and destination to one-hot encodings
+        origin_one_hot = F.one_hot(td["POL"], num_classes=self.env.P).float()
+        print(origin_one_hot.shape)
+        breakpoint()
+
+        destination_one_hot = F.one_hot(td["POD"], num_classes=self.env.P).float()
+
         origin_emb = self.origin_port(td["POL"].view(batch_size, step_size, 1).float())
         destination_emb = self.destination_port(td["POD"].view(batch_size, step_size, 1).float())
         type_emb = self.cargo_class(td["cargo_class"].view(batch_size, step_size, 1).float())
@@ -52,6 +64,7 @@ class MPPContextEmbedding(nn.Module):
         super(MPPContextEmbedding, self).__init__()
         # Environment
         self.env = env
+        self.capacity_norm = env.total_capacity
 
         # Layers
         self.origin_location = nn.Linear(action_dim, embed_dim)
@@ -89,14 +102,14 @@ class MPPContextEmbedding(nn.Module):
         - todo: It does depend on vessel size now, but this could be changed.
         """
         # Demand
-        demand_state = torch.cat([td["state"]["observed_demand"].view(td.batch_size[0], -1, 1),
-                                  td["state"]["expected_demand"].view(td.batch_size[0], -1, 1),
-                                  td["state"]["std_demand"].view(td.batch_size[0], -1, 1), ], dim=-1)
-        demand_embed = self.demand(demand_state)  # attention output [BATCH, Seq, F]
-        demand_embed_t = gather_by_index(demand_embed, td["episodic_step"])
+        # demand_state = torch.cat([td["state"]["observed_demand"].view(td.batch_size[0], -1, 1),
+        #                           td["state"]["expected_demand"].view(td.batch_size[0], -1, 1),
+        #                           td["state"]["std_demand"].view(td.batch_size[0], -1, 1), ], dim=-1)
+        # demand_embed = self.demand(demand_state)  # attention output [BATCH, Seq, F]
+        # demand_embed_t = gather_by_index(demand_embed, td["episodic_step"])
 
         # Vessel
-        location_embed = self.residual_capacity(td["clip_max"].view(td.batch_size[0], -1, ),)
+        location_embed = self.residual_capacity(td["clip_max"].view(td.batch_size[0], -1, ) / self.env.total_capacity,)
         origin_embed = self.origin_location(td["state"]["agg_pol_location"].view(td.batch_size[0], -1,).float())
         destination_embed = self.destination_location(td["state"]["agg_pod_location"].view(td.batch_size[0], -1,).float())
 
@@ -168,3 +181,58 @@ class SelfAttentionStateMapping(nn.Module):
         attention_output = self.final_linear(attention_output)  # (batch_size, N, F)
 
         return attention_output
+
+from typing import Tuple
+
+class RunningMeanStd:
+    def __init__(self, epsilon: float = 1e-4, shape: Tuple[int, ...] = ()):
+        """
+        Calculates the running mean and std of a data stream
+        https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
+
+        :param epsilon: helps with arithmetic issues
+        :param shape: the shape of the data stream's output
+        """
+        self.mean = torch.zeros(shape, dtype=torch.float64)
+        self.var = torch.ones(shape, dtype=torch.float64)
+        self.count = epsilon
+
+    def copy(self) -> "RunningMeanStd":
+        """
+        :return: Return a copy of the current object.
+        """
+        new_object = RunningMeanStd(shape=self.mean.shape)
+        new_object.mean = self.mean.copy()
+        new_object.var = self.var.copy()
+        new_object.count = float(self.count)
+        return new_object
+
+    def combine(self, other: "RunningMeanStd") -> None:
+        """
+        Combine stats from another ``RunningMeanStd`` object.
+
+        :param other: The other object to combine with.
+        """
+        self.update_from_moments(other.mean, other.var, other.count)
+
+    def update(self, arr: torch.Tensor) -> None:
+        batch_mean = torch.mean(arr, axis=0)
+        batch_var = torch.var(arr, axis=0)
+        batch_count = arr.shape[0]
+        self.update_from_moments(batch_mean, batch_var, batch_count)
+
+    def update_from_moments(self, batch_mean: torch.Tensor, batch_var: torch.Tensor, batch_count: float) -> None:
+        delta = batch_mean - self.mean
+        tot_count = self.count + batch_count
+
+        new_mean = self.mean + delta * batch_count / tot_count
+        m_a = self.var * self.count
+        m_b = batch_var * batch_count
+        m_2 = m_a + m_b + torch.square(delta) * self.count * batch_count / (self.count + batch_count)
+        new_var = m_2 / (self.count + batch_count)
+
+        new_count = batch_count + self.count
+
+        self.mean = new_mean
+        self.var = new_var
+        self.count = new_count
