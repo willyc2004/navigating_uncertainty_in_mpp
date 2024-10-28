@@ -97,11 +97,8 @@ def calculate_gaussian_entropy(logits):
     if isinstance(logits, tuple):
         mean, std = logits
         # Number of dimensions
-        print(mean.shape)
-        breakpoint()
         d = mean.shape[1]
         # Calculate entropy for each sample in the batch
-        # entropy = 0.5 * d * (1 + torch.log(torch.tensor(2 * torch.pi))) + 0.5 * torch.log(std ** 2).sum(dim=(1))
         entropy = 0.5 * d * (1 + torch.log(torch.tensor(2 * torch.pi))) + torch.log(std + 1e-8).sum(dim=1)
 
     else:
@@ -110,7 +107,7 @@ def calculate_gaussian_entropy(logits):
         # Number of dimensions
         d = mean.shape[1]
         # Calculate entropy for each sample in the batch
-        entropy = 0.5 * d * (1 + torch.log(torch.tensor(2 * torch.pi))) + 0.5 * torch.log(std ** 2).sum(dim=(1,2))
+        entropy = 0.5 * d * (1 + torch.log(torch.tensor(2 * torch.pi))) + torch.log(std + 1e-8).sum(dim=(1))
     return entropy  # Shape [batch]
 
 def modify_logits_for_top_k_filtering(logits, top_k):
