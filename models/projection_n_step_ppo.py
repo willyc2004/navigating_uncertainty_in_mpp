@@ -81,7 +81,8 @@ class Projection_Nstep_PPO(RL4COLitModule):
         demand_lambda: float = 1.0,  # lambda of demand violations
         stability_lambda: float = 1.0,  # lambda of stability violations
         projection_lambda: float = 1.0,  # lambda of projection loss
-        normalize_adv: bool = False,  # whether to normalize advantage
+        normalize_adv: bool = True,  # whether to normalize advantage
+        normalize_return: bool = True,  # whether to normalize return
         max_grad_norm: float = 0.5,  # max gradient norm
         kl_threshold: float = 0.03,  # KL threshold
         kl_penalty_lambda: float = 1.0,  # KL penalty coefficient
@@ -137,6 +138,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
             "ppo_epochs": ppo_epochs,
             "vf_lambda": vf_lambda,
             "normalize_adv": normalize_adv,
+            "normalize_return": normalize_return,
             "max_grad_norm": max_grad_norm,
             "gamma": gamma,
             "gae_lambda": gae_lambda,
@@ -154,6 +156,11 @@ class Projection_Nstep_PPO(RL4COLitModule):
         self.lambda_violations = torch.tensor([demand_lambda] + [stability_lambda] * env.n_stability,
                                               device='cuda', dtype=torch.float32)
 
+        # Normalize return
+        self.return_mean = 0
+        self.return_var = 0
+        self.return_count = 0
+
     def configure_optimizers(self):
         parameters = list(self.policy.parameters()) + list(self.critic.parameters())
         return super().configure_optimizers(parameters)
@@ -165,6 +172,21 @@ class Projection_Nstep_PPO(RL4COLitModule):
         # Learning rate scheduler
         sch = self.lr_schedulers()
         sch.step()
+
+    def update_running_return_stats(self, returns):
+        """
+        Update running mean and variance for return normalization.
+        """
+        batch_count = returns.numel()
+        batch_mean = returns.mean()
+        batch_var = returns.var(unbiased=False)
+
+        # Welford's algorithm for numerically stable mean and variance
+        delta = batch_mean - self.return_mean
+        total_count = self.return_count + batch_count
+        self.return_mean += delta * batch_count / total_count
+        self.return_var += batch_var * batch_count + delta ** 2 * (batch_count * self.return_count / total_count)
+        self.return_count = total_count
 
     def shared_step(
         self, batch: Any, batch_idx: int, phase: str, dataloader_idx: int = None
@@ -267,6 +289,11 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 # Normalize advantage
                 if self.ppo_cfg["normalize_adv"]:
                     adv = (adv - adv.mean()) / (adv.std() + 1e-8)
+
+                # Normalize returns
+                if self.ppo_cfg["normalize_return"]:
+                    self.update_running_return_stats(returns)
+                    returns = self.normalize_returns(returns)
 
                 # Compute the surrogate loss
                 surrogate_loss = -torch.min(ratios * adv, clipped_ratios * adv,).mean()
