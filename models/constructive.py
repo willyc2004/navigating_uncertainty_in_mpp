@@ -326,5 +326,5 @@ class ConstructivePolicy(nn.Module):
         if return_td:
             outdict["td"] = td
         if use_lp_solver:
-            outdict["utils_lp"] = lp_output
+            outdict["lp_actions"] = lp_output
         return outdict
