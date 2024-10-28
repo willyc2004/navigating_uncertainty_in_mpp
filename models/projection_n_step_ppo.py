@@ -155,8 +155,17 @@ class Projection_Nstep_PPO(RL4COLitModule):
                                               device='cuda', dtype=torch.float32)
 
     def configure_optimizers(self):
+        # Combine parameters from both policy and critic models
         parameters = list(self.policy.parameters()) + list(self.critic.parameters())
-        return super().configure_optimizers(parameters)
+
+        # Define the optimizer with weight decay
+        print("lr", self.lr)
+        optimizer = torch.optim.Adam(parameters, lr=self.lr, weight_decay=0.01)  # Specify the weight_decay value here
+        return optimizer
+
+    # def configure_optimizers(self):
+    #     parameters = list(self.policy.parameters()) + list(self.critic.parameters())
+    #     return super().configure_optimizers(parameters)
 
     def on_train_epoch_end(self):
         """
