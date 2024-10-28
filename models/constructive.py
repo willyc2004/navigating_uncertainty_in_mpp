@@ -230,16 +230,8 @@ class ConstructivePolicy(nn.Module):
         td, env, hidden = self.decoder.pre_decoder_hook(td, env, hidden, num_starts)
 
         # Initialize lp_solver flag
+        batch_size = td.batch_size[0]
         use_lp_solver = decoding_kwargs.get("projection_kwargs", {}).get("use_lp_solver", False)
-        pol_actions, lp_pol_actions = ([] if use_lp_solver else None for _ in range(2))
-        b_pol = td["rhs"].detach().cpu().numpy()
-        A_pol = env.A.detach().cpu().numpy()
-        # print(f"b_pol: {b_pol}, shape: {b_pol.shape},")
-        # print(f"A_pol: {A_pol[0]}, shape: {A_pol.shape},")
-
-        batch_size, _ = b_pol.shape
-        num_constraints, action_size, seq_len = A_pol.shape
-
         lp_input = np.zeros((batch_size, env.B, env.D, env.K, env.T,))
         demand_input = np.zeros((batch_size, env.K, env.T,))
         lp_output = []
@@ -326,5 +318,5 @@ class ConstructivePolicy(nn.Module):
         if return_td:
             outdict["td"] = td
         if use_lp_solver:
-            outdict["lp_actions"] = lp_output
+            outdict["lp_actions"] = np.array(lp_output)
         return outdict
