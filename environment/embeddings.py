@@ -33,16 +33,11 @@ class MPPInitEmbedding(nn.Module):
     def forward(self, td:TensorDict):
         batch_size, step_size = td["POL"].shape
         # Convert origin and destination to one-hot encodings
-        origin_one_hot = F.one_hot(td["POL"], num_classes=self.env.P).float()
-        destination_one_hot = F.one_hot(td["POD"], num_classes=self.env.P).float()
-        print("shape onehot", origin_one_hot.shape)
-
+        origin_one_hot = F.one_hot(td["POL"], num_classes=self.env.P)
+        destination_one_hot = F.one_hot(td["POD"], num_classes=self.env.P)
         origin_emb = self.origin_port(origin_one_hot)
         destination_emb = self.destination_port(destination_one_hot)
 
-
-        print(origin_emb.shape)
-        breakpoint()
         # Embed other features
         type_emb = self.cargo_class(td["cargo_class"].view(batch_size, step_size, 1).float())
         weight_emb = self.weight(td["weight"].view(batch_size, step_size, 1))
@@ -70,8 +65,11 @@ class MPPContextEmbedding(nn.Module):
         self.capacity_norm = env.total_capacity
 
         # Layers
-        self.origin_location = nn.Linear(action_dim, embed_dim)
-        self.destination_location = nn.Linear(action_dim, embed_dim)
+        self.origin_location = nn.Embedding(self.env.P, embed_dim)
+        self.destination_location = nn.Embedding(self.env.P, embed_dim)
+        self.expected_demand = nn.Linear(1, embed_dim)
+        self.std_demand = nn.Linear(1, embed_dim)
+        self.actual_demand = nn.Linear(1, embed_dim)
         self.residual_capacity = nn.Linear(action_dim, embed_dim)
         self.total_loaded = nn.Linear(1, embed_dim)
         self.overstowage = nn.Linear(self.env.B, embed_dim)
@@ -82,7 +80,7 @@ class MPPContextEmbedding(nn.Module):
         self.project_context = nn.Linear(embed_dim * 11, embed_dim, )
 
         # Self-attention layer
-        self.demand = SelfAttentionStateMapping(feature_dim=demand_dim, embed_dim=embed_dim, device=device)
+        # self.demand = SelfAttentionStateMapping(feature_dim=demand_dim, embed_dim=embed_dim, device=device)
 
     def forward(self,
                 init_embeddings: Tensor,
@@ -105,16 +103,18 @@ class MPPContextEmbedding(nn.Module):
         - todo: It does depend on vessel size now, but this could be changed.
         """
         # Demand
-        # demand_state = torch.cat([td["state"]["observed_demand"].view(td.batch_size[0], -1, 1),
-        #                           td["state"]["expected_demand"].view(td.batch_size[0], -1, 1),
-        #                           td["state"]["std_demand"].view(td.batch_size[0], -1, 1), ], dim=-1)
-        # demand_embed = self.demand(demand_state)  # attention output [BATCH, Seq, F]
-        # demand_embed_t = gather_by_index(demand_embed, td["episodic_step"])
+        print("obs_dem", td["state"]["observed_demand"].shape)
+        expected_demand = self.expected_demand(torch.sum(td["state"]["expected_demand"].view(td.batch_size[0], -1,), dim=-1, keepdim=True))
+        std_demand = self.std_demand(torch.sum(td["state"]["std_demand"].view(td.batch_size[0], -1,), dim=-1, keepdim=True))
+        actual_demand = self.actual_demand(torch.sum(td["state"]["observed_demand"].view(td.batch_size[0], -1,), dim=-1, keepdim=True))
 
-        # Vessel
-        location_embed = self.residual_capacity(td["clip_max"].view(td.batch_size[0], -1, ) / self.env.total_capacity,)
-        origin_embed = self.origin_location(td["state"]["agg_pol_location"].view(td.batch_size[0], -1,).float())
-        destination_embed = self.destination_location(td["state"]["agg_pod_location"].view(td.batch_size[0], -1,).float())
+        # Vessel - residual capacity and POL/POD pairs
+        location_embed = self.residual_capacity(td["clip_max"].view(td.batch_size[0], -1, ))
+        agg_pol_location = F.one_hot(td["state"]["agg_pol_location"].view(td.batch_size[0], -1, ), num_classes=self.env.P)
+        agg_pod_location = F.one_hot(td["state"]["agg_pod_location"].view(td.batch_size[0], -1, ), num_classes=self.env.P)
+        origin_embed = self.origin_location(agg_pol_location)
+        destination_embed = self.destination_location(agg_pod_location)
+        breakpoint()
 
         # Performance
         total_loaded = self.total_loaded(td["state"]["total_loaded"].view(td.batch_size[0], -1, ))
@@ -127,7 +127,7 @@ class MPPContextEmbedding(nn.Module):
         violation = self.violation(td["violation"].view(td.batch_size[0], -1))
 
         # Concatenate all embeddings
-        state_embed = torch.cat([demand_embed_t,
+        state_embed = torch.cat([expected_demand, std_demand, actual_demand,
                                  location_embed, origin_embed, destination_embed,
                                  total_loaded, overstowage, excess_crane_moves,
                                  lhs_A, rhs, violation], dim=-1)
