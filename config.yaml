@@ -26,8 +26,8 @@ model:
   init_dim: 8
   embed_dim: 128
   feedforward_hidden: 512
-  num_encoder_layers: 2 # 2
-  num_decoder_layers: 2 # 2
+  num_encoder_layers: 1 # 2
+  num_decoder_layers: 1 # 2
   num_heads: 4
   dropout_rate: 0.20
   normalization: "layer"

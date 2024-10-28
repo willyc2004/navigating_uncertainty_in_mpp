@@ -12,22 +12,19 @@ from rl4co.utils.ops import gather_by_index
 class MPPInitEmbedding(nn.Module):
     def __init__(self, embed_dim, env):
         super(MPPInitEmbedding, self).__init__()
-        # Env
         self.env = env
 
         # Layers
         self.embed_dim = embed_dim
         self.origin_port = nn.Embedding(self.env.P, embed_dim)
         self.destination_port = nn.Embedding(self.env.P, embed_dim)
-        self.cargo_class = nn.Linear(1, embed_dim)
+        self.cargo_class = nn.Embedding(self.env.K, embed_dim)
         self.weight = nn.Linear(1, embed_dim)
         self.teu = nn.Linear(1, embed_dim)
         self.revenue = nn.Linear(1, embed_dim)
         self.ex_demand = nn.Linear(1, embed_dim)
         self.stdx_demand = nn.Linear(1, embed_dim)
         self.fc = nn.Linear(8 * embed_dim, embed_dim)
-
-        # Positional encoding
         self.positional_encoding = DynamicSinusoidalPositionalEncoding(embed_dim)
 
     def forward(self, td:TensorDict):
@@ -35,11 +32,13 @@ class MPPInitEmbedding(nn.Module):
         # Convert origin and destination to one-hot encodings
         origin_one_hot = F.one_hot(td["POL"], num_classes=self.env.P)
         destination_one_hot = F.one_hot(td["POD"], num_classes=self.env.P)
+        class_one_hot = F.one_hot(td["cargo_class"], num_classes=self.env.K)
         origin_emb = self.origin_port(origin_one_hot)
         destination_emb = self.destination_port(destination_one_hot)
+        class_embed = self.cargo_class(class_one_hot)
+
 
         # Embed other features
-        type_emb = self.cargo_class(td["cargo_class"].view(batch_size, step_size, 1).float())
         weight_emb = self.weight(td["weight"].view(batch_size, step_size, 1))
         capacity_emb = self.teu(td["TEU"].view(batch_size, step_size, 1))
         revenue_emb = self.revenue((td["revenue"] / (td["POD"] - td["POL"])).view(batch_size, step_size, 1))
@@ -47,8 +46,11 @@ class MPPInitEmbedding(nn.Module):
         std_demand = self.stdx_demand(td["std_demand"].view(batch_size, step_size, 1))
 
         # Concatenate all embeddings
+        print("Shapes", origin_emb.shape, destination_emb.shape, class_embed.shape
+              , weight_emb.shape, capacity_emb.shape, revenue_emb.shape, expected_demand.shape, std_demand.shape)
+
         combined_emb = torch.cat(
-            [origin_emb, destination_emb, type_emb,
+            [origin_emb, destination_emb, class_embed,
              weight_emb, capacity_emb, revenue_emb, expected_demand, std_demand],
             dim=-1)
 
@@ -60,9 +62,7 @@ class MPPContextEmbedding(nn.Module):
 
     def __init__(self, action_dim, embed_dim, env, device, demand_dim=3,):
         super(MPPContextEmbedding, self).__init__()
-        # Environment
         self.env = env
-        self.capacity_norm = env.total_capacity
 
         # Layers
         self.origin_location = nn.Embedding(self.env.P, embed_dim)
@@ -77,7 +77,7 @@ class MPPContextEmbedding(nn.Module):
         self.lhs_A = nn.Linear(action_dim * 5, embed_dim)
         self.rhs = nn.Linear(5, embed_dim)
         self.violation = nn.Linear(5, embed_dim)
-        self.project_context = nn.Linear(embed_dim * 11, embed_dim, )
+        self.project_context = nn.Linear(embed_dim * 12, embed_dim, )
 
         # Self-attention layer
         # self.demand = SelfAttentionStateMapping(feature_dim=demand_dim, embed_dim=embed_dim, device=device)
