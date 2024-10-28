@@ -21,15 +21,15 @@ env:
 
 # Model settings
 model:
-  lr_end_factor: 0.1
-  batch_size: [8]
+  lr_end_factor: 0.5
+  batch_size: [64]
   init_dim: 8
   embed_dim: 128
   feedforward_hidden: 512
   num_encoder_layers: 2 # 2
   num_decoder_layers: 3 # 2
   num_heads: 16
-  dropout_rate: 0.05
+  dropout_rate: 0.1
   normalization: "layer"
   out_bias_pointer_attn: False
   temperature: 1.0
