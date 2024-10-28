@@ -284,6 +284,7 @@ def init_he_weights(m):
 if __name__ == "__main__":
     # Load static configuration from the YAML file
     with open('config.yaml', 'r') as file:
+    # with open('test_config.yaml', 'r') as file:
         config = yaml.safe_load(file)
         config = DotMap(config)
         config = adapt_env_kwargs(config)

@@ -25,10 +25,10 @@ model:
   batch_size: [8]
   init_dim: 8
   embed_dim: 128
-  feedforward_hidden: 512
+  feedforward_hidden: 1024
   num_encoder_layers: 2 # 2
-  num_decoder_layers: 3 # 2
-  num_heads: 16
+  num_decoder_layers: 1 # 2
+  num_heads: 4
   dropout_rate: 0.05
   normalization: "layer"
   out_bias_pointer_attn: False
@@ -37,7 +37,7 @@ model:
   train_decode_type: "continuous_sampling"
   val_decode_type: "continuous_sampling"
   test_decode_type: "continuous_sampling"
-  phase: "train" # train, test
+  phase: "test" # train, test
   logger: wandb #wandb #"wandb" # wandb, tensorboard
 
 # PPO parameters
@@ -66,6 +66,6 @@ am_ppo:
     iters: 5
     use_lp_solver: True
   optimizer: "Adam" #AdamW, Adam
-  train_data_size: 5000000 # 1000000
+  train_data_size: 1000000 # 1000000
   val_data_size: 100000
   test_data_size: 100000
