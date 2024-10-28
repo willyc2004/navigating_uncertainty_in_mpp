@@ -205,7 +205,6 @@ def process_logits(
 
         # # Apply linear scaling for constant_sum
         if constant_sum is not None:
-            # log_std = torch.ones_like(log_std) / 10
             logits_ = logits_ / logits_.sum(dim=-1, keepdim=True) * constant_sum.view(-1,1)
 
         # Apply scale factor (teu)
@@ -447,12 +446,6 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 proj_mean_logits, std_logits, mask=None, # mask=mask # Change to None to avoid masking logits
                 td=td, clip_min=clip_min, clip_max=clip_max, action=action, **kwargs
             )
-
-            # Project selected action to ensure feasibility (if needed with cvxp and lp)
-            # todo: we need to gather all actions per port, then perform: A*(x-s) <= b, with min s
-            if self.projection_type == "convex_program" or self.projection_type == "linear_program":
-                # param = 
-                selected_action = self.projection_layer(selected_action, td["lhs_A"], td["rhs"], param=param)
 
             # Update logprobs and actions
             self.lhs_A.append(td["lhs_A"])
