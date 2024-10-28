@@ -30,7 +30,7 @@ import torch
 import torch.profiler
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import LinearLR
-from lightning.pytorch.callbacks import ModelCheckpoint, RichModelSummary
+from lightning.pytorch.callbacks import ModelCheckpoint, RichModelSummary, EarlyStopping
 from lightning.pytorch.loggers import WandbLogger
 
 # RL4CO
@@ -213,8 +213,9 @@ def main(config=None):
         monitor="val/reward",  # monitor validation reward; episodic profit in this case
         mode="max", # maximize validation reward
     )
-    rich_model_summary = RichModelSummary(max_depth=3)  # model summary callback
-    callbacks = [checkpoint_callback, rich_model_summary]
+    rich_model_summary = RichModelSummary(max_depth=3)
+    early_stopping = EarlyStopping(monitor="val/reward", patience=3, mode="max", verbose=False, check_finite=True)
+    callbacks = [checkpoint_callback, rich_model_summary, early_stopping]
     # callbacks = None # uncomment this line if you don't want callbacks
 
     # Initialize logger
@@ -235,6 +236,7 @@ def main(config=None):
     # Main trainer configuration
     trainer = RL4COTrainer(
         max_epochs=1, # full training epochs
+        val_check_interval=0.1, # validate every epoch
         accelerator="gpu",
         devices=1, #torch.cuda.device_count(),
         logger=logger,
