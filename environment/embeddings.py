@@ -32,10 +32,10 @@ class MPPInitEmbedding(nn.Module):
     def forward(self, td:TensorDict):
         batch_size, step_size = td["POL"].shape
 
-        # Convert origin and destination to one-hot encodings
-        origin_emb = self.origin_port(td["POL"])
-        destination_emb = self.destination_port(td["POD"])
-        class_embed = self.cargo_class(td["cargo_class"])
+        # Embed categorical features
+        origin_emb = self.origin_port(td["POL"].to(torch.int64))
+        destination_emb = self.destination_port(td["POD"].to(torch.int64))
+        class_embed = self.cargo_class(td["cargo_class"].to(torch.int64))
 
         # Embed other features
         weight_emb = self.weight(td["weight"].view(batch_size, step_size, 1))
@@ -60,10 +60,9 @@ class MPPContextEmbedding(nn.Module):
         super(MPPContextEmbedding, self).__init__()
         self.env = env
 
-        # Categorical embeddings
-        self.origin_location = nn.Embedding(self.env.P, embed_dim)
-        self.destination_location = nn.Embedding(self.env.P, embed_dim)
-        self.od_location = nn.Linear(action_dim * 2 * embed_dim, embed_dim)
+        # Categorical embeddings with linear layers
+        self.origin_location = nn.Linear(action_dim * self.env.P, embed_dim)
+        self.destination_location = nn.Linear(action_dim * self.env.P, embed_dim)
         # Continuous embeddings
         self.expected_demand = nn.Linear(1, embed_dim)
         self.std_demand = nn.Linear(1, embed_dim)
@@ -75,10 +74,30 @@ class MPPContextEmbedding(nn.Module):
         self.lhs_A = nn.Linear(action_dim * 5, embed_dim)
         self.rhs = nn.Linear(5, embed_dim)
         self.violation = nn.Linear(5, embed_dim)
-        self.project_context = nn.Linear(embed_dim * 12, embed_dim, )
+        self.project_context = nn.Linear(embed_dim * 11, embed_dim, )
 
         # Self-attention layer
         # self.demand = SelfAttentionStateMapping(feature_dim=demand_dim, embed_dim=embed_dim, device=device)
+        num_features = 3 + action_dim + 1 + self.env.B + self.env.B - 1 + action_dim * 5 + 5 + 5
+
+        # Feature index dict to use a indices to slice the input tensor
+        self.feature_index = {
+            "expected_demand": slice(0, 1),
+            "std_demand": slice(1, 2),
+            "observed_demand": slice(2, 3),
+            "clip_max": slice(3, 3 + action_dim),
+            "total_loaded": slice(3 + action_dim, 4 + action_dim),
+            "overstowage": slice(4 + action_dim, 4 + action_dim + self.env.B),
+            "long_crane_excess": slice(4 + action_dim + self.env.B,
+                                       4 + action_dim + self.env.B + self.env.B - 1),
+            "lhs_A": slice(4 + action_dim + self.env.B + self.env.B - 1,
+                           4 + action_dim + self.env.B + self.env.B - 1 + action_dim * 5),
+            "rhs": slice(4 + action_dim + self.env.B + self.env.B - 1 + action_dim * 5,
+                         4 + action_dim + self.env.B + self.env.B - 1 + action_dim * 5 + 5),
+            "violation": slice(4 + action_dim + self.env.B + self.env.B - 1 + action_dim * 5 + 5,
+                               4 + action_dim + self.env.B + self.env.B - 1 + action_dim * 5 + 5 + 5),
+        }
+        self.multi_norm = MultiFeatureRunningNormalization(num_features=num_features)
 
     def forward(self,
                 init_embeddings: Tensor,
@@ -100,31 +119,43 @@ class MPPContextEmbedding(nn.Module):
         - The state embedding size should not depend on e.g. voyage length and cargo types.
         - todo: It does depend on vessel size now, but this could be changed.
         """
-        # Demand
-        expected_demand = self.expected_demand(torch.sum(td["state"]["expected_demand"].view(td.batch_size[0], -1,), dim=-1, keepdim=True))
-        std_demand = self.std_demand(torch.sum(td["state"]["std_demand"].view(td.batch_size[0], -1,), dim=-1, keepdim=True))
-        actual_demand = self.actual_demand(torch.sum(td["state"]["observed_demand"].view(td.batch_size[0], -1,), dim=-1, keepdim=True))
+        # Normalize features
+        features = torch.cat([
+            torch.sum(td["state"]["expected_demand"].view(td.batch_size[0], -1, ), dim=-1, keepdim=True),
+            torch.sum(td["state"]["std_demand"].view(td.batch_size[0], -1, ), dim=-1, keepdim=True),
+            torch.sum(td["state"]["observed_demand"].view(td.batch_size[0], -1, ), dim=-1, keepdim=True),
+            td["clip_max"].view(td.batch_size[0], -1, ),
+            td["state"]["total_loaded"].view(td.batch_size[0], -1, ),
+            td["state"]["overstowage"].view(td.batch_size[0], -1, ),
+            td["state"]["long_crane_excess"].view(td.batch_size[0], -1, ),
+            td["lhs_A"].view(td.batch_size[0], -1),
+            td["rhs"].view(td.batch_size[0], -1),
+            td["violation"].view(td.batch_size[0], -1),
+        ], dim=-1)
+        self.multi_norm.update(features)
+        norm_features = self.multi_norm.normalize(features)
 
-        # Vessel - residual capacity and POL/POD pairs
-        location_embed = self.residual_capacity(td["clip_max"].view(td.batch_size[0], -1, ))
-        origin_embed = self.origin_location(td["state"]["agg_pol_location"].view(td.batch_size[0], -1, ).to(torch.int32))
-        destination_embed = self.destination_location(td["state"]["agg_pod_location"].view(td.batch_size[0], -1, ).to(torch.int32))
-        od_embed = torch.cat([origin_embed, destination_embed], dim=-1).view(td.batch_size[0], -1)
-        od_location = self.od_location(od_embed)
+        # get slices from norm_features, and apply linear layers
+        expected_demand = self.expected_demand(norm_features[:, self.feature_index["expected_demand"]])
+        std_demand = self.std_demand(norm_features[:, self.feature_index["std_demand"]])
+        actual_demand = self.actual_demand(norm_features[:, self.feature_index["observed_demand"]])
+        residual_capacity = self.residual_capacity(norm_features[:, self.feature_index["clip_max"]])
+        total_loaded = self.total_loaded(norm_features[:, self.feature_index["total_loaded"]])
+        overstowage = self.overstowage(norm_features[:, self.feature_index["overstowage"]])
+        excess_crane_moves = self.excess_crane_moves(norm_features[:, self.feature_index["long_crane_excess"]])
+        lhs_A = self.lhs_A(norm_features[:, self.feature_index["lhs_A"]])
+        rhs = self.rhs(norm_features[:, self.feature_index["rhs"]])
+        violation = self.violation(norm_features[:, self.feature_index["violation"]])
 
-        # Performance
-        total_loaded = self.total_loaded(td["state"]["total_loaded"].view(td.batch_size[0], -1, ))
-        overstowage = self.overstowage(td["state"]["overstowage"].view(td.batch_size[0], -1, ))
-        excess_crane_moves = self.excess_crane_moves(td["state"]["long_crane_excess"].view(td.batch_size[0], -1, ))
-
-        # Feasibility
-        lhs_A = self.lhs_A(td["lhs_A"].view(td.batch_size[0], -1))
-        rhs = self.rhs(td["rhs"].view(td.batch_size[0], -1))
-        violation = self.violation(td["violation"].view(td.batch_size[0], -1))
+        # todo: not having num_classes in one_hot or embedding causes an error
+        # origin_onehot = F.one_hot(td["state"]["agg_pol_location"].view(td.batch_size[0], -1, ).to(torch.int64), num_classes=max_pol).float()
+        # origin_embed = self.origin_location(origin_onehot.view(td.batch_size[0], -1, ))
+        # destination_onehot = F.one_hot(td["state"]["agg_pod_location"].view(td.batch_size[0], -1, ).to(torch.int64), num_classes=max_pod).float()
+        # destination_embed = self.destination_location(destination_onehot.view(td.batch_size[0], -1, ))
 
         # Concatenate all embeddings
         state_embed = torch.cat([expected_demand, std_demand, actual_demand,
-                                 location_embed, od_location,
+                                 residual_capacity, #origin_embed, destination_embed,
                                  total_loaded, overstowage, excess_crane_moves,
                                  lhs_A, rhs, violation], dim=-1)
         return state_embed
@@ -181,57 +212,25 @@ class SelfAttentionStateMapping(nn.Module):
 
         return attention_output
 
-from typing import Tuple
 
-class RunningMeanStd:
-    def __init__(self, epsilon: float = 1e-4, shape: Tuple[int, ...] = ()):
-        """
-        Calculates the running mean and std of a data stream
-        https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
+class MultiFeatureRunningNormalization:
+    def __init__(self, num_features, epsilon=1e-5):
+        self.num_features = num_features
+        self.count = 0
+        self.mean = torch.zeros(num_features, device='cuda')
+        self.var = torch.zeros(num_features, device='cuda')
+        self.epsilon = epsilon
 
-        :param epsilon: helps with arithmetic issues
-        :param shape: the shape of the data stream's output
-        """
-        self.mean = torch.zeros(shape, dtype=torch.float64)
-        self.var = torch.ones(shape, dtype=torch.float64)
-        self.count = epsilon
+    def update(self, x):
+        batch_count = x.shape[0]
+        batch_mean = torch.mean(x, dim=0)
+        batch_var = torch.var(x, dim=0, unbiased=False)
 
-    def copy(self) -> "RunningMeanStd":
-        """
-        :return: Return a copy of the current object.
-        """
-        new_object = RunningMeanStd(shape=self.mean.shape)
-        new_object.mean = self.mean.copy()
-        new_object.var = self.var.copy()
-        new_object.count = float(self.count)
-        return new_object
-
-    def combine(self, other: "RunningMeanStd") -> None:
-        """
-        Combine stats from another ``RunningMeanStd`` object.
-
-        :param other: The other object to combine with.
-        """
-        self.update_from_moments(other.mean, other.var, other.count)
-
-    def update(self, arr: torch.Tensor) -> None:
-        batch_mean = torch.mean(arr, axis=0)
-        batch_var = torch.var(arr, axis=0)
-        batch_count = arr.shape[0]
-        self.update_from_moments(batch_mean, batch_var, batch_count)
-
-    def update_from_moments(self, batch_mean: torch.Tensor, batch_var: torch.Tensor, batch_count: float) -> None:
         delta = batch_mean - self.mean
-        tot_count = self.count + batch_count
+        self.count += batch_count
+        self.mean += delta * batch_count / self.count
+        self.var += batch_var * batch_count + delta ** 2 * (batch_count * (self.count - batch_count) / self.count)
 
-        new_mean = self.mean + delta * batch_count / tot_count
-        m_a = self.var * self.count
-        m_b = batch_var * batch_count
-        m_2 = m_a + m_b + torch.square(delta) * self.count * batch_count / (self.count + batch_count)
-        new_var = m_2 / (self.count + batch_count)
-
-        new_count = batch_count + self.count
-
-        self.mean = new_mean
-        self.var = new_var
-        self.count = new_count
+    def normalize(self, x):
+        running_var = self.var / (self.count - 1 + self.epsilon)
+        return (x - self.mean) / torch.sqrt(running_var + self.epsilon)
