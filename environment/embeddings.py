@@ -35,7 +35,7 @@ class MPPInitEmbedding(nn.Module):
         # Convert origin and destination to one-hot encodings
         origin_one_hot = F.one_hot(td["POL"], num_classes=self.env.P).float()
         destination_one_hot = F.one_hot(td["POD"], num_classes=self.env.P).float()
-        print(origin_one_hot.shape)
+        print("shape onehot", origin_one_hot.shape)
 
         origin_emb = self.origin_port(origin_one_hot)
         destination_emb = self.destination_port(destination_one_hot)
