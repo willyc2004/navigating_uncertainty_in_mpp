@@ -33,6 +33,7 @@ class MPPInitEmbedding(nn.Module):
         origin_one_hot = F.one_hot(td["POL"], num_classes=self.env.P)
         destination_one_hot = F.one_hot(td["POD"], num_classes=self.env.P)
         class_one_hot = F.one_hot(td["cargo_class"], num_classes=self.env.K)
+        print("Shapes", origin_one_hot.shape, destination_one_hot.shape, class_one_hot.shape)
         origin_emb = self.origin_port(origin_one_hot)
         destination_emb = self.destination_port(destination_one_hot)
         class_embed = self.cargo_class(class_one_hot)
