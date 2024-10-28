@@ -17,8 +17,8 @@ class MPPInitEmbedding(nn.Module):
 
         # Layers
         self.embed_dim = embed_dim
-        self.origin_port = nn.Linear(1, embed_dim)
-        self.destination_port = nn.Linear(1, embed_dim)
+        self.origin_port = nn.Embedding(self.env.P, embed_dim)
+        self.destination_port = nn.Embedding(self.env.P, embed_dim)
         self.cargo_class = nn.Linear(1, embed_dim)
         self.weight = nn.Linear(1, embed_dim)
         self.teu = nn.Linear(1, embed_dim)
@@ -34,13 +34,14 @@ class MPPInitEmbedding(nn.Module):
         batch_size, step_size = td["POL"].shape
         # Convert origin and destination to one-hot encodings
         origin_one_hot = F.one_hot(td["POL"], num_classes=self.env.P).float()
-        print(origin_one_hot.shape)
-        breakpoint()
-
         destination_one_hot = F.one_hot(td["POD"], num_classes=self.env.P).float()
+        origin_emb = self.origin_port(origin_one_hot)
+        destination_emb = self.destination_port(destination_one_hot)
 
-        origin_emb = self.origin_port(td["POL"].view(batch_size, step_size, 1).float())
-        destination_emb = self.destination_port(td["POD"].view(batch_size, step_size, 1).float())
+
+        print(origin_emb.shape)
+        breakpoint()
+        # Embed other features
         type_emb = self.cargo_class(td["cargo_class"].view(batch_size, step_size, 1).float())
         weight_emb = self.weight(td["weight"].view(batch_size, step_size, 1))
         capacity_emb = self.teu(td["TEU"].view(batch_size, step_size, 1))
