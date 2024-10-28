@@ -205,7 +205,7 @@ def process_logits(
 
         # # Apply linear scaling for constant_sum
         if constant_sum is not None:
-        #     log_std = torch.ones_like(log_std) / 100
+            # log_std = torch.ones_like(log_std) / 10
             logits_ = logits_ / logits_.sum(dim=-1, keepdim=True) * constant_sum.view(-1,1)
 
         # Apply scale factor (teu)
