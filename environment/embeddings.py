@@ -125,16 +125,15 @@ class MPPContextEmbedding(nn.Module):
             torch.sum(td["state"]["std_demand"].view(td.batch_size[0], -1, ), dim=-1, keepdim=True),
             torch.sum(td["state"]["observed_demand"].view(td.batch_size[0], -1, ), dim=-1, keepdim=True),
             td["clip_max"].view(td.batch_size[0], -1, ),
-            td["state"]["total_loaded"].view(td.batch_size[0], -1, ),
-            td["state"]["overstowage"].view(td.batch_size[0], -1, ),
-            td["state"]["long_crane_excess"].view(td.batch_size[0], -1, ),
+            # td["state"]["total_loaded"].view(td.batch_size[0], -1, ),
+            # td["state"]["overstowage"].view(td.batch_size[0], -1, ),
+            # td["state"]["long_crane_excess"].view(td.batch_size[0], -1, ),
             td["lhs_A"].view(td.batch_size[0], -1),
             td["rhs"].view(td.batch_size[0], -1),
             td["violation"].view(td.batch_size[0], -1),
         ], dim=-1)
-        # self.multi_norm.update(features)
-        norm_features = features
-            # self.multi_norm.normalize(features)
+        self.multi_norm.update(features)
+        norm_features = self.multi_norm.normalize(features)
 
         # get slices from norm_features, and apply linear layers
         expected_demand = self.expected_demand(norm_features[:, self.feature_index["expected_demand"]])

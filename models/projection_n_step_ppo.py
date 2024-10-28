@@ -81,8 +81,8 @@ class Projection_Nstep_PPO(RL4COLitModule):
         demand_lambda: float = 1.0,  # lambda of demand violations
         stability_lambda: float = 1.0,  # lambda of stability violations
         projection_lambda: float = 1.0,  # lambda of projection loss
-        normalize_adv: bool = True,  # whether to normalize advantage
-        normalize_return: bool = True,  # whether to normalize return
+        normalize_adv: bool = False,  # whether to normalize advantage
+        normalize_return: bool = False,  # whether to normalize return
         max_grad_norm: float = 0.5,  # max gradient norm
         kl_threshold: float = 0.03,  # KL threshold
         kl_penalty_lambda: float = 1.0,  # KL penalty coefficient
