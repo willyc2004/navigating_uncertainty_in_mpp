@@ -71,14 +71,14 @@ class MPPContextEmbedding(nn.Module):
         self.total_loaded = nn.Linear(1, embed_dim)
         self.overstowage = nn.Linear(self.env.B, embed_dim)
         self.excess_crane_moves = nn.Linear(self.env.B - 1, embed_dim)
-        self.lhs_A = nn.Linear(action_dim * 5, embed_dim)
-        self.rhs = nn.Linear(5, embed_dim)
         self.violation = nn.Linear(5, embed_dim)
+        self.rhs = nn.Linear(5, embed_dim)
+        self.lhs_A = nn.Linear(action_dim * 5, embed_dim)
         self.project_context = nn.Linear(embed_dim * 8, embed_dim, )
 
         # Self-attention layer
         # self.demand = SelfAttentionStateMapping(feature_dim=demand_dim, embed_dim=embed_dim, device=device)
-        num_features = 3 + action_dim + 1 + self.env.B + self.env.B - 1 + action_dim * 5 + 5 + 5
+        num_features = 3 + action_dim + 1 + self.env.B + self.env.B - 1 + 5 # + action_dim * 5 + 5
 
         # Feature index dict to use a indices to slice the input tensor
         self.feature_index = {
@@ -90,12 +90,12 @@ class MPPContextEmbedding(nn.Module):
             "overstowage": slice(4 + action_dim, 4 + action_dim + self.env.B),
             "long_crane_excess": slice(4 + action_dim + self.env.B,
                                        4 + action_dim + self.env.B + self.env.B - 1),
-            "lhs_A": slice(4 + action_dim + self.env.B + self.env.B - 1,
-                           4 + action_dim + self.env.B + self.env.B - 1 + action_dim * 5),
-            "rhs": slice(4 + action_dim + self.env.B + self.env.B - 1 + action_dim * 5,
-                         4 + action_dim + self.env.B + self.env.B - 1 + action_dim * 5 + 5),
-            "violation": slice(4 + action_dim + self.env.B + self.env.B - 1 + action_dim * 5 + 5,
-                               4 + action_dim + self.env.B + self.env.B - 1 + action_dim * 5 + 5 + 5),
+            "violation": slice(4 + action_dim + self.env.B + self.env.B - 1,
+                                4 + action_dim + self.env.B + self.env.B - 1 + 5),
+            "rhs": slice(4 + action_dim + self.env.B + self.env.B - 1 + 5,
+                            4 + action_dim + self.env.B + self.env.B - 1 + 5 + 5),
+            "lhs_A": slice(4 + action_dim + self.env.B + self.env.B - 1 + 5 + 5,
+                            4 + action_dim + self.env.B + self.env.B - 1 + 5 + 5 + action_dim * 5),
         }
         self.multi_norm = MultiFeatureRunningNormalization(num_features=num_features)
 
@@ -128,9 +128,9 @@ class MPPContextEmbedding(nn.Module):
             td["state"]["total_loaded"].view(td.batch_size[0], -1, ),
             td["state"]["overstowage"].view(td.batch_size[0], -1, ),
             td["state"]["long_crane_excess"].view(td.batch_size[0], -1, ),
-            # td["lhs_A"].view(td.batch_size[0], -1),
+            td["violation"].view(td.batch_size[0], -1),
             # td["rhs"].view(td.batch_size[0], -1),
-            # td["violation"].view(td.batch_size[0], -1),
+            # td["lhs_A"].view(td.batch_size[0], -1),
         ], dim=-1)
         self.multi_norm.update(features)
         norm_features = self.multi_norm.normalize(features)
@@ -143,9 +143,9 @@ class MPPContextEmbedding(nn.Module):
         total_loaded = self.total_loaded(norm_features[:, self.feature_index["total_loaded"]])
         overstowage = self.overstowage(norm_features[:, self.feature_index["overstowage"]])
         excess_crane_moves = self.excess_crane_moves(norm_features[:, self.feature_index["long_crane_excess"]])
-        # lhs_A = self.lhs_A(norm_features[:, self.feature_index["lhs_A"]])
+        violation = self.violation(norm_features[:, self.feature_index["violation"]])
         # rhs = self.rhs(norm_features[:, self.feature_index["rhs"]])
-        # violation = self.violation(norm_features[:, self.feature_index["violation"]])
+        # lhs_A = self.lhs_A(norm_features[:, self.feature_index["lhs_A"]])
 
         # todo: not having num_classes in one_hot or embedding causes an error
         # origin_onehot = F.one_hot(td["state"]["agg_pol_location"].view(td.batch_size[0], -1, ).to(torch.int64), num_classes=max_pol).float()
@@ -157,7 +157,8 @@ class MPPContextEmbedding(nn.Module):
         state_embed = torch.cat([expected_demand, std_demand, actual_demand,
                                  residual_capacity, #origin_embed, destination_embed,
                                  total_loaded, overstowage, excess_crane_moves,
-                                 # lhs_A, rhs, violation
+                                 # lhs_A, rhs,
+                                 violation
                                  ], dim=-1)
         return state_embed
 
