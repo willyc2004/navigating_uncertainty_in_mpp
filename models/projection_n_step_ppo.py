@@ -297,6 +297,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
                     next_state_value=value_preds, reward=rewards, done=dones.bool(),)
 
                 # Normalize advantage
+                # todo: normalization throws magnitude of feasibility loss off
                 if self.ppo_cfg["normalize_adv"]:
                     adv = (adv - adv.mean()) / (adv.std() + 1e-8)
 
@@ -305,7 +306,6 @@ class Projection_Nstep_PPO(RL4COLitModule):
                     # todo: issue with normalization to differentiate
                     # self.update_running_return_stats(returns)
                     # returns = self.normalize_returns(returns)
-
                     returns = (returns - returns.mean()) / (returns.std() + 1e-8)
 
                 # Compute the surrogate loss
