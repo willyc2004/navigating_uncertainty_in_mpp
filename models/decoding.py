@@ -97,9 +97,13 @@ def calculate_gaussian_entropy(logits):
     if isinstance(logits, tuple):
         mean, std = logits
         # Number of dimensions
+        print(mean.shape)
+        breakpoint()
         d = mean.shape[1]
         # Calculate entropy for each sample in the batch
-        entropy = 0.5 * d * (1 + torch.log(torch.tensor(2 * torch.pi))) + 0.5 * torch.log(std ** 2).sum(dim=(1))
+        # entropy = 0.5 * d * (1 + torch.log(torch.tensor(2 * torch.pi))) + 0.5 * torch.log(std ** 2).sum(dim=(1))
+        entropy = 0.5 * d * (1 + torch.log(torch.tensor(2 * torch.pi))) + torch.log(std + 1e-8).sum(dim=1)
+
     else:
         mean = logits[..., 0]
         std = logits[..., 1]
@@ -450,7 +454,8 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             # Project selected action to ensure feasibility (if needed with cvxp and lp)
             # todo: we need to gather all actions per port, then perform: A*(x-s) <= b, with min s
             if self.projection_type == "convex_program" or self.projection_type == "linear_program":
-                selected_action = self.projection_layer(selected_action, td["lhs_A"], td["rhs"],)
+                # param = 
+                selected_action = self.projection_layer(selected_action, td["lhs_A"], td["rhs"], param=param)
 
             # Update logprobs and actions
             self.lhs_A.append(td["lhs_A"])
