@@ -1,6 +1,7 @@
 import abc
 
 from typing import Any, Callable, Optional, Tuple, Union
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -19,6 +20,7 @@ from models.decoding import (
 )
 
 log = get_pylogger(__name__)
+from models.lp_solver import polwise_lp
 
 
 class ConstructiveEncoder(nn.Module, metaclass=abc.ABCMeta):
@@ -227,48 +229,69 @@ class ConstructivePolicy(nn.Module):
         # Additionally call a decoder hook if needed before main decoding
         td, env, hidden = self.decoder.pre_decoder_hook(td, env, hidden, num_starts)
 
-
         # Initialize lp_solver flag
         use_lp_solver = decoding_kwargs.get("projection_kwargs", {}).get("use_lp_solver", False)
         pol_actions, lp_pol_actions = ([] if use_lp_solver else None for _ in range(2))
-        b_pol = td["state"]["b"].detach().cpu().numpy()
+        b_pol = td["rhs"].detach().cpu().numpy()
         A_pol = env.A.detach().cpu().numpy()
-        print(f"b_pol: {b_pol.shape}, \n A_pol: {A_pol.shape}")
-        breakpoint()
+        # print(f"b_pol: {b_pol}, shape: {b_pol.shape},")
+        # print(f"A_pol: {A_pol[0]}, shape: {A_pol.shape},")
 
-        # Main decoding: loop until all sequences are done
-        step = 0
-        while not td["done"].all():
-            logits, mask = self.decoder(td, hidden, num_starts)
-            td = decode_strategy.step(
-                logits,
-                mask,
-                td,
-                action=actions[:, step,] if actions is not None else None,
-                scale_factor=td["scale_factor"],
-            )
-            td = env.step(td)["next"]
-            if use_lp_solver:
-                pol_actions.append(td["action"].detach().cpu().numpy())
+        batch_size, _ = b_pol.shape
+        num_constraints, action_size, seq_len = A_pol.shape
 
+        lp_input = np.zeros((batch_size, env.B, env.D, env.K, env.T,))
+        demand_input = np.zeros((batch_size, env.K, env.T,))
+        lp_output = []
 
-                # Use lp solver before we go to next port
-                if env.next_port_mask[step]:
-                    # todo: -- A and b need to work here
-                    lp_actions = env.lp_solver(lp_actions, td["state"]["A"], td["state"]["b"], **decoding_kwargs.get("projection_kwargs", {}))
-                    lp_pol_actions.append(lp_actions)
-                    pol_actions = []
-
-                    # todo: Update b_pol based on lp_actions!
-                    # b_pol =
-
-
-            step += 1
-            if step > max_steps:
-                log.error(
-                    f"Exceeded maximum number of steps ({max_steps}) during decoding"
+        if use_lp_solver:
+            # Main decoding: loop until all sequences are done
+            step = 0
+            while not td["done"].all():
+                logits, mask = self.decoder(td, hidden, num_starts)
+                td = decode_strategy.step(
+                    logits,
+                    mask,
+                    td,
+                    action=actions[:, step,] if actions is not None else None,
+                    scale_factor=td["scale_factor"],
                 )
-                break
+                _, _, k, tau, _ = env._extract_cargo_parameters_for_step(step)
+                td = env.step(td)["next"]
+                # Get actions and demand
+                lp_input[:, :, :, k, tau] = td["action"].detach().cpu().numpy().reshape(batch_size, env.B, env.D,)
+                demand_input[:, k, tau] = td["state"]["current_demand"].detach().cpu().numpy()
+
+                step += 1
+                if step > max_steps:
+                    log.error(
+                        f"Exceeded maximum number of steps ({max_steps}) during decoding"
+                    )
+                    break
+
+            # Run solver for each batch
+            for i in range(batch_size):
+                util_lp, _, _, _ = polwise_lp(lp_input[i], demand_input[i], env)
+                lp_output.append(util_lp)
+        else:
+            # Main decoding: loop until all sequences are done
+            step = 0
+            while not td["done"].all():
+                logits, mask = self.decoder(td, hidden, num_starts)
+                td = decode_strategy.step(
+                    logits,
+                    mask,
+                    td,
+                    action=actions[:, step,] if actions is not None else None,
+                    scale_factor=td["scale_factor"],
+                )
+                td = env.step(td)["next"]
+                step += 1
+                if step > max_steps:
+                    log.error(
+                        f"Exceeded maximum number of steps ({max_steps}) during decoding"
+                    )
+                    break
 
         # Post-decoding hook: used for the final step(s) of the decoding strategy
         dict_out, td, env = decode_strategy.post_decoder_hook(td, env)
@@ -303,5 +326,5 @@ class ConstructivePolicy(nn.Module):
         if return_td:
             outdict["td"] = td
         if use_lp_solver:
-            outdict["lp_actions"] = lp_pol_actions
+            outdict["utils_lp"] = lp_output
         return outdict
