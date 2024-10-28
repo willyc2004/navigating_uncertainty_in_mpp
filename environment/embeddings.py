@@ -132,8 +132,9 @@ class MPPContextEmbedding(nn.Module):
             td["rhs"].view(td.batch_size[0], -1),
             td["violation"].view(td.batch_size[0], -1),
         ], dim=-1)
-        self.multi_norm.update(features)
-        norm_features = self.multi_norm.normalize(features)
+        # self.multi_norm.update(features)
+        norm_features = features
+            # self.multi_norm.normalize(features)
 
         # get slices from norm_features, and apply linear layers
         expected_demand = self.expected_demand(norm_features[:, self.feature_index["expected_demand"]])
