@@ -227,6 +227,15 @@ class ConstructivePolicy(nn.Module):
         # Additionally call a decoder hook if needed before main decoding
         td, env, hidden = self.decoder.pre_decoder_hook(td, env, hidden, num_starts)
 
+
+        # Initialize lp_solver flag
+        use_lp_solver = decoding_kwargs.get("projection_kwargs", {}).get("use_lp_solver", False)
+        pol_actions, lp_pol_actions = ([] if use_lp_solver else None for _ in range(2))
+        b_pol = td["state"]["b"].detach().cpu().numpy()
+        A_pol = env.A.detach().cpu().numpy()
+        print(f"b_pol: {b_pol.shape}, \n A_pol: {A_pol.shape}")
+        breakpoint()
+
         # Main decoding: loop until all sequences are done
         step = 0
         while not td["done"].all():
@@ -239,6 +248,21 @@ class ConstructivePolicy(nn.Module):
                 scale_factor=td["scale_factor"],
             )
             td = env.step(td)["next"]
+            if use_lp_solver:
+                pol_actions.append(td["action"].detach().cpu().numpy())
+
+
+                # Use lp solver before we go to next port
+                if env.next_port_mask[step]:
+                    # todo: -- A and b need to work here
+                    lp_actions = env.lp_solver(lp_actions, td["state"]["A"], td["state"]["b"], **decoding_kwargs.get("projection_kwargs", {}))
+                    lp_pol_actions.append(lp_actions)
+                    pol_actions = []
+
+                    # todo: Update b_pol based on lp_actions!
+                    # b_pol =
+
+
             step += 1
             if step > max_steps:
                 log.error(
@@ -278,4 +302,6 @@ class ConstructivePolicy(nn.Module):
             outdict["entropy"] = calculate_entropy(dict_out["logprobs"])
         if return_td:
             outdict["td"] = td
+        if use_lp_solver:
+            outdict["lp_actions"] = lp_pol_actions
         return outdict

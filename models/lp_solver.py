@@ -25,7 +25,7 @@ def to_numpy(*args):
             result.append(arg)
     return result
 
-def stepwise_lp(action, A, b, verbose=True,):
+def stepwise_lp(action, A, b, param, verbose=True,):
     """Stepwise LP to find feasible action"""
     # Create environment and MIP model
     mdl = Model(name='stepwise_lp')
@@ -41,26 +41,25 @@ def stepwise_lp(action, A, b, verbose=True,):
     x_ = mdl.continuous_var_list(num_vars, lb=0, name="x_")
     z = mdl.continuous_var_list(num_constraints, lb=0, name="z")
 
-    # # Add constraints to the model
-    # for j in range(num_vars):
-    #     mdl.add_constraint(x_[j] == (action[j] - s_min[j]))
-    #
-    # for i in range(num_constraints):
-    #     mdl.add_constraint(mdl.sum(A[i][j] * x_[j] for j in range(num_vars)) <= b[i])
-    #
-    # # Set the objective function
-    # mdl.minimize(mdl.sum(s_min[j] for j in range(num_vars)))
-
     # Add constraints to the model
     for j in range(num_vars):
         mdl.add_constraint(x_[j] == (action[j] - s_min[j]))
 
     for i in range(num_constraints):
-        mdl.add_constraint(mdl.sum(A[i][j] * x_[j] for j in range(num_vars)) - b[i] <= z[i])
+        mdl.add_constraint(mdl.sum(A[i][j] * x_[j] for j in range(num_vars)) <= b[i])
 
-    mdl.minimize(mdl.sum(z[i] for i in range(num_constraints)) +
-                    mdl.sum(s_min[j] for j in range(num_vars))
-                 )
+    # Set the objective function
+    mdl.minimize(mdl.sum(s_min[j] for j in range(num_vars)))
+
+    # # Add constraints to the model
+    # for j in range(num_vars):
+    #     mdl.add_constraint(x_[j] == (action[j] - s_min[j]))
+    #
+    # for i in range(num_constraints):
+    #     if i != 0:
+    #         mdl.add_constraint(mdl.sum(A[i][j] * x_[j] for j in range(num_vars)) - b[i] <= z[i])
+    #
+    # mdl.minimize(param * mdl.sum(z[i] for i in range(num_constraints)) + mdl.sum(s_min[j] for j in range(num_vars)))
 
     # Solve the problem
     mdl.set_time_limit(100) #3600
