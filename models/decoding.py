@@ -438,7 +438,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 discrete=False,
                 scale_factor=scale_factor,
             )
-            # Project mean logits;  # need to scale back to original action space
+            # Project mean logits
             proj_mean_logits = self.projection_layer(mean_logits, td["lhs_A"], td["rhs"],)
 
             # Get logprobs and actions from policy
