@@ -253,7 +253,7 @@ def main(config=None):
         trainer.fit(model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
     # Load the checkpoint model for testing
     elif config.model.phase == "test":
-        date_stamp = f"2024/10/27/10-58-15"
+        date_stamp = f"2024/10/27/20-00-00"
         checkpoint_path = f"checkpoints/{date_stamp}"
         ckpt_name = "/last.ckpt" #"/epoch_epoch=00-val_loss=0.00.ckpt"
         checkpoint = torch.load(checkpoint_path + ckpt_name,)
@@ -283,8 +283,8 @@ def init_he_weights(m):
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
-    with open('config.yaml', 'r') as file:
-    # with open('test_config.yaml', 'r') as file:
+    # with open('config.yaml', 'r') as file:
+    with open('test_config.yaml', 'r') as file:
         config = yaml.safe_load(file)
         config = DotMap(config)
         config = adapt_env_kwargs(config)
