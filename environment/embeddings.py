@@ -74,7 +74,7 @@ class MPPContextEmbedding(nn.Module):
         self.lhs_A = nn.Linear(action_dim * 5, embed_dim)
         self.rhs = nn.Linear(5, embed_dim)
         self.violation = nn.Linear(5, embed_dim)
-        self.project_context = nn.Linear(embed_dim * 11, embed_dim, )
+        self.project_context = nn.Linear(embed_dim * 8, embed_dim, )
 
         # Self-attention layer
         # self.demand = SelfAttentionStateMapping(feature_dim=demand_dim, embed_dim=embed_dim, device=device)
@@ -128,9 +128,9 @@ class MPPContextEmbedding(nn.Module):
             td["state"]["total_loaded"].view(td.batch_size[0], -1, ),
             td["state"]["overstowage"].view(td.batch_size[0], -1, ),
             td["state"]["long_crane_excess"].view(td.batch_size[0], -1, ),
-            td["lhs_A"].view(td.batch_size[0], -1),
-            td["rhs"].view(td.batch_size[0], -1),
-            td["violation"].view(td.batch_size[0], -1),
+            # td["lhs_A"].view(td.batch_size[0], -1),
+            # td["rhs"].view(td.batch_size[0], -1),
+            # td["violation"].view(td.batch_size[0], -1),
         ], dim=-1)
         self.multi_norm.update(features)
         norm_features = self.multi_norm.normalize(features)
@@ -143,9 +143,9 @@ class MPPContextEmbedding(nn.Module):
         total_loaded = self.total_loaded(norm_features[:, self.feature_index["total_loaded"]])
         overstowage = self.overstowage(norm_features[:, self.feature_index["overstowage"]])
         excess_crane_moves = self.excess_crane_moves(norm_features[:, self.feature_index["long_crane_excess"]])
-        lhs_A = self.lhs_A(norm_features[:, self.feature_index["lhs_A"]])
-        rhs = self.rhs(norm_features[:, self.feature_index["rhs"]])
-        violation = self.violation(norm_features[:, self.feature_index["violation"]])
+        # lhs_A = self.lhs_A(norm_features[:, self.feature_index["lhs_A"]])
+        # rhs = self.rhs(norm_features[:, self.feature_index["rhs"]])
+        # violation = self.violation(norm_features[:, self.feature_index["violation"]])
 
         # todo: not having num_classes in one_hot or embedding causes an error
         # origin_onehot = F.one_hot(td["state"]["agg_pol_location"].view(td.batch_size[0], -1, ).to(torch.int64), num_classes=max_pol).float()
@@ -157,7 +157,8 @@ class MPPContextEmbedding(nn.Module):
         state_embed = torch.cat([expected_demand, std_demand, actual_demand,
                                  residual_capacity, #origin_embed, destination_embed,
                                  total_loaded, overstowage, excess_crane_moves,
-                                 lhs_A, rhs, violation], dim=-1)
+                                 # lhs_A, rhs, violation
+                                 ], dim=-1)
         return state_embed
 
 class StaticEmbedding(nn.Module):
