@@ -14,11 +14,13 @@ class MPPInitEmbedding(nn.Module):
         super(MPPInitEmbedding, self).__init__()
         self.env = env
 
-        # Layers
+        # Category embeddings
         self.embed_dim = embed_dim
         self.origin_port = nn.Embedding(self.env.P, embed_dim)
         self.destination_port = nn.Embedding(self.env.P, embed_dim)
         self.cargo_class = nn.Embedding(self.env.K, embed_dim)
+
+        # Continuous embeddings
         self.weight = nn.Linear(1, embed_dim)
         self.teu = nn.Linear(1, embed_dim)
         self.revenue = nn.Linear(1, embed_dim)
@@ -29,15 +31,11 @@ class MPPInitEmbedding(nn.Module):
 
     def forward(self, td:TensorDict):
         batch_size, step_size = td["POL"].shape
-        # Convert origin and destination to one-hot encodings
-        origin_one_hot = F.one_hot(td["POL"], num_classes=self.env.P)
-        destination_one_hot = F.one_hot(td["POD"], num_classes=self.env.P)
-        class_one_hot = F.one_hot(td["cargo_class"], num_classes=self.env.K)
-        print("Shapes", origin_one_hot.shape, destination_one_hot.shape, class_one_hot.shape)
-        origin_emb = self.origin_port(origin_one_hot)
-        destination_emb = self.destination_port(destination_one_hot)
-        class_embed = self.cargo_class(class_one_hot)
 
+        # Convert origin and destination to one-hot encodings
+        origin_emb = self.origin_port(td["POL"])
+        destination_emb = self.destination_port(td["POD"])
+        class_embed = self.cargo_class(td["cargo_class"])
 
         # Embed other features
         weight_emb = self.weight(td["weight"].view(batch_size, step_size, 1))
@@ -47,9 +45,6 @@ class MPPInitEmbedding(nn.Module):
         std_demand = self.stdx_demand(td["std_demand"].view(batch_size, step_size, 1))
 
         # Concatenate all embeddings
-        print("Shapes", origin_emb.shape, destination_emb.shape, class_embed.shape
-              , weight_emb.shape, capacity_emb.shape, revenue_emb.shape, expected_demand.shape, std_demand.shape)
-
         combined_emb = torch.cat(
             [origin_emb, destination_emb, class_embed,
              weight_emb, capacity_emb, revenue_emb, expected_demand, std_demand],
@@ -65,9 +60,11 @@ class MPPContextEmbedding(nn.Module):
         super(MPPContextEmbedding, self).__init__()
         self.env = env
 
-        # Layers
+        # Categorical embeddings
         self.origin_location = nn.Embedding(self.env.P, embed_dim)
         self.destination_location = nn.Embedding(self.env.P, embed_dim)
+        self.od_location = nn.Linear(action_dim * 2 * embed_dim, embed_dim)
+        # Continuous embeddings
         self.expected_demand = nn.Linear(1, embed_dim)
         self.std_demand = nn.Linear(1, embed_dim)
         self.actual_demand = nn.Linear(1, embed_dim)
@@ -104,18 +101,16 @@ class MPPContextEmbedding(nn.Module):
         - todo: It does depend on vessel size now, but this could be changed.
         """
         # Demand
-        print("obs_dem", td["state"]["observed_demand"].shape)
         expected_demand = self.expected_demand(torch.sum(td["state"]["expected_demand"].view(td.batch_size[0], -1,), dim=-1, keepdim=True))
         std_demand = self.std_demand(torch.sum(td["state"]["std_demand"].view(td.batch_size[0], -1,), dim=-1, keepdim=True))
         actual_demand = self.actual_demand(torch.sum(td["state"]["observed_demand"].view(td.batch_size[0], -1,), dim=-1, keepdim=True))
 
         # Vessel - residual capacity and POL/POD pairs
         location_embed = self.residual_capacity(td["clip_max"].view(td.batch_size[0], -1, ))
-        agg_pol_location = F.one_hot(td["state"]["agg_pol_location"].view(td.batch_size[0], -1, ), num_classes=self.env.P)
-        agg_pod_location = F.one_hot(td["state"]["agg_pod_location"].view(td.batch_size[0], -1, ), num_classes=self.env.P)
-        origin_embed = self.origin_location(agg_pol_location)
-        destination_embed = self.destination_location(agg_pod_location)
-        breakpoint()
+        origin_embed = self.origin_location(td["state"]["agg_pol_location"].view(td.batch_size[0], -1, ).to(torch.int32))
+        destination_embed = self.destination_location(td["state"]["agg_pod_location"].view(td.batch_size[0], -1, ).to(torch.int32))
+        od_embed = torch.cat([origin_embed, destination_embed], dim=-1).view(td.batch_size[0], -1)
+        od_location = self.od_location(od_embed)
 
         # Performance
         total_loaded = self.total_loaded(td["state"]["total_loaded"].view(td.batch_size[0], -1, ))
@@ -129,7 +124,7 @@ class MPPContextEmbedding(nn.Module):
 
         # Concatenate all embeddings
         state_embed = torch.cat([expected_demand, std_demand, actual_demand,
-                                 location_embed, origin_embed, destination_embed,
+                                 location_embed, od_location,
                                  total_loaded, overstowage, excess_crane_moves,
                                  lhs_A, rhs, violation], dim=-1)
         return state_embed
