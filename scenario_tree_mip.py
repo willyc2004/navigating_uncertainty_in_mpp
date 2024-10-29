@@ -1,6 +1,7 @@
 # Imports
 import numpy as np
 import torch as th
+import random
 import yaml
 from dotmap import DotMap
 from docplex.mp.model import Model
@@ -18,6 +19,7 @@ from environment.utils import get_pol_pod_pair
 def main(config, scenarios_per_stage=32, seed=42):
     # Create the environment on cpu
     env_kwargs = config.env
+    env_kwargs.seed = seed
     env = make_env(env_kwargs, device='cpu')
 
     # Problem parameters
@@ -36,7 +38,6 @@ def main(config, scenarios_per_stage=32, seed=42):
     capacity = env.capacity.detach().cpu().numpy()
     longitudinal_position = env.longitudinal_position.detach().cpu().numpy()
     vertical_position = env.vertical_position.detach().cpu().numpy()
-    transport_idx = env.transport_idx.detach().cpu().numpy()
 
     # Scenario tree parameters
     M = 10 ** 3 # Big M
@@ -64,6 +65,8 @@ def main(config, scenarios_per_stage=32, seed=42):
         """Precompute the demand scenarios for each node in the scenario tree"""
         td = env.reset(batch_size=[max_paths])
         pregen_demand = td["realized_demand"].detach().cpu().numpy()
+        print("pregen_demand", pregen_demand.sum())
+
 
         # Preallocate demand array for transport demands
         demand_ = np.zeros((max_paths, K, P, P))
@@ -375,6 +378,13 @@ def main(config, scenarios_per_stage=32, seed=42):
         # Print the error
         print("No solution found")
 
+def set_unique_seed(batch_index, base_seed=42):
+    """Set a unique seed per batch."""
+    seed = base_seed + batch_index
+    th.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
 if __name__ == "__main__":
     # Load the configuration file
     with open(f'{path_to_main}/config.yaml', 'r') as file:
@@ -384,11 +394,11 @@ if __name__ == "__main__":
 
     # Run main for different seeds and number of scenarios
     results = []
-    num_seed = 20
+    num_seed = 2#20
     for x in range(num_seed):
-        for scen in [4,8,12,16,20,24,32]:
+        for scen in [4]:#,8,12,16,20,24,32]:
             seed = config.env.seed + x
-            th.manual_seed(seed)
+            set_unique_seed(seed)
             output_dict = main(config, scen, seed)
             results.append(output_dict)
 
