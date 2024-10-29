@@ -54,9 +54,9 @@ ppo:
   vf_lambda: 0.5
   entropy_lambda: 0.01
   feasibility_lambda: 0.1
-  demand_lambda: 1
-  stability_lambda: 1
-  projection_lambda: 0.1
+  demand_lambda: 0.2
+  stability_lambda: 0.1
+  projection_lambda: 0.01
 
 # AM PPO parameters
 am_ppo:
