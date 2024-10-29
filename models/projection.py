@@ -69,6 +69,47 @@ class ConvexProgramLayer(th.nn.Module):
         x_out = th.stack(x_out)
         return x_out  # Scale back to original values
 
+class LinearViolationAdaption(th.nn.Module):
+    def __init__(self, **kwargs):
+        super(LinearViolationAdaption, self).__init__()
+
+    def forward(self, x, A, b, alpha=0.03, delta=0.001, tolerance=1e-4):
+        batch_size, m = b.shape
+        violation_old = th.zeros(batch_size, m, dtype=x.dtype, device=x.device)
+        active_mask = th.ones(batch_size, dtype=th.bool, device=x.device)  # Start with all batches active
+        x_ = x.clone()
+        count = 0
+
+        while th.any(active_mask):
+            # Compute current violation for each batch
+            violation_new = th.clamp(th.bmm(A, x_.unsqueeze(-1)).squeeze(-1) - b, min=0)  # Shape: [batch_size, m]
+            total_violation = th.sum(violation_new, dim=1)  # Sum violations per batch
+
+            # Define batch-wise stopping conditions
+            no_violation = total_violation < tolerance
+            stalling_check = th.abs(total_violation - th.sum(violation_old, dim=1)) < delta
+
+            # Update active mask: only keep batches that are neither within tolerance nor stalled
+            active_mask = ~(no_violation | stalling_check)
+
+            # Break if no batches are left active
+            if not th.any(active_mask):
+                break
+
+            # Calculate penalty gradient for adjustment
+            penalty_gradient = th.bmm(A.transpose(-2, -1), violation_new.unsqueeze(-1)).squeeze(-1)
+
+            # Apply penalty gradient update only for active batches
+            x_ = th.where(active_mask.unsqueeze(1), x_ - alpha * penalty_gradient, x_)
+
+            # Update violation_old for the next iteration
+            violation_old = violation_new.clone()
+            count += 1
+        print("count", count)
+        breakpoint()
+        return x_
+
+
 
 class LinearProgramLayer(th.nn.Module):
     def __init__(self, **kwargs):
@@ -149,6 +190,7 @@ class ProjectionFactory:
         'worst_case_violation_iter': WorstcaseViolationLayerIter,
         'convex_program': ConvexProgramLayer,
         'linear_program': LinearProgramLayer,
+        'linear_violation':LinearViolationAdaption,
     }
 
     @staticmethod

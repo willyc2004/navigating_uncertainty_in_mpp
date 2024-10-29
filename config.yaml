@@ -61,11 +61,11 @@ ppo:
 # AM PPO parameters
 am_ppo:
   lr: 0.0001
-  projection_type: "worst_case_violation" #None, convex_program, worst_case_violation,
+  projection_type: "linear_violation" #"worst_case_violation" #None, convex_program, worst_case_violation,
   projection_kwargs:
     iters: 5
     use_lp_solver: False
   optimizer: "Adam" #AdamW, Adam
-  train_data_size: 5000000 # 1000000
+  train_data_size: 1000 #5000000 # 1000000
   val_data_size: 100000
   test_data_size: 100000
