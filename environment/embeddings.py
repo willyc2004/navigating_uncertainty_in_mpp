@@ -8,21 +8,18 @@ from tensordict import TensorDict
 from torch.cuda.amp import autocast
 from rl4co.utils.ops import gather_by_index
 
-
 class MPPInitEmbedding(nn.Module):
-    def __init__(self, embed_dim, env):
+    def __init__(self, embed_dim, action_dim, env, num_constraints=5):
         super(MPPInitEmbedding, self).__init__()
         self.env = env
-
+        # Initialize embeddings and layers
         # Category embeddings
-        self.embed_dim = embed_dim
         self.origin_port = nn.Embedding(self.env.P, embed_dim)
         self.destination_port = nn.Embedding(self.env.P, embed_dim)
         self.cargo_class = nn.Embedding(self.env.K, embed_dim)
 
         # Continuous embeddings
-        # todo:pass lhs_A?
-
+        self.lhs_A = nn.Linear(action_dim*num_constraints, embed_dim)
         self.weight = nn.Linear(1, embed_dim)
         self.teu = nn.Linear(1, embed_dim)
         self.revenue = nn.Linear(1, embed_dim)
@@ -30,29 +27,36 @@ class MPPInitEmbedding(nn.Module):
         self.stdx_demand = nn.Linear(1, embed_dim)
         self.fc = nn.Linear(8 * embed_dim, embed_dim)
         self.positional_encoding = DynamicSinusoidalPositionalEncoding(embed_dim)
+        self.cache_initialized = False  # Flag to check if cache has been created
 
-    def forward(self, td:TensorDict):
+    def initialize_cache(self, td: TensorDict):
         batch_size, step_size = td["POL"].shape
+        # Compute and store fixed embeddings in cache
+        self.origin_emb_cache = self.origin_port(td["POL"].to(torch.int64))
+        self.destination_emb_cache = self.destination_port(td["POD"].to(torch.int64))
+        self.class_embed_cache = self.cargo_class(td["cargo_class"].to(torch.int64))
+        self.weight_emb_cache = self.weight(td["weight"].view(batch_size, step_size, 1))
+        self.capacity_emb_cache = self.teu(td["TEU"].view(batch_size, step_size, 1))
+        self.revenue_emb_cache = self.revenue((td["revenue"] / (td["POD"] - td["POL"])).view(batch_size, step_size, 1))
+        self.cache_initialized = True  # Update flag
 
-        # Embed categorical features
-        origin_emb = self.origin_port(td["POL"].to(torch.int64))
-        destination_emb = self.destination_port(td["POD"].to(torch.int64))
-        class_embed = self.cargo_class(td["cargo_class"].to(torch.int64))
+    def forward(self, td: TensorDict):
+        if not self.cache_initialized:
+            self.initialize_cache(td)  # Cache fixed values on the first call
 
-        # Embed other features
-        weight_emb = self.weight(td["weight"].view(batch_size, step_size, 1))
-        capacity_emb = self.teu(td["TEU"].view(batch_size, step_size, 1))
-        revenue_emb = self.revenue((td["revenue"] / (td["POD"] - td["POL"])).view(batch_size, step_size, 1))
+        # Compute only demand-related embeddings dynamically
+        batch_size, step_size = td["POL"].shape
         expected_demand = self.ex_demand(td["expected_demand"].view(batch_size, step_size, 1))
         std_demand = self.stdx_demand(td["std_demand"].view(batch_size, step_size, 1))
 
-        # Concatenate all embeddings
-        combined_emb = torch.cat(
-            [origin_emb, destination_emb, class_embed,
-             weight_emb, capacity_emb, revenue_emb, expected_demand, std_demand],
-            dim=-1)
+        # Concatenate all embeddings (using cached values for fixed ones)
+        combined_emb = torch.cat([
+            expected_demand, std_demand,
+            self.origin_emb_cache, self.destination_emb_cache, self.class_embed_cache,
+            self.weight_emb_cache, self.capacity_emb_cache, self.revenue_emb_cache,
+        ], dim=-1)
 
-        # Concatenate and project to shared embedding space
+        # Final projection
         initial_embedding = self.fc(combined_emb)
         return initial_embedding
 
