@@ -318,6 +318,7 @@ class MasterPlanningEnv(RL4COEnvBase):
             # "location_utilization": locations_utilization,
             # "location_weight": th.zeros_like(locations_utilization),
             # Performance
+            "total_loaded": th.zeros_like(pol[:, 0], dtype=self.float_type),
             "overstowage": th.zeros((*batch_size, self.B,),  device=device, dtype=self.float_type),
             "long_crane_excess": th.zeros((*batch_size, self.B-1,),  device=device, dtype=self.float_type),
             "violation": th.zeros((*batch_size, self.n_constraints), device=device, dtype=self.float_type),
@@ -341,7 +342,6 @@ class MasterPlanningEnv(RL4COEnvBase):
             # Performance
             "total_revenue": th.zeros_like(pol[:, 0], dtype=self.float_type),
             "total_cost": th.zeros_like(pol[:, 0], dtype=self.float_type),
-
         }, batch_size=batch_size, device=device,)
 
         # Init td
