@@ -42,7 +42,7 @@ class MPP_GeneratorUncertain(Generator):
 
         # Precompute wave and transport
         self.wave = self._create_wave(self.P-1,)
-        self.transport_idx = get_transport_idx(th.tensor(self.P, device=self.device))
+        self.transport_idx = get_transport_idx(self.P, device=self.device)
         self.num_loads = self._get_num_loads_in_voyage(self.transport_idx, self.P)
         self.num_discharges = self.num_loads.flip(0)
         POL = th.arange(self.P, device=self.device,).unsqueeze(1).unsqueeze(1) # Shape: [P, 1, 1]
