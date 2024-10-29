@@ -24,6 +24,7 @@ import yaml
 from dotmap import DotMap
 import time
 import wandb
+from tensordict import TensorDict
 
 # PyTorch, Lightning
 import torch
@@ -36,6 +37,7 @@ from torchrl.envs import TransformedEnv
 from torchrl.envs.transforms import ObservationNorm
 
 # RL4CO
+from rl4co.envs.common.base import RL4COEnvBase
 from rl4co.utils.trainer import RL4COTrainer
 from rl4co.models.zoo import AMPPO
 # Customized RL4CO modules
@@ -105,10 +107,6 @@ def main(config=None):
     env_kwargs = config.env
     env = make_env(env_kwargs, device)
 
-    # Transform env
-    obs_norm_transform = ObservationNorm(in_keys=["obs"], out_keys=["norm_obs"], standard_normal=True)
-    env = TransformedEnv(env, obs_norm_transform)
-
     if check_env_specs(env):
         print("Environment specifications seem valid!")
     else:
@@ -139,7 +137,7 @@ def main(config=None):
 
 
     # Embedding initialization
-    init_embed = MPPInitEmbedding(embed_dim, env)
+    init_embed = MPPInitEmbedding(embed_dim, action_dim, env)
     context_embed = MPPContextEmbedding(action_dim, embed_dim, env, device,)
     dynamic_embed = StaticEmbedding(obs_dim, embed_dim)
 
@@ -266,7 +264,7 @@ def main(config=None):
         checkpoint = torch.load(checkpoint_path + ckpt_name,)
         model.load_state_dict(checkpoint['state_dict'], strict=True)
 
-        ## Main testing:     # todo: add lp feasibility during testing
+        ## Main testing:
         # todo: change initial problem instance to show performance of the model
         # Initialize environment and policy
         env_kwargs["float_type"] = torch.float32
