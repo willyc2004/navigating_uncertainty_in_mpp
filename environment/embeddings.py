@@ -118,7 +118,7 @@ class MPPContextEmbedding(nn.Module):
         # Performance
         total_loaded = self.total_loaded(td["obs"]["total_loaded"].view(td.batch_size[0], -1))
         overstowage = self.overstowage(td["obs"]["overstowage"].view(td.batch_size[0], -1))
-        long_crane_excess = self.long_crane_excess(td["obs"]["long_crane_excess"].view(td.batch_size[0], -1))
+        excess_crane_moves = self.excess_crane_moves(td["obs"]["excess_crane_moves"].view(td.batch_size[0], -1))
 
         # Feasibility
         violation = self.violation(td["obs"]["violation"].view(td.batch_size[0], -1))
@@ -129,7 +129,7 @@ class MPPContextEmbedding(nn.Module):
         state_embed = torch.cat([
             current_demand, expected_demand, std_demand, observed_demand,
             residual_capacity, origin_embed, destination_embed,
-            total_loaded, overstowage, long_crane_excess,
+            total_loaded, overstowage, excess_crane_moves,
             violation, rhs, lhs_A
         ], dim=-1)
         return state_embed

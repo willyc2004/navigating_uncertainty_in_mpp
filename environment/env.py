@@ -181,14 +181,14 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Compute total_loaded and aggregated long crane excess
         # total_loaded = total_loaded + th.min(action.sum(dim=(-2, -1)), current_demand)
         long_crane_moves = self._compute_long_crane(utilization, pol)
-        long_crane_excess = th.clamp(long_crane_moves - target_long_crane.view(-1, 1), min=0)
+        excess_crane_moves = th.clamp(long_crane_moves - target_long_crane.view(-1, 1), min=0)
 
         ## Reward
         revenue = th.min(action.sum(dim=(-2, -1)), current_demand) * self.revenues[t[0]]
         profit = revenue.clone()
         if self.next_port_mask[t].any():
             ho_costs = overstowage.sum(dim=-1) * self.ho_costs
-            lc_costs = long_crane_excess.sum(dim=-1) * self.lc_costs
+            lc_costs = excess_crane_moves.sum(dim=-1) * self.lc_costs
             cost = ho_costs + lc_costs
             profit -= (ho_costs + lc_costs)
         else:
@@ -222,7 +222,7 @@ class MasterPlanningEnv(RL4COEnvBase):
             lc_excess_last_port = th.clamp(lc_moves_last_port - next_state_dict["target_long_crane"].view(-1,1), min=0)
 
             # Compute metrics
-            long_crane_excess += lc_excess_last_port
+            excess_crane_moves += lc_excess_last_port
             cost_ = lc_excess_last_port.sum(dim=-1) * self.lc_costs
             profit -= cost_
             cost += cost_
@@ -264,7 +264,7 @@ class MasterPlanningEnv(RL4COEnvBase):
                 # Performance
                 "total_loaded": total_loaded,
                 "overstowage": overstowage,
-                "long_crane_excess": long_crane_excess,
+                "excess_crane_moves": excess_crane_moves,
                 "violation": violation,
             },
 
@@ -320,7 +320,7 @@ class MasterPlanningEnv(RL4COEnvBase):
             # Performance
             "total_loaded": th.zeros_like(pol[:, 0], dtype=self.float_type),
             "overstowage": th.zeros((*batch_size, self.B,),  device=device, dtype=self.float_type),
-            "long_crane_excess": th.zeros((*batch_size, self.B-1,),  device=device, dtype=self.float_type),
+            "excess_crane_moves": th.zeros((*batch_size, self.B-1,),  device=device, dtype=self.float_type),
             "violation": th.zeros((*batch_size, self.n_constraints), device=device, dtype=self.float_type),
 
         }, batch_size=batch_size, device=device,)
@@ -400,7 +400,7 @@ class MasterPlanningEnv(RL4COEnvBase):
             'residual_capacity':torch.zeros(self.B*self.D, device=generator.device),
             'total_loaded': torch.zeros(1, device=generator.device),
             'overstowage': torch.zeros(self.B, device=generator.device),
-            'long_crane_excess': torch.zeros(self.B - 1, device=generator.device),
+            'excess_crane_moves': torch.zeros(self.B - 1, device=generator.device),
             'violation':torch.zeros(5, device=generator.device),
         }, batch_size=[])
 
@@ -455,7 +455,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         utilization = state["utilization"].clone()
         target_long_crane = state["target_long_crane"].clone()
         agg_overstowage = state["overstowage"].clone()
-        agg_lc_excess = state["long_crane_excess"].clone()
+        agg_lc_excess = state["excess_crane_moves"].clone()
         total_loaded = state["total_loaded"].clone()
         # # Additional variables
         total_revenue = state["total_revenue"].clone()
@@ -473,7 +473,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         """Compute total profit for episode"""
         metrics = self._get_metrics_n_step(td, utilizations)
         total_revenue = self._compute_total_revenue(metrics["actions"], metrics["realized_demand"])
-        total_costs = self._compute_total_costs(metrics["total_overstowage"], metrics["total_long_crane_excess"])
+        total_costs = self._compute_total_costs(metrics["total_overstowage"], metrics["total_excess_crane_moves"])
         return total_revenue - total_costs
 
     def _compute_total_revenue(self, actions, realized_demand) -> Tensor:
@@ -513,7 +513,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Sum overstowage and excess with mask applied in a single step
         mask = self.next_port_mask.view(1, -1, 1)
         total_overstowage = (overstowage * mask).sum(dim=(-2, -1))
-        total_long_crane_excess = ((lc_excess * mask.view(1, -1)).sum(dim=-1))
+        total_excess_crane_moves = ((lc_excess * mask.view(1, -1)).sum(dim=-1))
 
         # Compute last port long crane excess
         if t + n_steps >= self.K * self.T:
@@ -521,7 +521,7 @@ class MasterPlanningEnv(RL4COEnvBase):
             long_crane_moves_last_port = (moves_bays_last_port[..., :-1] + moves_bays_last_port[..., 1:]).max(dim=-1).values
             target_last_port = td["state"]["target_long_crane"]
             lc_excess_last_port = th.clamp_(long_crane_moves_last_port - target_last_port, min=0)
-            total_long_crane_excess += lc_excess_last_port
+            total_excess_crane_moves += lc_excess_last_port
 
         # Extract actions, permute only once and reuse the result
         if actions == None:
@@ -534,7 +534,7 @@ class MasterPlanningEnv(RL4COEnvBase):
             "realized_demand": realized_demand,
             "total_loaded": actions.sum(dim=(-1, -2)),
             "total_overstowage": total_overstowage,
-            "total_long_crane_excess": total_long_crane_excess,
+            "total_excess_crane_moves": total_excess_crane_moves,
         }
 
     def _compute_min_pod(self,pod_locations: Tensor) -> Tensor:
