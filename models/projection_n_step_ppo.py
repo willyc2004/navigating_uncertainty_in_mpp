@@ -1,5 +1,6 @@
 from typing import Any, Union
 import copy
+from tensordict import TensorDict
 
 import torch
 import torch.nn as nn
@@ -60,6 +61,53 @@ class n_step_Memory:
         self.lhs_A = self.lhs_A.new_zeros(self.lhs_A.size())
         self.rhs = self.rhs.new_zeros(self.rhs.size())
         self.dones = self.dones.new_zeros(self.dones.size())
+
+class ObservationNormalizer(nn.Module):
+    def __init__(self, obs_spec, epsilon=1e-5, momentum=0.1):
+        super().__init__()
+        self.epsilon = epsilon
+        self.momentum = momentum
+
+        # Ensure mean and std shapes match the non-batch dimensions of obs_spec
+        self.mean = nn.ParameterDict({
+            key: nn.Parameter(torch.zeros(spec.shape[1:], device=spec.device), requires_grad=False)
+            for key, spec in obs_spec.items()
+        })
+        self.std = nn.ParameterDict({
+            key: nn.Parameter(torch.ones(spec.shape[1:], device=spec.device), requires_grad=False)
+            for key, spec in obs_spec.items()
+        })
+
+    def forward(self, obs):
+        # Normalize each entry in the TensorDict
+        normalized_obs = {
+            key: (obs[key] - self.mean[key]) / (self.std[key] + self.epsilon)
+            for key in obs.keys()
+        }
+        # give example
+
+        return TensorDict(normalized_obs, batch_size=obs.batch_size, device=obs.device)
+
+    def update_stats(self, new_obs):
+        # Update running mean and std for each entry in the TensorDict along the batch dimension
+        for key, value in new_obs.items():
+            # Move mean and std to the same device as new_obs for compatibility
+            self.mean[key].data = self.mean[key].data.to(value.device)
+            self.std[key].data = self.std[key].data.to(value.device)
+
+            # Calculate batch mean and std along the batch dimension
+            batch_mean = value.mean(dim=0)  # Calculate mean across batch
+            batch_std = value.std(dim=0)  # Calculate std across batch
+
+            if torch.isnan(batch_mean).any() or torch.isnan(batch_std).any():
+                print(f"Warning: NaNs detected in batch statistics for '{key}'. Replacing with zero mean and min_std.")
+                batch_mean = torch.nan_to_num(batch_mean, nan=0.0)
+                batch_std = torch.nan_to_num(batch_std, nan=self.epsilon)
+                breakpoint()
+
+            # Update running statistics with momentum for stability
+            self.mean[key].data = self.momentum * batch_mean + (1 - self.momentum) * self.mean[key].data
+            self.std[key].data = self.momentum * batch_std + (1 - self.momentum) * self.std[key].data
 
 class Projection_Nstep_PPO(RL4COLitModule):
     """
@@ -156,7 +204,9 @@ class Projection_Nstep_PPO(RL4COLitModule):
         self.lambda_violations = torch.tensor([demand_lambda] + [stability_lambda] * env.n_stability,
                                               device='cuda', dtype=torch.float32)
 
-        # Normalize return
+        # Normalization
+        self.obs_norm = ObservationNormalizer(self.env.obs_spec)
+        initialize_stats_from_rollouts(env, self.obs_norm, batch_size=mini_batch_size)
         self.return_mean = 0
         self.return_var = 0
         self.return_count = 0
@@ -229,6 +279,11 @@ class Projection_Nstep_PPO(RL4COLitModule):
             # Rollout for n_step; store the information in memory
             with torch.no_grad():
                 for i in range(self.ppo_cfg["n_step"]):
+                    # todo: causes nans
+                    # self.obs_norm.update_stats(td["obs"]) # Update running stats
+                    # td["obs"] = self.obs_norm(td["obs"]) # Normalize
+                    # for key, val in td["obs"].items():
+                    #     check_for_nans(val, key)
                     memory.tds.append(td.clone())
                     td = self.policy.act(memory.tds[i], self.env, phase=phase,)
                     memory.values[:,i] = self.critic(memory.tds[i]).view(-1, 1)
@@ -383,3 +438,46 @@ def check_for_nans(tensor, name):
         print(f"NaN detected in {name}")
     if torch.isinf(tensor).any():
         print(f"Inf detected in {name}")
+
+
+def initialize_stats_from_rollouts(env, normalizer, batch_size, num_rollouts=100, device="cuda"):
+    """
+    Perform random rollouts to initialize mean and std in ObservationNormalizer.
+
+    Args:
+        env: The environment instance.
+        normalizer: The ObservationNormalizer instance.
+        rollout_mpp: Function that performs a rollout and returns observation TensorDict.
+        num_rollouts: Number of rollouts to perform.
+        device: Device for computations (e.g., "cuda").
+    """
+
+    # Test the environment
+    def random_action_policy(td):
+        """Helper function to select a random action from available actions"""
+        batch_size = td.batch_size
+        action = torch.distributions.Uniform(env.action_spec.low, env.action_spec.high).sample(batch_size)
+        td.set("action", action.to(torch.float16))
+        return td
+
+    # Collect observations across rollouts
+    collected_obs = {key: [] for key in normalizer.mean.keys()}
+    for idx in range(num_rollouts):
+        td = env.reset(batch_size=batch_size,)
+        while not td["done"].all():
+            td = random_action_policy(td)
+            td = env.step(td)["next"]
+            # Collect each observation field in the TensorDict
+            for key, value in td["obs"].items():
+                collected_obs[key].append(value)
+
+    # Calculate and set initial mean and std in the normalizer
+    for key, values in collected_obs.items():
+        # Stack values along a new dimension and calculate mean/std
+        values_stack = torch.stack(values, dim=0)  # Shape: [num_rollouts, *obs_shape]
+        mean = values_stack.mean(dim=0)
+        std = values_stack.std(dim=0)
+
+        # Set initial mean and std in the normalizer with clamping on std
+        normalizer.mean[key].data = mean.to(device)
+        normalizer.std[key].data = torch.clamp(std, min=1e-6).to(device)  # Avoid near-zero std
