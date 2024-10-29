@@ -6,6 +6,7 @@ from dotmap import DotMap
 from docplex.mp.model import Model
 import sys
 import os
+import json
 sys.path.append('/home/jaiv/ILOG/CPLEX_Studio2211/cplex/python/3.9/x86-64_linux')
 
 # Module imports
@@ -356,15 +357,17 @@ def main(config, scenarios_per_stage=32):
                 VM_[stage, node_id] = VM[stage, node_id].solution_value
                 TW_[stage, node_id] = TW[stage, node_id].solution_value
         return {
-            "x":x_,
-            "HO_":HO_,
-            "HM_": HM_,
-            "CI_": CI_,
-            "CI_target_": CI_target_,
-            "spread_moves_bay_": spread_moves_bay_,
-            "LM_": LM_,
-            "VM_": VM_,
-            "TW_": TW_,
+            "x":x_.tolist(),
+            "HO_":HO_.tolist(),
+            "HM_": HM_.tolist(),
+            "CI_": CI_.tolist(),
+            "CI_target_": CI_target_.tolist(),
+            "spread_moves_bay_": spread_moves_bay_.tolist(),
+            "LM_": LM_.tolist(),
+            "VM_": VM_.tolist(),
+            "TW_": TW_.tolist(),
+            "ports":P,
+            "scenarios":scenarios_per_stage,
             "obj":solution.objective_value,
             "time":mdl.solve_details.time,
             "gap":mdl.solve_details.mip_relative_gap,
@@ -383,8 +386,12 @@ if __name__ == "__main__":
     # Run main for different seeds and number of scenarios
     results = []
     num_seed = 20
-    for x in range(20):
+    for x in range(num_seed):
         for scen in [4,8,12,16,20,24,32]:
             th.manual_seed(config.env.seed + x)
             output_dict = main(config, scen)
             results.append(output_dict)
+
+    # Save results to a JSON file
+    with open("results_scenario_tree.json", "w") as json_file:
+        json.dump(results, json_file, indent=4)
