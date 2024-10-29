@@ -167,8 +167,6 @@ class MasterPlanningEnv(RL4COEnvBase):
         current_demand, realized_demand, observed_demand, expected_demand, std_demand, \
             utilization, target_long_crane, total_loaded, total_revenue, total_cost = self._extract_from_state(td["state"])
 
-        # todo: need unnormalized: utilization, target_long_crane, current_demand
-
         ## Current state
         # Check done, update utilization, and compute violation
         done = self._check_done(t)
@@ -239,10 +237,6 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Update td output
         td.update({
             "state":{
-
-                "total_revenue": total_revenue,
-                "total_cost": total_cost,
-
                 # Demand
                 "current_demand": next_state_dict["current_demand"],
                 "observed_demand": next_state_dict["observed_demand"],
@@ -250,11 +244,22 @@ class MasterPlanningEnv(RL4COEnvBase):
                 "std_demand": next_state_dict["std_demand"],
 
                 # Vessel
-                "residual_capacity": residual_capacity.view(*batch_size, self.B * self.D),
                 "utilization": next_state_dict["utilization"],
                 "target_long_crane": next_state_dict["target_long_crane"],
                 "agg_pol_location": agg_pol_location,
                 "agg_pod_location": agg_pod_location,
+
+                # Performance
+                "total_revenue": total_revenue,
+                "total_cost": total_cost,
+            },
+            "obs":{
+                # Demand
+                "current_demand": next_state_dict["current_demand"],
+                "observed_demand": next_state_dict["observed_demand"],
+                "expected_demand": next_state_dict["expected_demand"],
+                "std_demand": next_state_dict["std_demand"],
+                "residual_capacity": residual_capacity.view(*batch_size, self.B * self.D),
 
                 # Performance
                 "total_loaded": total_loaded,
@@ -262,6 +267,7 @@ class MasterPlanningEnv(RL4COEnvBase):
                 "long_crane_excess": long_crane_excess,
                 "violation": violation,
             },
+
             # Feasibility and constraints
             "lhs_A": lhs_A,
             "rhs": rhs,
@@ -300,31 +306,41 @@ class MasterPlanningEnv(RL4COEnvBase):
         action_mask = th.ones((*batch_size, self.B, self.D), dtype=th.bool, device=device)
         locations_utilization = th.zeros((*batch_size, self.B, self.D,), device=device, dtype=self.float_type)
 
-        # Init state
-        initial_state = TensorDict({
+        # Init obs + state
+        initial_obs = TensorDict({
             # Demand
             "current_demand": td["observed_demand"][:, self.k[0], self.tau[0]],
             "observed_demand": td["observed_demand"],
+            "expected_demand": td["expected_demand"],
+            "std_demand": td["std_demand"],
+            # Vessel
+            "residual_capacity": th.zeros_like(locations_utilization),
+            # "location_utilization": locations_utilization,
+            # "location_weight": th.zeros_like(locations_utilization),
+            # Performance
+            "overstowage": th.zeros((*batch_size, self.B,),  device=device, dtype=self.float_type),
+            "long_crane_excess": th.zeros((*batch_size, self.B-1,),  device=device, dtype=self.float_type),
+            "violation": th.zeros((*batch_size, self.n_constraints), device=device, dtype=self.float_type),
+
+        }, batch_size=batch_size, device=device,)
+
+
+        initial_state = TensorDict({
+            # Demand
+            "current_demand": td["observed_demand"][:, self.k[0], self.tau[0]],
             "expected_demand": td["expected_demand"],
             "std_demand": td["std_demand"],
             "realized_demand": td["realized_demand"],
 
             # Vessel
             "utilization": th.zeros((*batch_size, self.B, self.D, self.K, self.T), device=device, dtype=self.float_type),
-            "location_utilization": locations_utilization,
-            "location_weight": th.zeros_like(locations_utilization),
-            "residual_capacity":th.zeros_like(locations_utilization),
             "agg_pol_location": th.zeros_like(locations_utilization),
             "agg_pod_location": th.zeros_like(locations_utilization),
-            "overstowage": th.zeros((*batch_size, self.B,),  device=device, dtype=self.float_type),
-            "long_crane_excess": th.zeros((*batch_size, self.B-1,),  device=device, dtype=self.float_type),
             "target_long_crane": target_long_crane,
 
             # Performance
-            "total_loaded": th.zeros_like(pol[:, 0], dtype=self.float_type),
             "total_revenue": th.zeros_like(pol[:, 0], dtype=self.float_type),
             "total_cost": th.zeros_like(pol[:, 0], dtype=self.float_type),
-            "violation": th.zeros((*batch_size, self.n_constraints), device=device, dtype=self.float_type),
 
         }, batch_size=batch_size, device=device,)
 
@@ -345,8 +361,9 @@ class MasterPlanningEnv(RL4COEnvBase):
             "TEU": teus,
             "revenue": revenues,
 
-            # State
+            # State + obs
             "state": initial_state,
+            "obs": initial_obs,
 
             # Action mask and clipping
             "action": th.zeros_like(action_mask),
@@ -375,6 +392,18 @@ class MasterPlanningEnv(RL4COEnvBase):
         self.observation_spec = CompositeSpec(
             observation=UnboundedContinuousTensorSpec(shape=(214)),  # Define shape as needed
         )
+        self.obs_spec = TensorDict({
+            'current_demand': torch.zeros(1, device=generator.device),
+            'expected_demand': torch.zeros(1, device=generator.device),
+            'std_demand': torch.zeros(1, device=generator.device),
+            'observed_demand':torch.zeros(1, device=generator.device),
+            'residual_capacity':torch.zeros(self.B*self.D, device=generator.device),
+            'total_loaded': torch.zeros(1, device=generator.device),
+            'overstowage': torch.zeros(self.B, device=generator.device),
+            'long_crane_excess': torch.zeros(self.B - 1, device=generator.device),
+            'violation':torch.zeros(5, device=generator.device),
+        }, batch_size=[])
+
         self.action_spec = BoundedTensorSpec(
             shape=(self.B*self.D),  # Define shape as needed
             low=0.0,
