@@ -394,9 +394,9 @@ if __name__ == "__main__":
 
     # Run main for different seeds and number of scenarios
     results = []
-    num_seed = 2#20
+    num_seed = 20
     for x in range(num_seed):
-        for scen in [4]:#,8,12,16,20,24,32]:
+        for scen in [4,8,12,16,20,24,32]:
             seed = config.env.seed + x
             set_unique_seed(seed)
             output_dict = main(config, scen, seed)
