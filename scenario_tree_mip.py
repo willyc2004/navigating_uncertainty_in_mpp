@@ -357,16 +357,8 @@ def main(config, scenarios_per_stage=32, seed=42):
                 LM_[stage, node_id] = LM[stage, node_id].solution_value
                 VM_[stage, node_id] = VM[stage, node_id].solution_value
                 TW_[stage, node_id] = TW[stage, node_id].solution_value
-        return {
-            "x":x_.tolist(),
-            "HO_":HO_.tolist(),
-            "HM_": HM_.tolist(),
-            "CI_": CI_.tolist(),
-            "CI_target_": CI_target_.tolist(),
-            "spread_moves_bay_": spread_moves_bay_.tolist(),
-            "LM_": LM_.tolist(),
-            "VM_": VM_.tolist(),
-            "TW_": TW_.tolist(),
+
+        results = {
             "seed":seed,
             "ports":P,
             "scenarios":scenarios_per_stage,
@@ -374,6 +366,22 @@ def main(config, scenarios_per_stage=32, seed=42):
             "time":mdl.solve_details.time,
             "gap":mdl.solve_details.mip_relative_gap,
         }
+        vars = {
+            "seed": seed,
+            "ports": P,
+            "scenarios": scenarios_per_stage,
+            "x": x_.tolist(),
+            "HO_": HO_.tolist(),
+            "HM_": HM_.tolist(),
+            "CI_": CI_.tolist(),
+            "CI_target_": CI_target_.tolist(),
+            "spread_moves_bay_": spread_moves_bay_.tolist(),
+            "LM_": LM_.tolist(),
+            "VM_": VM_.tolist(),
+            "TW_": TW_.tolist(),
+        }
+
+        return results, vars
     else:
         # Print the error
         print("No solution found")
@@ -394,14 +402,18 @@ if __name__ == "__main__":
 
     # Run main for different seeds and number of scenarios
     results = []
+    vars = []
     num_seed = 20
     for x in range(num_seed):
         for scen in [4,8,12,16,20,24,32]:
             seed = config.env.seed + x
             set_unique_seed(seed)
-            output_dict = main(config, scen, seed)
-            results.append(output_dict)
+            result, var = main(config, scen, seed)
+            results.append(result)
+            vars.append(var)
 
     # Save results to a JSON file
     with open("results_scenario_tree.json", "w") as json_file:
+        json.dump(results, json_file, indent=4)
+    with open("variables_scenario_tree.json", "w") as json_file:
         json.dump(results, json_file, indent=4)
