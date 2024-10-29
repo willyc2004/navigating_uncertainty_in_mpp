@@ -166,7 +166,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         pol, pod, k, tau, rev = self._extract_cargo_parameters_for_step(t[0])
         current_demand, realized_demand, utilization, target_long_crane, total_loaded, total_revenue, total_cost\
             = self._extract_from_state(td["state"])
-        observed_demand, expected_demand, std_demand = self._extract_from_obs(td["obs"])
+        observed_demand, expected_demand, std_demand = self._extract_from_obs(td["obs"], batch_size)
 
         ## Current state
         # Check done, update utilization, and compute violation
@@ -377,7 +377,7 @@ class MasterPlanningEnv(RL4COEnvBase):
             "rhs": rhs,
 
             # Reward, done and step
-            # "reward": reward,
+            "reward": reward,
             "profit": th.zeros_like(reward),
             "done": th.zeros_like(pol[:,0], dtype=th.bool,),
             "episodic_step": t,
@@ -407,7 +407,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         self.action_spec = BoundedTensorSpec(
             shape=(self.B*self.D),  # Define shape as needed
             low=0.0,
-            high=1.0/(self.B*self.D),  # Define high value as needed
+            high=10,  # Define high value as needed
         )
         self.reward_spec = UnboundedContinuousTensorSpec(shape=(1,))
         self.done_spec = UnboundedDiscreteTensorSpec(shape=(1,), dtype=th.bool)
@@ -458,11 +458,11 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Return
         return current_demand, realized_demand, utilization, target_long_crane, total_loaded, total_revenue, total_cost
 
-    def _extract_from_obs(self, obs) -> Tuple:
+    def _extract_from_obs(self, obs, batch_size) -> Tuple:
         """Extract and clone state variables from the obs TensorDict."""
-        observed_demand = obs["observed_demand"].clone()
-        expected_demand = obs["expected_demand"].clone()
-        std_demand = obs["std_demand"].clone()
+        observed_demand = obs["observed_demand"].clone().view(*batch_size, self.K, self.T)
+        expected_demand = obs["expected_demand"].clone().view(*batch_size, self.K, self.T)
+        std_demand = obs["std_demand"].clone().view(*batch_size, self.K, self.T)
         return observed_demand, expected_demand, std_demand
 
     # Reward/costs functions
