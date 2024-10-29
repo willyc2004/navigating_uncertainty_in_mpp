@@ -255,9 +255,9 @@ class MasterPlanningEnv(RL4COEnvBase):
             "obs":{
                 # Demand
                 "current_demand": next_state_dict["current_demand"],
-                "observed_demand": next_state_dict["observed_demand"],
-                "expected_demand": next_state_dict["expected_demand"],
-                "std_demand": next_state_dict["std_demand"],
+                "observed_demand": next_state_dict["observed_demand"].view(*batch_size, self.K * self.T),
+                "expected_demand": next_state_dict["expected_demand"].view(*batch_size, self.K * self.T),
+                "std_demand": next_state_dict["std_demand"].view(*batch_size, self.K * self.T),
                 "residual_capacity": residual_capacity.view(*batch_size, self.B * self.D),
 
                 # Performance
@@ -309,11 +309,11 @@ class MasterPlanningEnv(RL4COEnvBase):
         initial_obs = TensorDict({
             # Demand
             "current_demand": td["observed_demand"][:, self.k[0], self.tau[0]],
-            "observed_demand": td["observed_demand"],
-            "expected_demand": td["expected_demand"],
-            "std_demand": td["std_demand"],
+            "observed_demand": td["observed_demand"].view(*batch_size, self.K * self.T),
+            "expected_demand": td["expected_demand"].view(*batch_size, self.K * self.T),
+            "std_demand": td["std_demand"].view(*batch_size, self.K * self.T),
             # Vessel
-            "residual_capacity": th.zeros_like(locations_utilization),
+            "residual_capacity": th.zeros_like(locations_utilization).view(*batch_size, self.B * self.D),
             # "location_utilization": locations_utilization,
             # "location_weight": th.zeros_like(locations_utilization),
             # Performance
@@ -394,10 +394,10 @@ class MasterPlanningEnv(RL4COEnvBase):
         )
         self.obs_spec = TensorDict({
             'current_demand': torch.zeros(1, device=generator.device),
-            'expected_demand': torch.zeros(1, device=generator.device),
-            'std_demand': torch.zeros(1, device=generator.device),
-            'observed_demand':torch.zeros(1, device=generator.device),
-            'residual_capacity':torch.zeros(self.B*self.D, device=generator.device),
+            'expected_demand': torch.zeros((self.K*self.T), device=generator.device),
+            'std_demand': torch.zeros((self.K*self.T), device=generator.device),
+            'observed_demand':torch.zeros((self.K*self.T), device=generator.device),
+            'residual_capacity':torch.zeros((self.B*self.D), device=generator.device),
             'total_loaded': torch.zeros(1, device=generator.device),
             'overstowage': torch.zeros(self.B, device=generator.device),
             'excess_crane_moves': torch.zeros(self.B - 1, device=generator.device),
