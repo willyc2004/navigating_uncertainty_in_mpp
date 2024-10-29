@@ -164,8 +164,9 @@ class MasterPlanningEnv(RL4COEnvBase):
         ## Extraction and precompute
         action, lhs_A, rhs, t, batch_size = self._extract_from_td(td)
         pol, pod, k, tau, rev = self._extract_cargo_parameters_for_step(t[0])
-        current_demand, realized_demand, observed_demand, expected_demand, std_demand, \
-            utilization, target_long_crane, total_loaded, total_revenue, total_cost = self._extract_from_state(td["state"])
+        current_demand, realized_demand, utilization, target_long_crane, total_loaded, total_revenue, total_cost\
+            = self._extract_from_state(td["state"])
+        observed_demand, expected_demand, std_demand = self._extract_from_obs(td["obs"])
 
         ## Current state
         # Check done, update utilization, and compute violation
@@ -239,9 +240,6 @@ class MasterPlanningEnv(RL4COEnvBase):
             "state":{
                 # Demand
                 "current_demand": next_state_dict["current_demand"],
-                "observed_demand": next_state_dict["observed_demand"],
-                "expected_demand": next_state_dict["expected_demand"],
-                "std_demand": next_state_dict["std_demand"],
 
                 # Vessel
                 "utilization": next_state_dict["utilization"],
@@ -250,6 +248,7 @@ class MasterPlanningEnv(RL4COEnvBase):
                 "agg_pod_location": agg_pod_location,
 
                 # Performance
+                "total_loaded": total_loaded,
                 "total_revenue": total_revenue,
                 "total_cost": total_cost,
             },
@@ -340,6 +339,7 @@ class MasterPlanningEnv(RL4COEnvBase):
             "target_long_crane": target_long_crane,
 
             # Performance
+            "total_loaded": th.zeros_like(pol[:, 0], dtype=self.float_type),
             "total_revenue": th.zeros_like(pol[:, 0], dtype=self.float_type),
             "total_cost": th.zeros_like(pol[:, 0], dtype=self.float_type),
         }, batch_size=batch_size, device=device,)
@@ -448,25 +448,22 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Demand-related variables
         current_demand = state["current_demand"].clone()
         realized_demand = state["realized_demand"].clone()
-        observed_demand = state["observed_demand"].clone()
-        expected_demand = state["expected_demand"].clone()
-        std_demand = state["std_demand"].clone()
         # Vessel-related variables
         utilization = state["utilization"].clone()
         target_long_crane = state["target_long_crane"].clone()
-        agg_overstowage = state["overstowage"].clone()
-        agg_lc_excess = state["excess_crane_moves"].clone()
-        total_loaded = state["total_loaded"].clone()
         # # Additional variables
+        total_loaded = state["total_loaded"].clone()
         total_revenue = state["total_revenue"].clone()
         total_cost = state["total_cost"].clone()
-
-        # total_overstowage = state["total_overstowage"].clone()
-        # total_long_crane = state["total_long_crane"].clone()
         # Return
-        return current_demand, realized_demand, observed_demand, expected_demand, std_demand, \
-            utilization, target_long_crane, total_loaded, total_revenue, total_cost
-            # total_revenue, total_loaded, total_overstowage, total_long_crane
+        return current_demand, realized_demand, utilization, target_long_crane, total_loaded, total_revenue, total_cost
+
+    def _extract_from_obs(self, obs) -> Tuple:
+        """Extract and clone state variables from the obs TensorDict."""
+        observed_demand = obs["observed_demand"].clone()
+        expected_demand = obs["expected_demand"].clone()
+        std_demand = obs["std_demand"].clone()
+        return observed_demand, expected_demand, std_demand
 
     # Reward/costs functions
     def _get_reward(self, td, utilizations) -> Tensor:
@@ -567,7 +564,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         min_pod_d1 = torch.where(pod_locations[:, :, 1, :] > 0, self.ports, self.P).min(dim=-1).values
         agg_pod_locations = torch.stack((max_pod_d0, min_pod_d1), dim=-1)
         # Return indicators
-        return agg_pol_locations, agg_pod_locations
+        return agg_pol_locations.to(self.float_type), agg_pod_locations.to(self.float_type)
 
     def _compute_overstowage_loading_indicator(self, pod_locations: Tensor,) -> Tensor:
         """Indicate if overstowage is present due to discharge by: max(pod_d0) > min(pod_d1)
@@ -687,9 +684,9 @@ class MasterPlanningEnv(RL4COEnvBase):
         new_utilization[:, :, :, k, tau] = action
         return new_utilization
 
-    def _update_next_state(self, utilization: Tensor, target_long_crane:Tensor,
-                           realized_demand:Tensor, observed_demand:Tensor, expected_demand:Tensor, std_demand:Tensor,
-                           t:Tensor,) -> Dict[str, Tensor]:
+    def _update_next_state(self, utilization: Tensor, target_long_crane:Tensor, realized_demand:Tensor,
+                           observed_demand:Tensor, expected_demand:Tensor, std_demand:Tensor, t:Tensor,) \
+            -> Dict[str, Tensor]:
         """Update next state, following options:
         - Next step moves to new port POL+1
         - Next step moves to new transport (POL, POD-1)
