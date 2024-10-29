@@ -2,10 +2,14 @@ from typing import Any, Dict, Generator, Optional, Type, TypeVar, Union, Tuple
 import torch as th
 
 # Transport sets
-def get_transport_idx(P: Union[th.Tensor],) -> Union[th.Tensor,]:
+def get_transport_idx(P: int, device) -> Union[th.Tensor,]:
     # Get above-diagonal indices of the transport matrix
-    origins, destinations = th.triu_indices(P.squeeze(), P.squeeze(), offset=1, device=P.device)
+    origins, destinations = th.triu_indices(P, P, offset=1, device=device)
     return th.stack((origins, destinations), dim=-1)
+# def get_transport_idx(P: Union[th.Tensor],) -> Union[th.Tensor,]:
+#     # Get above-diagonal indices of the transport matrix
+#     origins, destinations = th.triu_indices(P.squeeze(), P.squeeze(), offset=1, device=P.device)
+#     return th.stack((origins, destinations), dim=-1)
 
 def get_load_pods(POD: Union[th.Tensor]):
     # Get non-zero column indices
@@ -36,17 +40,17 @@ def get_remain_on_board_transport(transport_idx, POL) -> Union[th.Tensor]:
     mask = (transport_idx[:, 0] < POL) & (transport_idx[:, 1] > POL)
     return mask
 
-def get_pols_from_transport(transport_idx, P) -> Union[th.Tensor]:
+def get_pols_from_transport(transport_idx, P, dtype) -> Union[th.Tensor]:
     # Get transform array from transport to POD
     T = transport_idx.size(0)
-    one_hot = th.zeros(T, P, device=transport_idx.device)
+    one_hot = th.zeros(T, P, device=transport_idx.device, dtype=dtype)
     one_hot[th.arange(T), transport_idx[:, 0].long()] = 1
     return one_hot
 
-def get_pods_from_transport(transport_idx, P) -> Union[th.Tensor]:
+def get_pods_from_transport(transport_idx, P, dtype) -> Union[th.Tensor]:
     # Get transform array from transport to POD
     T = transport_idx.size(0)
-    one_hot = th.zeros(T, P, device=transport_idx.device)
+    one_hot = th.zeros(T, P, device=transport_idx.device, dtype=dtype)
     one_hot[th.arange(T), transport_idx[:, 1].long()] = 1
     return one_hot
 
