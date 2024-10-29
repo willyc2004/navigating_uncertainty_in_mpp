@@ -21,6 +21,8 @@ class MPPInitEmbedding(nn.Module):
         self.cargo_class = nn.Embedding(self.env.K, embed_dim)
 
         # Continuous embeddings
+        # todo:pass lhs_A?
+
         self.weight = nn.Linear(1, embed_dim)
         self.teu = nn.Linear(1, embed_dim)
         self.revenue = nn.Linear(1, embed_dim)
@@ -61,8 +63,8 @@ class MPPContextEmbedding(nn.Module):
         self.env = env
 
         # Categorical embeddings with linear layers
-        self.origin_location = nn.Linear(action_dim * self.env.P, embed_dim)
-        self.destination_location = nn.Linear(action_dim * self.env.P, embed_dim)
+        self.origin_location = nn.Linear(action_dim, embed_dim)
+        self.destination_location = nn.Linear(action_dim, embed_dim)
         # Continuous embeddings
         self.expected_demand = nn.Linear(1, embed_dim)
         self.std_demand = nn.Linear(1, embed_dim)
@@ -78,26 +80,6 @@ class MPPContextEmbedding(nn.Module):
 
         # Self-attention layer
         # self.demand = SelfAttentionStateMapping(feature_dim=demand_dim, embed_dim=embed_dim, device=device)
-        num_features = 3 + action_dim + 1 + self.env.B + self.env.B - 1 + 5 # + action_dim * 5 + 5
-
-        # Feature index dict to use a indices to slice the input tensor
-        self.feature_index = {
-            "expected_demand": slice(0, 1),
-            "std_demand": slice(1, 2),
-            "observed_demand": slice(2, 3),
-            "clip_max": slice(3, 3 + action_dim),
-            "total_loaded": slice(3 + action_dim, 4 + action_dim),
-            "overstowage": slice(4 + action_dim, 4 + action_dim + self.env.B),
-            "long_crane_excess": slice(4 + action_dim + self.env.B,
-                                       4 + action_dim + self.env.B + self.env.B - 1),
-            "violation": slice(4 + action_dim + self.env.B + self.env.B - 1,
-                                4 + action_dim + self.env.B + self.env.B - 1 + 5),
-            "rhs": slice(4 + action_dim + self.env.B + self.env.B - 1 + 5,
-                            4 + action_dim + self.env.B + self.env.B - 1 + 5 + 5),
-            "lhs_A": slice(4 + action_dim + self.env.B + self.env.B - 1 + 5 + 5,
-                            4 + action_dim + self.env.B + self.env.B - 1 + 5 + 5 + action_dim * 5),
-        }
-        self.multi_norm = MultiFeatureRunningNormalization(num_features=num_features)
 
     def forward(self,
                 init_embeddings: Tensor,
@@ -119,48 +101,36 @@ class MPPContextEmbedding(nn.Module):
         - The state embedding size should not depend on e.g. voyage length and cargo types.
         - todo: It does depend on vessel size now, but this could be changed.
         """
-        # Normalize features
-        features = torch.cat([
-            torch.sum(td["state"]["expected_demand"].view(td.batch_size[0], -1, ), dim=-1, keepdim=True),
-            torch.sum(td["state"]["std_demand"].view(td.batch_size[0], -1, ), dim=-1, keepdim=True),
-            torch.sum(td["state"]["observed_demand"].view(td.batch_size[0], -1, ), dim=-1, keepdim=True),
-            td["clip_max"].view(td.batch_size[0], -1, ),
-            td["state"]["total_loaded"].view(td.batch_size[0], -1, ),
-            td["state"]["overstowage"].view(td.batch_size[0], -1, ),
-            td["state"]["long_crane_excess"].view(td.batch_size[0], -1, ),
-            td["violation"].view(td.batch_size[0], -1),
-            # todo: try without rhs and lhs_A
-            # td["rhs"].view(td.batch_size[0], -1),
-            # td["lhs_A"].view(td.batch_size[0], -1),
-        ], dim=-1)
-        self.multi_norm.update(features)
-        norm_features = self.multi_norm.normalize(features)
+        # Demand
+        expected_demand = self.expected_demand(
+            torch.sum(td["state"]["expected_demand"].view(td.batch_size[0], -1), dim=-1, keepdim=True))
+        std_demand = self.std_demand(
+            torch.sum(td["state"]["std_demand"].view(td.batch_size[0], -1), dim=-1, keepdim=True))
+        observed_demand = self.observed_demand(
+            torch.sum(td["state"]["observed_demand"].view(td.batch_size[0], -1), dim=-1, keepdim=True))
 
-        # get slices from norm_features, and apply linear layers
-        expected_demand = self.expected_demand(norm_features[:, self.feature_index["expected_demand"]])
-        std_demand = self.std_demand(norm_features[:, self.feature_index["std_demand"]])
-        actual_demand = self.actual_demand(norm_features[:, self.feature_index["observed_demand"]])
-        residual_capacity = self.residual_capacity(norm_features[:, self.feature_index["clip_max"]])
-        total_loaded = self.total_loaded(norm_features[:, self.feature_index["total_loaded"]])
-        overstowage = self.overstowage(norm_features[:, self.feature_index["overstowage"]])
-        excess_crane_moves = self.excess_crane_moves(norm_features[:, self.feature_index["long_crane_excess"]])
-        violation = self.violation(norm_features[:, self.feature_index["violation"]])
-        # rhs = self.rhs(norm_features[:, self.feature_index["rhs"]])
-        # lhs_A = self.lhs_A(norm_features[:, self.feature_index["lhs_A"]])
+        # Vessel
+        residual_capacity = self.clip_max(td["clip_max"].view(td.batch_size[0], -1))
+        origin_embed = self.origin_location(td["agg_pol_location"].view(td.batch_size[0], -1))
+        destination_embed = self.destination_location(td["agg_pod_location"].view(td.batch_size[0], -1))
 
-        # todo: not having num_classes in one_hot or embedding causes an error
-        # origin_onehot = F.one_hot(td["state"]["agg_pol_location"].view(td.batch_size[0], -1, ).to(torch.int64), num_classes=max_pol).float()
-        # origin_embed = self.origin_location(origin_onehot.view(td.batch_size[0], -1, ))
-        # destination_onehot = F.one_hot(td["state"]["agg_pod_location"].view(td.batch_size[0], -1, ).to(torch.int64), num_classes=max_pod).float()
-        # destination_embed = self.destination_location(destination_onehot.view(td.batch_size[0], -1, ))
+        # Performance
+        total_loaded = self.total_loaded(td["state"]["total_loaded"].view(td.batch_size[0], -1))
+        overstowage = self.overstowage(td["state"]["overstowage"].view(td.batch_size[0], -1))
+        long_crane_excess = self.long_crane_excess(td["state"]["long_crane_excess"].view(td.batch_size[0], -1))
+
+        # Feasibility
+        violation = self.violation(td["violation"].view(td.batch_size[0], -1))
+        rhs = self.rhs(td["rhs"].view(td.batch_size[0], -1))
+        lhs_A = self.lhs_A(td["lhs_A"].view(td.batch_size[0], -1))
 
         # Concatenate all embeddings
-        state_embed = torch.cat([expected_demand, std_demand, actual_demand,
-                                 residual_capacity, #origin_embed, destination_embed,
-                                 total_loaded, overstowage, excess_crane_moves,
-                                 # lhs_A, rhs,
-                                 violation
-                                 ], dim=-1)
+        state_embed = torch.cat([
+            expected_demand, std_demand, observed_demand,
+            residual_capacity, origin_embed, destination_embed,
+            total_loaded, overstowage, long_crane_excess,
+            violation, rhs, lhs_A
+        ], dim=-1)
         return state_embed
 
 class StaticEmbedding(nn.Module):
