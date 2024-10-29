@@ -5,6 +5,7 @@ import torch
 import torch as th
 from torch import Tensor
 from tensordict.tensordict import TensorDict
+from torchrl.envs.common import EnvBase
 from torchrl.data import (
     BoundedTensorSpec,
     CompositeSpec,
@@ -104,7 +105,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Parameters:
         # Transport and cargo characteristics
         self.ports = torch.arange(self.P, device=self.generator.device)
-        self.transport_idx = get_transport_idx(th.tensor(self.P, device=self.generator.device,))
+        self.transport_idx = get_transport_idx(self.P, device=self.generator.device)
         self.transport_list = [(i,j) for i in range(self.P) for j in range(i+1, self.P)]
         # Step ordering: descending distance, longterm > spot; ascending TEU, ascending weight
         self.ordered_steps = self._precompute_step_ordering()
@@ -120,8 +121,8 @@ class MasterPlanningEnv(RL4COEnvBase):
         self._precompute_transport_sets()
         self._precompute_transport_sets_episode()
         self.next_port_mask = self._precompute_next_port_mask()
-        self.transform_tau_to_pol = get_pols_from_transport(self.transport_idx, self.P)
-        self.transform_tau_to_pod = get_pods_from_transport(self.transport_idx, self.P)
+        self.transform_tau_to_pol = get_pols_from_transport(self.transport_idx, self.P, dtype=self.float_type)
+        self.transform_tau_to_pod = get_pods_from_transport(self.transport_idx, self.P, dtype=self.float_type)
 
         # Capacity in TEU per location (bay,deck)
         c = kwargs.get("capacity")
@@ -232,31 +233,30 @@ class MasterPlanningEnv(RL4COEnvBase):
         total_revenue += revenue
         total_cost += cost
         # we normalize reward outside the environment
-        reward = profit
-            # (total_revenue - total_cost) / self.total_capacity # profit per container
-        # print(f"reward_{t[0]}", reward.mean(dim=0), relative_revenue.mean(dim=0), relative_cost.mean(dim=0))
+        reward = profit # (total_revenue - total_cost) / self.total_capacity # profit per container
         scale_factor = self.teus_episode[t]
 
         # Update td output
         td.update({
             "state":{
-                "current_demand": next_state_dict["current_demand"],
-                "utilization": next_state_dict["utilization"],
-                "target_long_crane": next_state_dict["target_long_crane"],
-                "agg_pol_location": agg_pol_location,
-                "agg_pod_location": agg_pod_location,
+
                 "total_revenue": total_revenue,
                 "total_cost": total_cost,
-            },
-            "obs": {
+
                 # Demand
                 "current_demand": next_state_dict["current_demand"],
                 "observed_demand": next_state_dict["observed_demand"],
                 "expected_demand": next_state_dict["expected_demand"],
-                "std_demand":next_state_dict["std_demand"],
+                "std_demand": next_state_dict["std_demand"],
 
-                # Vessel + Performance
-                "residual_capacity":residual_capacity.view(*batch_size, self.B*self.D),
+                # Vessel
+                "residual_capacity": residual_capacity.view(*batch_size, self.B * self.D),
+                "utilization": next_state_dict["utilization"],
+                "target_long_crane": next_state_dict["target_long_crane"],
+                "agg_pol_location": agg_pol_location,
+                "agg_pod_location": agg_pod_location,
+
+                # Performance
                 "total_loaded": total_loaded,
                 "overstowage": overstowage,
                 "long_crane_excess": long_crane_excess,
@@ -278,6 +278,13 @@ class MasterPlanningEnv(RL4COEnvBase):
 
     def _reset(self,  td: Optional[TensorDict] = None,  batch_size=None) -> TensorDict:
         """Reset the environment to the initial state."""
+        # todo: with torchRL transformed, we need this
+        if batch_size is None:
+            batch_size = [1] if td is None else td.batch_size
+        if td is None or td.is_empty():
+            td = self.generator(batch_size=batch_size)
+        batch_size = [batch_size] if isinstance(batch_size, int) else batch_size
+        self.to(td.device)
         device = td.device
 
         # Initialize cargo parameters
@@ -306,14 +313,18 @@ class MasterPlanningEnv(RL4COEnvBase):
             "utilization": th.zeros((*batch_size, self.B, self.D, self.K, self.T), device=device, dtype=self.float_type),
             "location_utilization": locations_utilization,
             "location_weight": th.zeros_like(locations_utilization),
+            "residual_capacity":th.zeros_like(locations_utilization),
             "agg_pol_location": th.zeros_like(locations_utilization),
             "agg_pod_location": th.zeros_like(locations_utilization),
             "overstowage": th.zeros((*batch_size, self.B,),  device=device, dtype=self.float_type),
             "long_crane_excess": th.zeros((*batch_size, self.B-1,),  device=device, dtype=self.float_type),
             "target_long_crane": target_long_crane,
+
+            # Performance
             "total_loaded": th.zeros_like(pol[:, 0], dtype=self.float_type),
             "total_revenue": th.zeros_like(pol[:, 0], dtype=self.float_type),
             "total_cost": th.zeros_like(pol[:, 0], dtype=self.float_type),
+            "violation": th.zeros((*batch_size, self.n_constraints), device=device, dtype=self.float_type),
 
         }, batch_size=batch_size, device=device,)
 
@@ -338,6 +349,7 @@ class MasterPlanningEnv(RL4COEnvBase):
             "state": initial_state,
 
             # Action mask and clipping
+            "action": th.zeros_like(action_mask),
             "action_mask": action_mask.view(*batch_size, -1),
             "clip_min": th.zeros_like(clip_max, dtype=self.float_type).view(*batch_size, self.B*self.D, ),
             "clip_max": clip_max.view(*batch_size, self.B*self.D),
@@ -346,10 +358,9 @@ class MasterPlanningEnv(RL4COEnvBase):
             # Constraints
             "lhs_A": lhs_A,
             "rhs": rhs,
-            "violation": th.zeros((*batch_size, self.n_constraints),  device=device, dtype=self.float_type),
 
             # Reward, done and step
-            "reward": reward,
+            # "reward": reward,
             "profit": th.zeros_like(reward),
             "done": th.zeros_like(pol[:,0], dtype=th.bool,),
             "episodic_step": t,
