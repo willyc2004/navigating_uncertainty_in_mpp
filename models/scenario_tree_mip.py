@@ -192,7 +192,6 @@ def main(config, scenarios_per_stage=32):
                         )
 
                         if not perfect_information:
-                            # todo: non-anticipation not working yet!
                             demand_history1 = get_demand_history(stage, demand)
                             for node_id2 in range(node_id + 1, num_nodes_per_stage[stage]):
                                 demand_history2 = get_demand_history(stage, demand)
