@@ -78,7 +78,7 @@ class LinearViolationAdaption(th.nn.Module):
         violation_old = th.zeros(batch_size, m, dtype=x.dtype, device=x.device)
         active_mask = th.ones(batch_size, dtype=th.bool, device=x.device)  # Start with all batches active
         x_ = x.clone()
-        count = 0
+        # count = 0
 
         while th.any(active_mask):
             # Compute current violation for each batch
@@ -104,9 +104,7 @@ class LinearViolationAdaption(th.nn.Module):
 
             # Update violation_old for the next iteration
             violation_old = violation_new.clone()
-            count += 1
-        print("count", count)
-        breakpoint()
+            # count += 1
         return x_
 
 
