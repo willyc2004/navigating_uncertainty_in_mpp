@@ -129,6 +129,7 @@ class MPPContextEmbedding(nn.Module):
             td["state"]["overstowage"].view(td.batch_size[0], -1, ),
             td["state"]["long_crane_excess"].view(td.batch_size[0], -1, ),
             td["violation"].view(td.batch_size[0], -1),
+            # todo: try without rhs and lhs_A
             # td["rhs"].view(td.batch_size[0], -1),
             # td["lhs_A"].view(td.batch_size[0], -1),
         ], dim=-1)
