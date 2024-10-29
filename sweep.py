@@ -66,8 +66,8 @@ if __name__ == "__main__":
         sweep_config = yaml.safe_load(file)
 
     # Initialize the sweep with W&B
-    # sweep_id = wandb.sweep(sweep=sweep_config, project="mpp_ppo")
-    sweep_id = "a5jma7zm"  # Use this line to manually set the sweep ID
+    sweep_id = wandb.sweep(sweep=sweep_config, project="mpp_ppo")
+    # sweep_id = "a5jma7zm"  # Use this line to manually set the sweep ID
 
     # Start the sweep agent, which runs the 'train' function with different hyperparameters
     wandb.agent(sweep_id, function=train, project="mpp_ppo", entity="stowage_planning_research")
