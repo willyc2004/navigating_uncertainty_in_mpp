@@ -376,7 +376,6 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 # - Projection loss computes the distance between the raw and projected policy distributions
                 lhs = (lhs_A * proj_mean_logits.unsqueeze(-2)).sum(dim=-1)
                 violation = torch.clamp(lhs - rhs, min=0)
-                print("violation", violation.shape)
                 feasibility_loss = F.mse_loss(self.lambda_violations * violation, torch.zeros_like(violation),
                                               reduction="mean")
                 projection_loss = F.mse_loss(mean_logits, proj_mean_logits, reduction="mean")
@@ -423,7 +422,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
                     "adv": adv,
                     "value_pred": value_preds,
                     "total_loaded": td["state"]["total_loaded"].mean(),
-                    "violations": violation.mean(dim=0).sum(), # total violation
+                    "violations": violation.mean(dim=0).sum(), # total violation during n-steps
                     # "ll": ll.sum(),
                     # "old_ll": old_ll.sum(),
                     # "action": action.mean(),
