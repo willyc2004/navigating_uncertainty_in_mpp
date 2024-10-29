@@ -401,19 +401,19 @@ if __name__ == "__main__":
         config = adapt_env_kwargs(config)
 
     # Run main for different seeds and number of scenarios
-    results = []
-    vars = []
     num_seed = 20
-    for x in range(num_seed):
-        for scen in [4,8,12,16,20,24,32]:
+    for scen in [4,8,12,16,20,24,32]:
+        results = []
+        vars = []
+        for x in range(num_seed):
             seed = config.env.seed + x
             set_unique_seed(seed)
             result, var = main(config, scen, seed)
             results.append(result)
             vars.append(var)
 
-    # Save results to a JSON file
-    with open("results_scenario_tree.json", "w") as json_file:
-        json.dump(results, json_file, indent=4)
-    with open("variables_scenario_tree.json", "w") as json_file:
-        json.dump(results, json_file, indent=4)
+        # Save results to a JSON file
+        with open(f"results_scenario_tree_s{scen}.json", "w") as json_file:
+            json.dump(results, json_file, indent=4)
+        with open(f"variables_scenario_tree_s{scen}.json", "w") as json_file:
+            json.dump(results, json_file, indent=4)
