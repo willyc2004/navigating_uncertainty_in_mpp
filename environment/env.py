@@ -231,8 +231,9 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Track metrics and normalization
         total_revenue += revenue
         total_cost += cost
-        # we normalize reward outside the environment
-        reward = profit # (total_revenue - total_cost) / self.total_capacity # profit per container
+        # Normalize revenue based on highest possible step reward
+        max_revenue = th.max(self.revenues) * th.max(realized_demand.view(-1, self.K*self.T), dim=1).values
+        reward = profit / max_revenue # (total_revenue - total_cost) / self.total_capacity # profit per container
         scale_factor = self.teus_episode[t]
 
         # Update td output
