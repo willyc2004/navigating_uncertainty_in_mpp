@@ -9,7 +9,7 @@ import os
 sys.path.append('/home/jaiv/ILOG/CPLEX_Studio2211/cplex/python/3.9/x86-64_linux')
 
 # Module imports
-path_to_main = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+path_to_main = os.path.abspath(os.path.join(os.path.dirname(__file__), ''))
 sys.path.append(path_to_main)
 from main import adapt_env_kwargs, make_env
 from environment.utils import get_pol_pod_pair
