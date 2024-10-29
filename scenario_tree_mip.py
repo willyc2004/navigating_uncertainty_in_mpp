@@ -15,9 +15,7 @@ sys.path.append(path_to_main)
 from main import adapt_env_kwargs, make_env
 from environment.utils import get_pol_pod_pair
 
-def main(config, scenarios_per_stage=32):
-
-
+def main(config, scenarios_per_stage=32, seed=42):
     # Create the environment on cpu
     env_kwargs = config.env
     env = make_env(env_kwargs, device='cpu')
@@ -366,6 +364,7 @@ def main(config, scenarios_per_stage=32):
             "LM_": LM_.tolist(),
             "VM_": VM_.tolist(),
             "TW_": TW_.tolist(),
+            "seed":seed,
             "ports":P,
             "scenarios":scenarios_per_stage,
             "obj":solution.objective_value,
@@ -388,8 +387,9 @@ if __name__ == "__main__":
     num_seed = 20
     for x in range(num_seed):
         for scen in [4,8,12,16,20,24,32]:
-            th.manual_seed(config.env.seed + x)
-            output_dict = main(config, scen)
+            seed = config.env.seed + x
+            th.manual_seed(seed)
+            output_dict = main(config, scen, seed)
             results.append(output_dict)
 
     # Save results to a JSON file
