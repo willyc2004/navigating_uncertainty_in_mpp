@@ -32,6 +32,8 @@ from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import LinearLR
 from lightning.pytorch.callbacks import ModelCheckpoint, RichModelSummary, EarlyStopping
 from lightning.pytorch.loggers import WandbLogger
+from torchrl.envs import TransformedEnv
+from torchrl.envs.transforms import ObservationNorm
 
 # RL4CO
 from rl4co.utils.trainer import RL4COTrainer
@@ -102,6 +104,11 @@ def main(config=None):
     ## Environment initialization
     env_kwargs = config.env
     env = make_env(env_kwargs, device)
+
+    # Transform env
+    obs_norm_transform = ObservationNorm(in_keys=["obs"], out_keys=["norm_obs"], standard_normal=True)
+    env = TransformedEnv(env, obs_norm_transform)
+
     if check_env_specs(env):
         print("Environment specifications seem valid!")
     else:

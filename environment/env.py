@@ -166,6 +166,8 @@ class MasterPlanningEnv(RL4COEnvBase):
         current_demand, realized_demand, observed_demand, expected_demand, std_demand, \
             utilization, target_long_crane, total_loaded, total_revenue, total_cost = self._extract_from_state(td["state"])
 
+        # todo: need unnormalized: utilization, target_long_crane, current_demand
+
         ## Current state
         # Check done, update utilization, and compute violation
         done = self._check_done(t)
@@ -178,7 +180,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         overstowage = self._compute_hatch_overstowage(utilization, pol)
 
         # Compute total_loaded and aggregated long crane excess
-        total_loaded = total_loaded + th.min(action.sum(dim=(-2, -1)), current_demand)
+        # total_loaded = total_loaded + th.min(action.sum(dim=(-2, -1)), current_demand)
         long_crane_moves = self._compute_long_crane(utilization, pol)
         long_crane_excess = th.clamp(long_crane_moves - target_long_crane.view(-1, 1), min=0)
 
@@ -238,29 +240,36 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Update td output
         td.update({
             "state":{
-                # Demand and vessel
-                **next_state_dict,
-                "overstowage": overstowage,
+                "current_demand": next_state_dict["current_demand"],
+                "utilization": next_state_dict["utilization"],
+                "target_long_crane": next_state_dict["target_long_crane"],
                 "agg_pol_location": agg_pol_location,
                 "agg_pod_location": agg_pod_location,
-                "long_crane_excess": long_crane_excess,
-                "total_loaded": total_loaded,
                 "total_revenue": total_revenue,
                 "total_cost": total_cost,
             },
+            "obs": {
+                # Demand
+                "current_demand": next_state_dict["current_demand"],
+                "observed_demand": next_state_dict["observed_demand"],
+                "expected_demand": next_state_dict["expected_demand"],
+                "std_demand":next_state_dict["std_demand"],
+
+                # Vessel + Performance
+                "residual_capacity":residual_capacity.view(*batch_size, self.B*self.D),
+                "total_loaded": total_loaded,
+                "overstowage": overstowage,
+                "long_crane_excess": long_crane_excess,
+                "violation": violation,
+            },
             # Feasibility and constraints
-            "violation": violation,
             "lhs_A": lhs_A,
             "rhs": rhs,
-            # "action_mask": action_mask,
-            # "min_pod": min_pod,
             "clip_max": residual_capacity.view(*batch_size, self.B*self.D),
             # Action, reward, done and step
             "action": action.view(*batch_size, self.B*self.D),
             "reward": reward,
             "profit": profit,
-            # "ho_costs": ho_costs,
-            # "lc_costs": lc_costs,
             "done": done,
             "episodic_step":t,
             "scale_factor": scale_factor,
@@ -664,8 +673,10 @@ class MasterPlanningEnv(RL4COEnvBase):
 
         # Get output
         return {
-            "observed_demand": observed_demand,
             "current_demand": realized_demand[:, k, tau],
+            "observed_demand": observed_demand,
+            "expected_demand": expected_demand,
+            "std_demand":std_demand,
             "utilization": utilization,
             "location_utilization": (utilization * self.teus.view(1,1,1,-1,1)).sum(dim=(-2,-1)),
             "location_weight": (utilization * self.weights.view(1, 1, 1, -1, 1)).sum(dim=(-1,-2)),
