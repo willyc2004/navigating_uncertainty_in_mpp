@@ -447,6 +447,9 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 td=td, clip_min=clip_min, clip_max=clip_max, action=action, **kwargs
             )
 
+            if self.projection_type == "linear_violation_sample":
+                selected_action = self.projection_layer(selected_action, td["lhs_A"], td["rhs"], )
+
             # Update logprobs and actions
             self.lhs_A.append(td["lhs_A"])
             self.rhs.append(td["rhs"])
