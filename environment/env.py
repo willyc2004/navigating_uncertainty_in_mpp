@@ -476,9 +476,6 @@ class MasterPlanningEnv(RL4COEnvBase):
 
     def _compute_total_revenue(self, actions, realized_demand) -> Tensor:
         """Compute total revenue during episode"""
-
-        print("realized_demand", realized_demand[0])
-        breakpoint()
         cargo = th.min(actions.sum(dim=(-1)), realized_demand[:,:,0,0].view(-1, self.K * self.T))
         return (cargo * self.revenues[:-1].view(1, -1,)).sum(dim=(-1)) # / self.total_capacity
 
