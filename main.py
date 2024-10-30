@@ -266,6 +266,7 @@ def main(config=None):
 
         # Initialize policy
         policy = model.policy
+        env_kwargs["float_type"] = torch.float32
         test_env = make_env(env_kwargs, device)  # Re-initialize the environment
 
         # Run multiple iterations to measure inference time
