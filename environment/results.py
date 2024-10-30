@@ -28,7 +28,7 @@ def rollout_results(env, out, td, batch_size, checkpoint_path, test_projection, 
     backorders_teu = demand_teu - loaded_teu
     # Efficiency analysis
     hatch_overstowage = metrics["total_overstowage"].view(*batch_size, -1)  # [batch_size,]
-    long_crane_excess = metrics["total_long_crane_excess"].view(*batch_size, -1)  # [batch_size,]
+    long_crane_excess = metrics["total_excess_crane_moves"].view(*batch_size, -1)  # [batch_size,]
 
     # Revenue and cost analysis
     max_revenue = (env.revenues[:-1].view(1, env.K * env.T) * demand).sum(dim=-1)
