@@ -16,7 +16,7 @@ env:
   hatch_overstowage_mask: False
   long_crane_costs: 0.5
   seed: 42
-  utilization_rate_initial_demand: 0.7
+  utilization_rate_initial_demand: 1.0
   spot_percentage: 0.3
 
 # Model settings
