@@ -73,7 +73,7 @@ class LinearViolationAdaption(th.nn.Module):
     def __init__(self, **kwargs):
         super(LinearViolationAdaption, self).__init__()
 
-    def forward(self, x, A, b, alpha=0.03, delta=0.001, tolerance=1e-4):
+    def forward(self, x, A, b, alpha=0.01, delta=0.001, tolerance=1e-4):
         batch_size, m = b.shape
         violation_old = th.zeros(batch_size, m, dtype=x.dtype, device=x.device)
         active_mask = th.ones(batch_size, dtype=th.bool, device=x.device)  # Start with all batches active
