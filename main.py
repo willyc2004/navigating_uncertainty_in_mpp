@@ -264,20 +264,42 @@ def main(config=None):
         checkpoint = torch.load(checkpoint_path + ckpt_name,)
         model.load_state_dict(checkpoint['state_dict'], strict=True)
 
-        ## Main testing:
-        # todo: change initial problem instance to show performance of the model
-        # Initialize environment and policy
-        env_kwargs["float_type"] = torch.float32
-        test_env = make_env(env_kwargs, device)
-        td_init = test_env.reset(batch_size=batch_size, td=td)
+        # Initialize policy
         policy = model.policy
-        # Rollouts with trained model
-        out = policy(td_init.clone(), test_env, phase="test", decode_type="continuous_sampling",
-                     return_actions=True, return_td=True, return_feasibility=True,
-                     projection_type=am_ppo_params["projection_type"], projection_kwargs=projection_kwargs)
-        # Analyze rollout results
-        rollout_results(test_env, out, td, batch_size, checkpoint_path,
-                        am_ppo_params["projection_type"], config["env"]["utilization_rate_initial_demand"],)
+        test_env = make_env(env_kwargs, device)  # Re-initialize the environment
+
+        # Run multiple iterations to measure inference time
+        num_runs = 20
+        outs = []
+        times = []
+
+        for i in range(num_runs):
+            # Set a new seed for each run
+            seed = i
+            torch.manual_seed(seed)
+            td_init = test_env.reset(batch_size=batch_size, td=td)
+
+            # Sync GPU before starting timer if using CUDA
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            start_time = time.perf_counter()
+
+            # Run inference
+            out = policy(td_init.clone(), test_env, phase="test", decode_type="continuous_sampling",
+                         return_actions=True, return_td=True, return_feasibility=True,
+                         projection_type=am_ppo_params["projection_type"], projection_kwargs=projection_kwargs)
+
+            # Sync GPU again after inference if using CUDA
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            end_time = time.perf_counter()
+
+            # Calculate and record inference time for each run
+            outs.append(out)
+            times.append(end_time - start_time)
+
+        rollout_results(test_env, outs, td, batch_size, checkpoint_path,
+                        am_ppo_params["projection_type"], config["env"]["utilization_rate_initial_demand"], times)
     return model
 
 def init_he_weights(m):
