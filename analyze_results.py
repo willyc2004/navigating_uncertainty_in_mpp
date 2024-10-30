@@ -2,8 +2,8 @@ import json
 import numpy as np
 
 # Load JSON file
-s = 16
-with open(f'results_scenario_tree_s{s}_pi.json', 'r') as file:
+s = 20
+with open(f'results_scenario_tree_s{s}_piTrue.json', 'r') as file:
     data = json.load(file)
 
 obj = []
