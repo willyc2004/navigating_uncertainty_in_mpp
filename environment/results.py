@@ -7,7 +7,7 @@ def rollout_results(env, out, td, batch_size, checkpoint_path, test_projection, 
     # Get metrics and reward
     metrics = env._get_metrics_n_step(td, out["utilization"], actions=out["actions"])
     total_revenue = env._compute_total_revenue(metrics["actions"], metrics["realized_demand"])
-    total_costs = env._compute_total_costs(metrics["total_overstowage"], metrics["total_long_crane_excess"])
+    total_costs = env._compute_total_costs(metrics["total_overstowage"], metrics["total_excess_crane_moves"])
     reward = total_revenue - total_costs
 
     # Get violations
