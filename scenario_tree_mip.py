@@ -16,7 +16,7 @@ sys.path.append(path_to_main)
 from main import adapt_env_kwargs, make_env
 from environment.utils import get_pol_pod_pair
 
-def main(config, scenarios_per_stage=32, seed=42):
+def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, deterministic=False):
     # Create the environment on cpu
     env_kwargs = config.env
     env_kwargs.seed = seed
@@ -44,8 +44,6 @@ def main(config, scenarios_per_stage=32, seed=42):
     stages = P - 1  # Number of load ports (P-1)
     max_paths = scenarios_per_stage ** (stages-1) + 1
     num_nodes_per_stage = [1*scenarios_per_stage**stage for stage in range(stages)]
-    perfect_information = False
-    deterministic = False
 
     # Precompute functions
     def precompute_node_list(stages, scenarios_per_stage):
@@ -401,19 +399,22 @@ if __name__ == "__main__":
         config = adapt_env_kwargs(config)
 
     # Run main for different seeds and number of scenarios
+    perfect_information = False
+    deterministic = False
+
     num_seed = 20
-    for scen in [4,8,12,16,20,24,32]:
+    for scen in [4,8,12,16,20]:#,24,32]:
         results = []
         vars = []
         for x in range(num_seed):
             seed = config.env.seed + x
             set_unique_seed(seed)
-            result, var = main(config, scen, seed)
+            result, var = main(config, scen, seed, perfect_information, deterministic)
             results.append(result)
             vars.append(var)
 
         # Save results to a JSON file
-        with open(f"results_scenario_tree_s{scen}.json", "w") as json_file:
+        with open(f"results_scenario_tree_s{scen}_pi{perfect_information}.json", "w") as json_file:
             json.dump(results, json_file, indent=4)
-        with open(f"variables_scenario_tree_s{scen}.json", "w") as json_file:
+        with open(f"variables_scenario_tree_s{scen}_pi{perfect_information}.json", "w") as json_file:
             json.dump(results, json_file, indent=4)
