@@ -2,69 +2,99 @@ import matplotlib.pyplot as plt
 import torch
 import numpy as np
 
-def rollout_results(env, out, td, batch_size, checkpoint_path, test_projection, utilization_rate_initial_demand):
+def rollout_results(env, outs, td, batch_size, checkpoint_path, test_projection, utilization_rate_initial_demand,
+                    inference_times):
     """Analyze the results of a rollout"""
-    # Get metrics and reward
-    metrics = env._get_metrics_n_step(td, out["utilization"], actions=out["actions"])
-    total_revenue = env._compute_total_revenue(metrics["actions"], metrics["realized_demand"])
-    total_costs = env._compute_total_costs(metrics["total_overstowage"], metrics["total_excess_crane_moves"])
-    reward = total_revenue - total_costs
 
-    # Get violations
-    lhs_A, rhs = out["lhs_A"], out["rhs"]
-    lhs = (lhs_A * out["actions"].unsqueeze(-2)).sum(dim=-1)
-    violations = torch.clamp(lhs - rhs, min=0)
-    # todo: analyze relative violations!
-    # relative_violations = ((violations / rhs).nan_to_num(nan=0)).sum(dim=1).mean(dim=-1) # [batch_size, 5]
-    # print(relative_violations)
 
-    # Demand analysis
-    demand = out["td"]["realized_demand"].view(*batch_size, -1)  # [batch_size, K*T]
-    loaded = out["actions"].sum(dim=-1)  # [batch_size, K*T]
-    backorders = demand - loaded
-    demand_teu = (out["td"]["realized_demand"] * env.teus.view(1, -1, 1)).view(*batch_size, -1)  # [batch_size, K*T]
-    loaded_teu = (out["actions"].sum(dim=-1).view(*batch_size, env.K, env.T) * env.teus.view(1, -1, 1)).view(
-        *batch_size, -1)  # [batch_size, K*T]
-    backorders_teu = demand_teu - loaded_teu
-    # Efficiency analysis
-    hatch_overstowage = metrics["total_overstowage"].view(*batch_size, -1)  # [batch_size,]
-    long_crane_excess = metrics["total_excess_crane_moves"].view(*batch_size, -1)  # [batch_size,]
+    # Lists to store metrics across batches
+    revenues = []
+    costs = []
+    rewards = []
+    demand_list = []
+    violations_list = []
+    backorders_list = []
+    backorders_teu_list = []
+    hatch_overstowage_list = []
+    long_crane_excess_list = []
 
-    # Revenue and cost analysis
-    max_revenue = (env.revenues[:-1].view(1, env.K * env.T) * demand).sum(dim=-1)
+    for out in outs:
+        # Get metrics and reward
+        metrics = env._get_metrics_n_step(td, out["utilization"], actions=out["actions"])
+        total_revenue = env._compute_total_revenue(metrics["actions"], metrics["realized_demand"])
+        total_costs = env._compute_total_costs(metrics["total_overstowage"], metrics["total_excess_crane_moves"])
+        reward = total_revenue - total_costs
+
+        # Append to lists
+        revenues.append(total_revenue)
+        costs.append(total_costs)
+        rewards.append(reward)
+
+        # Get violations
+        lhs_A, rhs = out["lhs_A"], out["rhs"]
+        lhs = (lhs_A * out["actions"].unsqueeze(-2)).sum(dim=-1)
+        violations = torch.clamp(lhs - rhs, min=0).sum(dim=-1)
+        violations_list.append(violations)
+
+        # Demand analysis
+        demand = out["td"]["realized_demand"].view(*batch_size, -1)
+        demand_list.append(demand.sum(dim=-1))
+        loaded = out["actions"].sum(dim=-1)
+        backorders = demand - loaded
+        backorders_list.append(backorders)
+        demand_teu = (out["td"]["realized_demand"] * env.teus.view(1, -1, 1)).view(*batch_size, -1)
+        loaded_teu = (out["actions"].sum(dim=-1).view(*batch_size, env.K, env.T) * env.teus.view(1, -1, 1)).view(
+            *batch_size, -1)
+        backorders_teu = demand_teu - loaded_teu
+        backorders_teu_list.append(backorders_teu)
+
+        # Efficiency analysis
+        hatch_overstowage = metrics["total_overstowage"].view(*batch_size, -1)
+        long_crane_excess = metrics["total_excess_crane_moves"].view(*batch_size, -1)
+        hatch_overstowage_list.append(hatch_overstowage)
+        long_crane_excess_list.append(long_crane_excess)
+
+    # Convert lists to tensors for calculations
+    revenues = torch.stack(revenues)
+    costs = torch.stack(costs)
+    rewards = torch.stack(rewards)
+    violations_list = torch.stack(violations_list)
+    backorders_list = torch.stack(backorders_list)
+    backorders_teu_list = torch.stack(backorders_teu_list)
+    hatch_overstowage_list = torch.stack(hatch_overstowage_list)
+    long_crane_excess_list = torch.stack(long_crane_excess_list)
 
     # Safe text results to file
     with open(checkpoint_path + f"/results_{test_projection}_rate_{utilization_rate_initial_demand}.txt", "w") as f:
         f.write("Overall analysis:\n")
         f.write("-" * 100 + "\n")
-        f.write(f"Total Reward: E[x]: {reward.mean()}, Std[x]: {reward.std()}\n")
-        # f.write(f"Relative Violations: E[x]: {relative_violations.sum(dim=-1).mean()}, "
-        #         f"Std[x]: {relative_violations.sum(dim=-1).std()}\n")
-        # todo: add speed
+        f.write(f"Total Reward: E[x]: {rewards.mean()}, Std[x]: {rewards.std()}\n")
+        f.write(f"Total Violations: E[x]: {violations_list.mean()}, Std[x]: {violations_list.std()}\n")
+        f.write(f"Total Time: E[x]: {inference_times.mean()}, Std[x]: {inference_times.std()}\n")
         f.write("*" * 100 + "\n")
         f.write("Demand analysis:\n")
         f.write("-" * 100 + "\n")
-        f.write(f"Total Demand (#): E[x]: {demand.sum(dim=-1).mean()}, Std[x]: {demand.sum(dim=-1).std()}\n")
-        f.write(f"Total Loaded (#): E[x]: {loaded.sum(dim=-1).mean()}, Std[x]: {loaded.sum(dim=-1).std()}\n")
-        f.write(f"Backorders (#): E[x]: {backorders.sum(dim=-1).mean()}, Std[x]: {backorders.sum(dim=-1).std()}\n")
+        # f.write(f"Total Demand (#): E[x]: {demand_list.sum(dim=-1).mean()}, Std[x]: {demand_list.sum(dim=-1).std()}\n")
+        # f.write(f"Total Loaded (#): E[x]: {loaded.sum(dim=-1).mean()}, Std[x]: {loaded.sum(dim=-1).std()}\n")
+        f.write(f"Backorders (#): E[x]: {backorders_list.sum(dim=-1).mean()}, Std[x]: {backorders_list.sum(dim=-1).std()}\n")
         f.write("-" * 100 + "\n")
-        f.write(f"Total Demand (TEU): E[x]: {demand_teu.sum(dim=-1).mean()}, Std[x]: {demand_teu.sum(dim=-1).std()}\n")
-        f.write(f"Total Loaded (TEU): E[x]: {loaded_teu.sum(dim=-1).mean()}, Std[x]: {loaded_teu.sum(dim=-1).std()}\n")
-        f.write(f"Backorders (TEU): E[x]: {backorders_teu.sum(dim=-1).mean()}, Std[x]: {backorders_teu.sum(dim=-1).std()}\n")
+        # f.write(f"Total Demand (TEU): E[x]: {demand_teu.sum(dim=-1).mean()}, Std[x]: {demand_teu.sum(dim=-1).std()}\n")
+        # f.write(f"Total Loaded (TEU): E[x]: {loaded_teu.sum(dim=-1).mean()}, Std[x]: {loaded_teu.sum(dim=-1).std()}\n")
+        f.write(f"Backorders (TEU): E[x]: {backorders_teu_list.sum(dim=-1).mean()}, Std[x]: {backorders_teu_list.sum(dim=-1).std()}\n")
         f.write("*" * 100 + "\n")
         f.write("Efficiency analysis:\n")
         f.write("-" * 100 + "\n")
-        f.write(f"Total Hatch Overstowage: E[x]: {hatch_overstowage.mean()}, "
-                f"Std[x]: {hatch_overstowage.std()}\n")
-        f.write(f"Total Long Crane Excess: E[x]: {long_crane_excess.mean()}, "
-                f"Std[x]: {long_crane_excess.std()}\n")
+        f.write(f"Total Hatch Overstowage: E[x]: {hatch_overstowage_list.mean()}, "
+                f"Std[x]: {hatch_overstowage_list.std()}\n")
+        f.write(f"Total Long Crane Excess: E[x]: {long_crane_excess_list.mean()}, "
+                f"Std[x]: {long_crane_excess_list.std()}\n")
         f.write("*" * 100 + "\n")
         f.write("Revenue and cost analysis:\n")
         f.write("-" * 100 + "\n")
-        f.write(f"Total Revenue (~$): E[x]: {total_revenue.mean()}, Std[x]: {total_revenue.std()}\n")
-        f.write(f"Total Cost (~$): E[x]: {total_costs.mean()}, Std[x]: {total_costs.std()}\n")
+        f.write(f"Total Revenue (~$): E[x]: {revenues.mean()}, Std[x]: {revenues.std()}\n")
+        f.write(f"Total Cost (~$): E[x]: {costs.mean()}, Std[x]: {costs.std()}\n")
         f.write("-" * 100 + "\n")
-        f.write(f"Potential Revenue Load All (~$): E[x]: {max_revenue.mean()}, Std[x]: {max_revenue.std()}\n")
+        # f.write(f"Potential Revenue Load All (~$): E[x]: {max_revenue.mean()}, Std[x]: {max_revenue.std()}\n")
         # f.write(f"Min Cost (~$): E[x]: ?, Std[x]: ?\n")  # as low as possible, but not necessarily zero due to hatch constraints
     f.close()
     with open(checkpoint_path + f"/results_{test_projection}_rate_{utilization_rate_initial_demand}.txt", "r") as f:
