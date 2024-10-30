@@ -63,8 +63,6 @@ def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, det
         """Precompute the demand scenarios for each node in the scenario tree"""
         td = env.reset(batch_size=[max_paths])
         pregen_demand = td["realized_demand"].detach().cpu().numpy()
-        print("pregen_demand", pregen_demand.sum())
-
 
         # Preallocate demand array for transport demands
         demand_ = np.zeros((max_paths, K, P, P))
@@ -399,7 +397,7 @@ if __name__ == "__main__":
         config = adapt_env_kwargs(config)
 
     # Run main for different seeds and number of scenarios
-    perfect_information = False
+    perfect_information = True
     deterministic = False
 
     num_seed = 20
