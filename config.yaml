@@ -37,7 +37,7 @@ model:
   train_decode_type: "continuous_sampling"
   val_decode_type: "continuous_sampling"
   test_decode_type: "continuous_sampling"
-  phase: "test" # train, test
+  phase: "train" # train, test
   logger: wandb #wandb #"wandb" # wandb, tensorboard
 
 # PPO parameters
