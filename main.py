@@ -298,7 +298,7 @@ def main(config=None):
             # Calculate and record inference time for each run
             outs.append(out)
             times.append(end_time - start_time)
-
+        times = torch.tensor(times)
         rollout_results(test_env, outs, td, batch_size, checkpoint_path,
                         am_ppo_params["projection_type"], config["env"]["utilization_rate_initial_demand"], times)
     return model
