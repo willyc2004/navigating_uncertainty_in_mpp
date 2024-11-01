@@ -397,11 +397,11 @@ if __name__ == "__main__":
         config = adapt_env_kwargs(config)
 
     # Run main for different seeds and number of scenarios
-    perfect_information = False
+    perfect_information = True
     deterministic = False
 
     num_seed = 20
-    for scen in [4,8,12,16,20]:#,24,32]:
+    for scen in [4,8,12,16,20,24,28,32]:
         results = []
         vars = []
         for x in range(num_seed):
