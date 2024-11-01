@@ -232,6 +232,7 @@ def rollout_mpp(env, td, policy, max_steps: int = None):
 
     max_steps = float("inf") if max_steps is None else max_steps
     utilizations = []
+    results = []
     rewards = []
     steps = 0
 
@@ -239,7 +240,18 @@ def rollout_mpp(env, td, policy, max_steps: int = None):
         td = policy(td)
         utilizations.append(td["state"]["utilization"])
         rewards.append(td["reward"])
+        result = td["obs"]
+        result["lhs_A"] = td["lhs_A"]
+        result["rhs"] = td["rhs"]
         td = env.step(td)["next"]
+        # add features to results
+        result["violation"] = td["obs"]["violation"]
+        result["profit"] = td["profit"]
+        result["revenue"] = td["revenue"]
+        result["cost"] = td["cost"]
+        result["reward"] = td["reward"]
+        results.append(result.clone())
+
         steps += 1
         if steps > max_steps:
             log.info("Max steps reached")
@@ -248,6 +260,7 @@ def rollout_mpp(env, td, policy, max_steps: int = None):
         # torch.stack(rewards, dim=1), # env.get_reward(td, torch.stack(utilizations, dim=1)),
         td,
         torch.stack(utilizations, dim=1),
+        results,
     )
 
 def rollout(env, td, policy, max_steps: int = None):
