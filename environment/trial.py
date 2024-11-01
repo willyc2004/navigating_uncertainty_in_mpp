@@ -1,5 +1,6 @@
 import time
 import torch
+import pandas as pd
 from models.decoding import rollout_mpp
 from environment.data import StateDependentDataset, custom_collate_fn
 from torch.utils.data import DataLoader
@@ -177,24 +178,29 @@ def trial(env, td, device, num_rollouts=3):
     # Calculate multi-dimensional correlation matrix
     correlation_matrix, feature_names = calculate_multi_dim_correlation(reshaped_features)
     find_all_nan_columns(correlation_matrix, feature_names)
-    # Export to excel
-    import pandas as pd
+    # Export the correlation matrix to csv
     corr_matrix = correlation_matrix.detach().cpu().numpy()
-    df = pd.DataFrame(corr_matrix, index=feature_names, columns=feature_names)
-    df.to_excel("correlation_matrix.xlsx")
+    corr_df = pd.DataFrame(corr_matrix, index=feature_names, columns=feature_names)
+    corr_df.to_csv("EDA/correlation_matrix.csv")
 
-    # print_correlation_matrix_neatly(correlation_matrix, feature_names)
+    # Initialize an empty list to collect all summary statistics
+    summary_list = []
 
-    # Give summary statistics for each feature
+    # Loop through each feature, compute summary statistics, and add to the list
     for feature, tensor in reshaped_features.items():
-        print("-" * 50)
-        print(f"Feature: {feature}")
-        print(f"Shape: {tensor.shape}")
-        print(f"Mean: {tensor.mean():.3f}")
-        print(f"Std: {tensor.std():.3f}")
-        print(f"Min: {tensor.min():.3f}")
-        print(f"Max: {tensor.max():.3f}")
+        summary = {
+            "feature": feature,
+            "mean": tensor.mean().item(),
+            "std": tensor.std().item(),
+            "min": tensor.min().item(),
+            "max": tensor.max().item()
+        }
+        # Append the summary dictionary to the list
+        summary_list.append(summary)
 
+    # Convert the list of summaries to a DataFrame
+    all_summaries = pd.DataFrame(summary_list)
 
-
+    # Save all summary statistics to a single CSV file
+    all_summaries.to_csv("EDA/all_features_summary.csv", index=False)
 
