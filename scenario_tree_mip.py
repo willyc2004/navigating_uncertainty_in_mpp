@@ -412,7 +412,7 @@ if __name__ == "__main__":
             vars.append(var)
 
         # Save results to a JSON file
-        with open(f"results_scenario_tree_s{scen}_pi{perfect_information}.json", "w") as json_file:
+        with open(f"/results/scenario_tree/results_scenario_tree_s{scen}_pi{perfect_information}.json", "w") as json_file:
             json.dump(results, json_file, indent=4)
-        with open(f"variables_scenario_tree_s{scen}_pi{perfect_information}.json", "w") as json_file:
+        with open(f"/results/scenario_tree/variables_scenario_tree_s{scen}_pi{perfect_information}.json", "w") as json_file:
             json.dump(results, json_file, indent=4)
