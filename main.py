@@ -115,8 +115,7 @@ def main(config=None):
     # Run a trial of the environment
     batch_size = config.model.batch_size
     td = env.reset(batch_size=batch_size, )
-    trial(env, td, device, num_rollouts=30, EDA=True) # uncomment to trial
-    breakpoint()
+    # trial(env, td, device, num_rollouts=30, EDA=True) # uncomment to trial
 
     ## Model initialization
     # Embedding dimensions
