@@ -225,7 +225,7 @@ def random_policy(td):
     td.set("action", action)
     return td
 
-def rollout_mpp(env, td, policy, max_steps: int = None):
+def rollout_mpp(env, td, policy, max_steps: int = None, EDA=False):
     """Helper function to rollout a policy. Currently, TorchRL does not allow to step
     over envs when done with `env.rollout()`. We need this because for environments that complete at different steps.
     """
@@ -242,21 +242,23 @@ def rollout_mpp(env, td, policy, max_steps: int = None):
         rewards.append(td["reward"])
 
         # Observed features
-        result = td["obs"]
-        result["lhs_A"] = td["lhs_A"]
-        result["rhs"] = td["rhs"]
-        result["agg_pol_location"] = td["state"]["agg_pol_location"]
-        result["agg_pod_location"] = td["state"]["agg_pod_location"]
+        if EDA:
+            result = td["obs"]
+            result["lhs_A"] = td["lhs_A"]
+            result["rhs"] = td["rhs"]
+            result["agg_pol_location"] = td["state"]["agg_pol_location"]
+            result["agg_pod_location"] = td["state"]["agg_pod_location"]
 
         # Step the environment
         td = env.step(td)["next"]
-        # Output features
-        result["violation"] = td["obs"]["violation"]
-        result["profit"] = td["profit"]
-        result["revenue"] = td["revenue"]
-        result["cost"] = td["cost"]
-        result["reward"] = td["reward"]
-        results.append(result.clone())
+        if EDA:
+            # Output features
+            result["violation"] = td["obs"]["violation"]
+            result["profit"] = td["profit"]
+            result["revenue"] = td["revenue"]
+            result["cost"] = td["cost"]
+            result["reward"] = td["reward"]
+            results.append(result.clone())
 
         steps += 1
         if steps > max_steps:
