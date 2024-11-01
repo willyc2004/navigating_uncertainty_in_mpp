@@ -76,9 +76,15 @@ class MPP_GeneratorUncertain(Generator):
         # Calculate parameters for the log-normal distribution
         mu_log = th.log(s0) + (mu - 0.5 * sigma ** 2) * t[0]
         sigma_log = sigma * th.sqrt(t[0])
+
+        # Convert to mu and sigma to regular scale
+        mean = th.exp(mu_log + 0.5 * sigma_log ** 2)
+        variance = (th.exp(sigma_log ** 2) - 1) * th.exp(2 * mu_log + sigma_log ** 2)
+        std_dev = th.sqrt(variance)
+
         # Generate log-normal samples for each initial value
         log_dist = th.distributions.LogNormal(loc=mu_log, scale=sigma_log)
-        return mu_log, sigma_log, log_dist
+        return mean, std_dev, log_dist
 
     def _generate(self, batch_size, td:Optional=None) -> TensorDict:
         """Generate demand matrix for voyage with GBM process"""
@@ -101,7 +107,7 @@ class MPP_GeneratorUncertain(Generator):
         return TensorDict({"realized_demand": demand,
                            "observed_demand": observed_demand,
                            "expected_demand": e_x,
-                           "std_demand":th.full_like(e_x, std_x),
+                           "std_demand":std_x,
                            "init_expected_demand": e_x_init_demand,
                            "batch_updates":batch_updates + 1,
                            },
