@@ -3,7 +3,7 @@ import numpy as np
 
 # Load JSON file
 s = 24
-with open(f'results_scenario_tree_s{s}.json', 'r') as file:
+with open(f'results_scenario_tree_s{s}_piTrue.json', 'r') as file:
     data = json.load(file)
 
 obj = []
