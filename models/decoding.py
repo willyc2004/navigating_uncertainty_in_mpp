@@ -240,11 +240,17 @@ def rollout_mpp(env, td, policy, max_steps: int = None):
         td = policy(td)
         utilizations.append(td["state"]["utilization"])
         rewards.append(td["reward"])
+
+        # Observed features
         result = td["obs"]
         result["lhs_A"] = td["lhs_A"]
         result["rhs"] = td["rhs"]
+        result["agg_pol_location"] = td["state"]["agg_pol_location"]
+        result["agg_pod_location"] = td["state"]["agg_pod_location"]
+
+        # Step the environment
         td = env.step(td)["next"]
-        # add features to results
+        # Output features
         result["violation"] = td["obs"]["violation"]
         result["profit"] = td["profit"]
         result["revenue"] = td["revenue"]
