@@ -225,7 +225,7 @@ def main(config=None):
 
     # Initialize logger
     if config.model.logger == "wandb":
-        logger = WandbLogger(project="icaps", name="mpp_under_uncertainty", log_model='all', config=config)
+        logger = WandbLogger(project="mpp", name="mpp_under_uncertainty", log_model='all', config=config)
     else:
         logger = None
 
