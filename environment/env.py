@@ -276,6 +276,8 @@ class MasterPlanningEnv(RL4COEnvBase):
             "action": action.view(*batch_size, self.B*self.D),
             "reward": reward,
             "profit": profit,
+            "revenue": revenue,
+            "cost": cost,
             "done": done,
             "episodic_step":t,
             "scale_factor": scale_factor,
@@ -360,7 +362,7 @@ class MasterPlanningEnv(RL4COEnvBase):
             "cargo_class": k,
             "weight": weights,
             "TEU": teus,
-            "revenue": revenues,
+            "revenue_parameter": revenues,
 
             # State + obs
             "state": initial_state,
@@ -380,6 +382,8 @@ class MasterPlanningEnv(RL4COEnvBase):
             # Reward, done and step
             "reward": reward,
             "profit": th.zeros_like(reward),
+            "revenue": th.zeros_like(reward),
+            "cost": th.zeros_like(reward),
             "done": th.zeros_like(pol[:,0], dtype=th.bool,),
             "episodic_step": t,
 

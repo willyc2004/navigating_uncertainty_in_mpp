@@ -37,7 +37,7 @@ class MPPInitEmbedding(nn.Module):
         self.class_embed_cache = self.cargo_class(td["cargo_class"].to(torch.int64))
         self.weight_emb_cache = self.weight(td["weight"].view(batch_size, step_size, 1))
         self.capacity_emb_cache = self.teu(td["TEU"].view(batch_size, step_size, 1))
-        self.revenue_emb_cache = self.revenue((td["revenue"] / (td["POD"] - td["POL"])).view(batch_size, step_size, 1))
+        self.revenue_emb_cache = self.revenue((td["revenue_parameter"] / (td["POD"] - td["POL"])).view(batch_size, step_size, 1))
         self.cache_initialized = True  # Update flag
 
     def forward(self, td: TensorDict):
