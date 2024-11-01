@@ -180,7 +180,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         overstowage = self._compute_hatch_overstowage(utilization, pol)
 
         # Compute total_loaded and aggregated long crane excess
-        # total_loaded = total_loaded + th.min(action.sum(dim=(-2, -1)), current_demand)
+        total_loaded = total_loaded + th.min(action.sum(dim=(-2, -1)), current_demand)
         long_crane_moves = self._compute_long_crane(utilization, pol)
         excess_crane_moves = th.clamp(long_crane_moves - target_long_crane.view(-1, 1), min=0)
 
@@ -307,6 +307,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         target_long_crane = self._compute_target_long_crane(td["realized_demand"], self.moves_idx[pol[0,0]])
         action_mask = th.ones((*batch_size, self.B, self.D), dtype=th.bool, device=device)
         locations_utilization = th.zeros((*batch_size, self.B, self.D,), device=device, dtype=self.float_type)
+        clip_max = (self.norm_capacity / self.teus[k[0,0]]).unsqueeze(0).repeat(*batch_size, 1, 1)
 
         # Init obs + state
         initial_obs = TensorDict({
@@ -316,7 +317,7 @@ class MasterPlanningEnv(RL4COEnvBase):
             "expected_demand": td["expected_demand"].view(*batch_size, self.K * self.T),
             "std_demand": td["std_demand"].view(*batch_size, self.K * self.T),
             # Vessel
-            "residual_capacity": th.zeros_like(locations_utilization).view(*batch_size, self.B * self.D),
+            "residual_capacity": clip_max.view(*batch_size, self.B*self.D),
             # "location_utilization": locations_utilization,
             # "location_weight": th.zeros_like(locations_utilization),
             # Performance
@@ -353,7 +354,6 @@ class MasterPlanningEnv(RL4COEnvBase):
         lhs_A = th.zeros((*batch_size, self.n_constraints, self.B * self.D),  device=device, dtype=self.float_type)
         lhs_A = self.create_lhs_A(lhs_A, t)
         rhs = self.create_rhs(initial_state["utilization"], initial_state["current_demand"], batch_size)
-        clip_max = (self.norm_capacity / self.teus[k[0,0]]).unsqueeze(0).repeat(*batch_size, 1, 1)
         reward = th.zeros_like(pol[:,0], dtype=self.float_type)
         td = TensorDict({
             # Cargo
