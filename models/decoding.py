@@ -461,7 +461,6 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             )
             # Project mean logits
             proj_mean_logits = self.projection_layer(mean_logits, td["lhs_A"], td["rhs"],)
-            print("proj_mean_logits", self.name)
 
             # Get logprobs and actions from policy
             logprobs, selected_action, _ = self._step(
@@ -470,7 +469,6 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             )
 
             if self.projection_type == "linear_violation_sample":
-                print("selected_action", self.name)
                 selected_action = self.projection_layer(selected_action, td["lhs_A"], td["rhs"], )
 
             # Update logprobs and actions
