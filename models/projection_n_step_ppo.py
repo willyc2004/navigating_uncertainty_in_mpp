@@ -378,7 +378,6 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 # - Projection loss computes the distance between the raw and projected policy distributions
                 lhs = (lhs_A * proj_mean_logits.unsqueeze(-2)).sum(dim=-1)
                 violation = torch.clamp(lhs - rhs, min=0)
-                print(violation.mean(dim=0))
                 lambda_values = torch.where(
                     violation > tolerance,
                     lambda_values * (1 + alpha * violation),
