@@ -57,6 +57,7 @@ ppo:
   demand_lambda: 0.2
   stability_lambda: 0.1
   projection_lambda: 0.01
+  adaptive_feasibility_lambda: False
 
 # AM PPO parameters
 am_ppo:

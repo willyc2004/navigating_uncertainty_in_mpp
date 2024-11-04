@@ -128,6 +128,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
         feasibility_lambda: float = 1.0,  # lambda of feasibility loss
         demand_lambda: float = 1.0,  # lambda of demand violations
         stability_lambda: float = 1.0,  # lambda of stability violations
+        adaptive_feasibility_lambda: bool = False,  # whether to adapt feasibility lambda
         projection_lambda: float = 1.0,  # lambda of projection loss
         normalize_adv: bool = False,  # whether to normalize advantage
         normalize_return: bool = False,  # whether to normalize return
@@ -195,6 +196,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
             "T_test": T_test,
             "lr": lr,
             "entropy_lambda": entropy_lambda,
+            "adaptive_feasibility_lambda":adaptive_feasibility_lambda,
             "feasibility_lambda": feasibility_lambda,
             "projection_lambda": projection_lambda,
             "update_timestep": update_timestep,
@@ -378,11 +380,12 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 # - Projection loss computes the distance between the raw and projected policy distributions
                 lhs = (lhs_A * proj_mean_logits.unsqueeze(-2)).sum(dim=-1)
                 violation = torch.clamp(lhs - rhs, min=0)
-                lambda_values = torch.where(
-                    violation > tolerance,
-                    lambda_values * (1 + alpha * violation),
-                    lambda_values,
-                )
+                if self.ppo_cfg["adaptive_feasibility_lambda"]:
+                    lambda_values = torch.where(
+                        violation > tolerance,
+                        lambda_values * (1 + alpha * violation),
+                        lambda_values,
+                    )
                 feasibility_loss = F.mse_loss(self.lambda_violations * violation,
                                               torch.zeros_like(violation),
                                               reduction="mean")
