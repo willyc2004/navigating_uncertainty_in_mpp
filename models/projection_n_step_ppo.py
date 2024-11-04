@@ -264,7 +264,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
         metrics = self.log_metrics(out, phase, dataloader_idx=dataloader_idx)
         return {"loss": out.get("loss", None), **metrics}
 
-    def update(self, td, memory, step_memory, phase, device):
+    def update(self, td, memory, step_memory, phase, device, tolerance=1e-4, alpha=0.5):
         # perform gradiant updates every n_step until reaching T_max
         assert (
                 self.ppo_cfg["T_train"] % self.ppo_cfg["n_step"] == 0
@@ -273,6 +273,8 @@ class Projection_Nstep_PPO(RL4COLitModule):
         batch_size = td.batch_size
         agg_reward = torch.zeros((*batch_size, 1), device=device)
         list_metrics = []
+        lambda_values = self.lambda_violations
+
         while t < self.ppo_cfg["T_train"]:
             memory.clear_memory()
 
@@ -376,7 +378,14 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 # - Projection loss computes the distance between the raw and projected policy distributions
                 lhs = (lhs_A * proj_mean_logits.unsqueeze(-2)).sum(dim=-1)
                 violation = torch.clamp(lhs - rhs, min=0)
-                feasibility_loss = F.mse_loss(self.lambda_violations * violation, torch.zeros_like(violation),
+                print(violation.mean(dim=0))
+                lambda_values = torch.where(
+                    violation > tolerance,
+                    lambda_values * (1 + alpha * violation),
+                    lambda_values,
+                )
+                feasibility_loss = F.mse_loss(self.lambda_violations * violation,
+                                              torch.zeros_like(violation),
                                               reduction="mean")
                 projection_loss = F.mse_loss(mean_logits, proj_mean_logits, reduction="mean")
 
