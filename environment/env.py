@@ -16,7 +16,7 @@ from rl4co.envs.common.base import RL4COEnvBase
 from rl4co.envs.common.utils import Generator
 
 # Modules
-from environment.generator import MPP_GeneratorUncertain
+from environment.generator import MPP_Generator
 from environment.utils import *
 
 # Logger
@@ -96,7 +96,8 @@ class MasterPlanningEnv(RL4COEnvBase):
 
         # Init fns
         self.float_type = kwargs.get("float_type", th.float16)
-        self.generator = MPP_GeneratorUncertain(**kwargs)
+        self.demand_uncertainty = kwargs.get("demand_uncertainty", False)
+        self.generator = MPP_Generator(**kwargs)
         self._make_spec(self.generator)
         self._compact_form_shapes()
         self.zero = th.tensor([0], device=self.generator.device, dtype=self.float_type)
@@ -705,8 +706,9 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Next port with discharging; Update utilization, observed demand and target long crane
         if self.next_port_mask[t-1].any():
             utilization = self._update_state_discharge(utilization, disc_idx)
-            observed_demand[:, :, load_idx] = realized_demand[:, :, load_idx]
             target_long_crane = self._compute_target_long_crane(realized_demand, moves_idx)
+            if self.demand_uncertainty:
+                observed_demand[:, :, load_idx] = realized_demand[:, :, load_idx]
 
         # Update observed and expected demand by setting to 0
         observed_demand[:, k, tau] = 0

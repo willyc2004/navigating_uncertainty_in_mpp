@@ -20,6 +20,7 @@ env:
   spot_percentage: 0.3
   iid_demand: True
   cv_demand: 0.5
+  demand_uncertainty: True
 
 # Model settings
 model:

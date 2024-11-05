@@ -7,8 +7,8 @@ from environment.utils import get_transport_idx, get_load_transport
 import matplotlib.pyplot as plt
 
 # Classes
-class MPP_GeneratorUncertain(Generator):
-    """Class for simulating voyage demand for stowage plans"""
+class MPP_Generator(Generator):
+    """Class for generating demand for stowage plans"""
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Input simulation
@@ -37,6 +37,7 @@ class MPP_GeneratorUncertain(Generator):
                      th.full((self.K//2,), 2*(self.spot_percentage), device=self.device, dtype=th.float32)],  dim=0)
         self.iid_demand = kwargs.get("iid_demand", True)
         self.cv_demand = kwargs.get("cv_demand", 0.5)
+        self.demand_uncertainty = kwargs.get("demand_uncertainty", False)
 
         # Get cv vector
         self.cv = th.empty((self.K,), device=self.device, dtype=th.float16,)
@@ -118,7 +119,10 @@ class MPP_GeneratorUncertain(Generator):
         # Observed demand: only transports of POL=0
         load_tr = get_load_transport(self.transport_idx, th.zeros((1,), device=self.device,))
         observed_demand = th.zeros_like(demand)
-        observed_demand[:, :, load_tr] = demand[:, :, load_tr]
+        if self.demand_uncertainty:
+            observed_demand[:, :, load_tr] = demand[:, :, load_tr]
+        else:
+            observed_demand = demand
         # Return demand matrix
         return TensorDict({"realized_demand": demand,
                            "observed_demand": observed_demand,
@@ -250,7 +254,7 @@ if __name__ == "__main__":
     cv_demand = 0.5
 
     # Create generator
-    generator = MPP_GeneratorUncertain(ports=ports, bays=bays, decks=decks, cargo_classes=cargo_classes,
+    generator = MPP_Generator(ports=ports, bays=bays, decks=decks, cargo_classes=cargo_classes,
                                         weight_classes=weight_classes,customer_classes=customer_classes,
                                        capacity=capacity, seed=seed, iid_demand=iid_demand, cv_demand=cv_demand,)
     td = generator(batch_size)
