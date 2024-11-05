@@ -65,7 +65,7 @@ ppo:
 # AM PPO parameters
 am_ppo:
   lr: 0.0001
-  projection_type: "None" #None, convex_program, worst_case_violation,
+  projection_type: "linear_violation" #None, convex_program, worst_case_violation,
   projection_kwargs:
     iters: 5
     use_lp_solver: False
