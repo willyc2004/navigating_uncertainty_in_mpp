@@ -28,6 +28,7 @@ def get_decoding_strategy(decoding_strategy, **config):
         # Continuous action space
         "continuous_greedy": ContinuousGreedy,
         "continuous_sampling": ContinuousSampling,
+        "continuous_projection": ContinuousProjection,
         "continuous_evaluate": ContinuousEvaluate,
     }
 
@@ -438,7 +439,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             td: TensorDict containing the current state of the environment.
             action: Optional action to use, e.g. for evaluating log probabilities.
         """
-        if self.name in ["continuous_greedy", "continuous_sampling", "continuous_evaluate"]:
+        if self.name in ["continuous_greedy", "continuous_sampling", "continuous_evaluate", "continuous_projection"]:
             # Continuous action logits processing
             clip_min = td.get("clip_min", None)
             clip_max = td.get("clip_max", None)
@@ -467,11 +468,6 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 proj_mean_logits, std_logits, mask=None, # mask=mask # Change to None to avoid masking logits
                 td=td, clip_min=clip_min, clip_max=clip_max, action=action, **kwargs
             )
-
-            if (self.projection_type == "linear_violation_sample") or \
-                    (self.projection_type == "linear_violation" and self.name == "continuous_evaluate"):
-                print(self.projection_type, self.name)
-                selected_action = self.projection_layer(selected_action, td["lhs_A"], td["rhs"], )
 
             # Update logprobs and actions
             self.lhs_A.append(td["lhs_A"])
@@ -627,6 +623,25 @@ class ContinuousSampling(DecodingStrategy):
         selected, logprobs = self.continuous_sampling(mean_logits, std_logits, mask, clip_min, clip_max)
         return logprobs, selected, td
 
+class ContinuousProjection(DecodingStrategy):
+    name = "continuous_projection"
+
+    def _step(
+        self,
+        mean_logits: torch.Tensor,
+        std_logits: torch.Tensor,
+        mask: torch.Tensor,
+        td: TensorDict,
+        action: torch.Tensor,
+        **kwargs,
+    ) -> Tuple[torch.Tensor, torch.Tensor, TensorDict]:
+        """Project logits to feasible space using projection layer."""
+        clip_min = kwargs.get("clip_min", None)
+        clip_max = kwargs.get("clip_max", None)
+        selected, logprobs = self.continuous_sampling(mean_logits, std_logits, mask, clip_min, clip_max)
+        selected = self.projection_layer(selected, td["lhs_A"], td["rhs"], )
+        return logprobs, selected, td
+
 class ContinuousEvaluate(DecodingStrategy):
     name = "continuous_evaluate"
 
@@ -642,14 +657,9 @@ class ContinuousEvaluate(DecodingStrategy):
         """Get logprobs based on action provided externally."""
         clip_min = kwargs.get("clip_min", None)
         clip_max = kwargs.get("clip_max", None)
-        if clip_min is not None and clip_max is not None:
-            dist = ClippedGaussian(mean_logits, std_logits, clip_min, clip_max)
-        else:
-            dist = Normal(mean_logits, std_logits)
-        logprobs = dist.log_prob(action)
-        if mask is not None:
-            logprobs = logprobs.masked_fill(~mask, 0)
-        return logprobs, action, td
+        _, logprobs = self.continuous_sampling(mean_logits, std_logits, mask, clip_min, clip_max)
+        selected = action
+        return logprobs, selected, td
 
 class BeamSearch(DecodingStrategy):
     name = "beam_search"
