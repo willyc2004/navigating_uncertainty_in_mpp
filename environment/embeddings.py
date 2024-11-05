@@ -29,33 +29,39 @@ class MPPInitEmbedding(nn.Module):
         self.positional_encoding = DynamicSinusoidalPositionalEncoding(embed_dim)
         self.cache_initialized = False  # Flag to check if cache has been created
 
-    def initialize_cache(self, td: TensorDict):
-        batch_size, step_size = td["POL"].shape
+    def initialize_cache(self,):
         # Compute and store fixed embeddings in cache
-        self.origin_emb_cache = self.origin_port(td["POL"].to(torch.int64))
-        self.destination_emb_cache = self.destination_port(td["POD"].to(torch.int64))
-        self.class_embed_cache = self.cargo_class(td["cargo_class"].to(torch.int64))
-        self.weight_emb_cache = self.weight(td["weight"].view(batch_size, step_size, 1))
-        self.capacity_emb_cache = self.teu(td["TEU"].view(batch_size, step_size, 1))
-        self.revenue_emb_cache = self.revenue((td["revenue_parameter"] / (td["POD"] - td["POL"])).view(batch_size, step_size, 1))
+        self.origin_emb_cache = self.origin_port(self.env.pol[:-1].to(torch.int64)).unsqueeze(0)
+        self.destination_emb_cache = self.destination_port(self.env.pod[:-1].to(torch.int64)).unsqueeze(0)
+        self.class_embed_cache = self.cargo_class(self.env.k[:-1].to(torch.int64)).unsqueeze(0)
+        self.weight_emb_cache = self.weight(self.env.weights[self.env.k[:-1]].view(-1, 1)).unsqueeze(0)
+        self.teu_embd_cache = self.teu(self.env.teus[self.env.k[:-1]].view(-1, 1)).unsqueeze(0)
+        self.revenue_emb_cache = self.revenue((self.env.revenues[:-1] /
+                                               (self.env.pod[:-1] - self.env.pol[:-1])).view(-1, 1)).unsqueeze(0)
         self.cache_initialized = True  # Update flag
 
     def forward(self, td: TensorDict):
+        # Get batch size and sequence length
+        batch_size, step_size = td["POL"].shape
+
+        # Initialize cache if not done yet
         if not self.cache_initialized:
-            self.initialize_cache(td)  # Cache fixed values on the first call
+            self.initialize_cache()
 
         # Compute only demand-related embeddings dynamically
-        batch_size, step_size = td["POL"].shape
         expected_demand = self.ex_demand(td["expected_demand"].view(batch_size, step_size, 1))
         std_demand = self.stdx_demand(td["std_demand"].view(batch_size, step_size, 1))
 
         # Concatenate all embeddings (using cached values for fixed ones)
         combined_emb = torch.cat([
             expected_demand, std_demand,
-            self.origin_emb_cache, self.destination_emb_cache, self.class_embed_cache,
-            self.weight_emb_cache, self.capacity_emb_cache, self.revenue_emb_cache,
+            self.origin_emb_cache.expand(batch_size, -1, -1),
+            self.destination_emb_cache.expand(batch_size, -1, -1),
+            self.class_embed_cache.expand(batch_size, -1, -1),
+            self.weight_emb_cache.expand(batch_size, -1, -1),
+            self.teu_embd_cache.expand(batch_size, -1, -1),
+            self.revenue_emb_cache.expand(batch_size, -1, -1),
         ], dim=-1)
-
         # Final projection
         initial_embedding = self.fc(combined_emb)
         return initial_embedding
