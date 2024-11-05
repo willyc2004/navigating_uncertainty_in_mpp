@@ -35,6 +35,9 @@ class MPP_GeneratorUncertain(Generator):
         self.spot_lc_percentage = th.cat([
                      th.full((self.K//2,), 2*(1 - self.spot_percentage), device=self.device, dtype=th.float32),
                      th.full((self.K//2,), 2*(self.spot_percentage), device=self.device, dtype=th.float32)],  dim=0)
+        self.iid_demand = kwargs.get("iid_demand", True)
+        self.cv_demand = kwargs.get("cv_demand", 0.5)
+
         # Get cv vector
         self.cv = th.empty((self.K,), device=self.device, dtype=th.float16,)
         self.cv[:self.K//2] = 0.5
@@ -86,6 +89,14 @@ class MPP_GeneratorUncertain(Generator):
         log_dist = th.distributions.LogNormal(loc=mu_log, scale=sigma_log)
         return mean, std_dev, log_dist
 
+    def _normal_distribution(self, e_x, std_x,):
+        """Get normal distribution for demand"""
+        return e_x, std_x, th.distributions.Normal(loc=e_x, scale=std_x)
+
+    def _create_std_x(self, e_x, cv=0.5):
+        """Create std_x from coefficient of variation: cv < 0.1 is low, 0.3<x<0.5 is moderate, >0.5 is high"""
+        return e_x * cv
+
     def _generate(self, batch_size, td:Optional=None) -> TensorDict:
         """Generate demand matrix for voyage with GBM process"""
         # Get initial demand if not provided
@@ -97,8 +108,13 @@ class MPP_GeneratorUncertain(Generator):
             batch_updates = td["batch_updates"].clone()
 
         # Get moments, dist and non-negative sample from Geometric Brownian Motion process
-        e_x, std_x, log_dist = self._gbm_lognormal_distribution(batch_updates + 1, e_x_init_demand,)
-        demand = th.clamp(log_dist.sample(), min=1)
+        if not self.iid_demand:
+            e_x, std_x, dist = self._gbm_lognormal_distribution(batch_updates + 1, e_x_init_demand,)
+        else:
+            std_x = self._create_std_x(e_x_init_demand, self.cv_demand)
+            e_x, std_x, dist = self._normal_distribution(e_x_init_demand, std_x,)
+
+        demand = th.clamp(dist.sample(), min=1)
         # Observed demand: only transports of POL=0
         load_tr = get_load_transport(self.transport_idx, th.zeros((1,), device=self.device,))
         observed_demand = th.zeros_like(demand)
@@ -230,10 +246,13 @@ if __name__ == "__main__":
     weight_classes = 3
     capacity = [50]
     seed = 42
+    iid_demand = True
+    cv_demand = 0.5
+
     # Create generator
     generator = MPP_GeneratorUncertain(ports=ports, bays=bays, decks=decks, cargo_classes=cargo_classes,
                                         weight_classes=weight_classes,customer_classes=customer_classes,
-                                       capacity=capacity, seed=seed)
+                                       capacity=capacity, seed=seed, iid_demand=iid_demand, cv_demand=cv_demand,)
     td = generator(batch_size)
 
     # Test demand generation
@@ -242,8 +261,13 @@ if __name__ == "__main__":
     e_x_init_demand, _ = generator._initial_contract_demand(batch_size)
 
     for i in range(updates):
-        e_x, std_x, dist = generator._gbm_lognormal_distribution(th.tensor([i], device=generator.device),
-                                                                 e_x_init_demand,)
+        if not iid_demand:
+            e_x, std_x, dist = generator._gbm_lognormal_distribution(th.tensor([i], device=generator.device),
+                                                                     e_x_init_demand,)
+        else:
+            std_x = generator._create_std_x(e_x_init_demand, cv_demand)
+            e_x, std_x, dist = generator._normal_distribution(e_x_init_demand, std_x,)
+
         demand = th.clamp(dist.sample(), min=0)
         demand_history.append(demand)
     demand_history = th.stack(demand_history)

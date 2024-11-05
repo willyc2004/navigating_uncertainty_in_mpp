@@ -18,6 +18,8 @@ env:
   seed: 42
   utilization_rate_initial_demand: 0.7
   spot_percentage: 0.3
+  iid_demand: True
+  cv_demand: 0.5
 
 # Model settings
 model:
