@@ -90,7 +90,7 @@ class MPP_Generator(Generator):
         log_dist = th.distributions.LogNormal(loc=mu_log, scale=sigma_log)
         return mean, std_dev, log_dist
 
-    def _normal_distribution(self, e_x, std_x,):
+    def _iid_normal_distribution(self, e_x, std_x,):
         """Get normal distribution for demand"""
         return e_x, std_x, th.distributions.Normal(loc=e_x, scale=std_x)
 
@@ -113,7 +113,7 @@ class MPP_Generator(Generator):
             e_x, std_x, dist = self._gbm_lognormal_distribution(batch_updates + 1, e_x_init_demand,)
         else:
             std_x = self._create_std_x(e_x_init_demand, self.cv_demand)
-            e_x, std_x, dist = self._normal_distribution(e_x_init_demand, std_x,)
+            e_x, std_x, dist = self._iid_normal_distribution(e_x_init_demand, std_x,)
 
         demand = th.clamp(dist.sample(), min=1)
         # Observed demand: only transports of POL=0
@@ -270,7 +270,7 @@ if __name__ == "__main__":
                                                                      e_x_init_demand,)
         else:
             std_x = generator._create_std_x(e_x_init_demand, cv_demand)
-            e_x, std_x, dist = generator._normal_distribution(e_x_init_demand, std_x,)
+            e_x, std_x, dist = generator._iid_normal_distribution(e_x_init_demand, std_x,)
 
         demand = th.clamp(dist.sample(), min=0)
         demand_history.append(demand)
