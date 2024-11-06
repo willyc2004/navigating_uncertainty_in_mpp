@@ -88,6 +88,18 @@ class AttentionModelPolicy4PPO(AttentionModelPolicy):
 
     def act(self, td, env, phase: str = "train", action=None, **kwargs) -> TensorDict:
         # Encoder: get encoder output and initial embeddings from initial state
+        from models.projection_n_step_ppo import check_for_nans
+
+        # run through td and check for nans
+        for key in td.keys():
+            if isinstance(td[key], torch.Tensor):
+                check_for_nans(td[key], key)
+            # check for nested tds and run through them
+            elif isinstance(td[key], TensorDict):
+                for key2 in td[key].keys():
+                    if isinstance(td[key][key2], torch.Tensor):
+                        check_for_nans(td[key][key2], key2)
+
         hidden, init_embeds = self.encoder(td)
 
         # Get decode type depending on phase and whether actions are passed for evaluation
@@ -124,18 +136,6 @@ class AttentionModelPolicy4PPO(AttentionModelPolicy):
 
     def evaluate(self, td, env, phase: str = "train", action=None, **kwargs) -> TensorDict:
         # Encoder: get encoder output and initial embeddings from initial state
-        from models.projection_n_step_ppo import check_for_nans
-
-        # run through td and check for nans
-        for key in td.keys():
-            if isinstance(td[key], torch.Tensor):
-                check_for_nans(td[key], key)
-            # check for nested tds and run through them
-            elif isinstance(td[key], TensorDict):
-                for key2 in td[key].keys():
-                    if isinstance(td[key][key2], torch.Tensor):
-                        check_for_nans(td[key][key2], key2)
-
         hidden, init_embeds = self.encoder(td)
 
         # Get decode type depending on phase and whether actions are passed for evaluation
