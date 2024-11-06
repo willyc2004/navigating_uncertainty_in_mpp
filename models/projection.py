@@ -105,6 +105,8 @@ class LinearViolationAdaption(th.nn.Module):
             # Update violation_old for the next iteration
             violation_old = violation_new.clone()
             count += 1
+            if count % 100 == 0:
+                print(f"Count: {count}")
         print(f"Count: {count}")
         return x_
 
