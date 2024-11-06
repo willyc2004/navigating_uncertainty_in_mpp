@@ -370,7 +370,7 @@ class MasterPlanningEnv(RL4COEnvBase):
             "obs": initial_obs,
 
             # Action mask and clipping
-            "action": th.zeros_like(action_mask),
+            "action": th.zeros_like(action_mask, dtype=self.float_type),
             "action_mask": action_mask.view(*batch_size, -1),
             "clip_min": th.zeros_like(clip_max, dtype=self.float_type).view(*batch_size, self.B*self.D, ),
             "clip_max": clip_max.view(*batch_size, self.B*self.D),

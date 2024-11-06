@@ -479,6 +479,10 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                     if isinstance(value, TensorDict):
                         for key2, value2 in value.items():
                             print(key2, value2)
+                            if isinstance(value2, TensorDict):
+                                for key3, value3 in value2.items():
+                                    print(key3, value3)
+
                 raise ValueError("Nan, or inf in e_x")
             if torch.isnan(std_logits).any() or torch.isinf(std_logits).any() or (std_logits == 0).any():
                 print("std_x", std_logits)
