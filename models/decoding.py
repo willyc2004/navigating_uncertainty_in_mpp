@@ -192,17 +192,6 @@ def process_logits(
     # For continuous action space, we have logits and std_x
     if logits.dim() == 3:
         e_x, std_x = logits[..., 0], logits[..., 1]
-        print("---------------------")
-        print(f"e_x: {e_x.mean(dim=0)}")
-        print(f"std_x: {std_x.mean(dim=0)}")
-        print(f"clip_min: {clip_min.mean(dim=0)}")
-        print(f"clip_max: {clip_max.mean(dim=0)}")
-        print(f"constant_sum: {constant_sum.mean(dim=0)}")
-        print(f"Scale factor: {scale_factor.mean(dim=0)}")
-        print(f"temperature: {temperature}")
-
-
-
 
         if clip_min is not None:
             e_x = torch.clamp(e_x, min=clip_min)
@@ -227,16 +216,14 @@ def process_logits(
         if clip_max is not None:
             e_x = torch.clamp(e_x, max=clip_max)
 
+        print("---------------------")
+        print(f"clip_min: {clip_min.mean(dim=0)}")
+        print(f"clip_max: {clip_max.mean(dim=0)}")
+        print(f"constant_sum: {constant_sum.mean(dim=0)}")
+        print(f"Scale factor: {scale_factor.mean(dim=0)}")
+        print(f"temperature: {temperature}")
         print(f"e_x: {e_x.mean(dim=0)}")
         print(f"std_x: {std_x.mean(dim=0)}")
-        # print nans and infs coordinates
-        print("Coordinates with NaNs and Infs")
-        print(f"e_x (nan): {torch.isnan(e_x).nonzero()}")
-        print(f"std_x (nan): {torch.isnan(std_x).nonzero()}")
-        print(f"e_x (inf): {torch.isinf(e_x).nonzero()}")
-        print(f"std_x (inf): {torch.isinf(std_x).nonzero()}")
-
-
 
         # Assert no NaNs, infs or negative values
         assert not torch.isnan(e_x).any(), "Logits contain NaNs"

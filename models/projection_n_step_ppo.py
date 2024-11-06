@@ -409,6 +409,15 @@ class Projection_Nstep_PPO(RL4COLitModule):
                         + self.ppo_cfg["projection_lambda"] * projection_loss
                 ).mean()
 
+                # check nans
+                check_for_nans(loss, "loss")
+                check_for_nans(surrogate_loss, "surrogate_loss")
+                check_for_nans(value_loss, "value_loss")
+                check_for_nans(entropy, "entropy")
+                check_for_nans(feasibility_loss, "feasibility_loss")
+                check_for_nans(projection_loss, "projection_loss")
+
+
                 # perform manual optimization following the Lightning routine
                 # https://lightning.ai/docs/pytorch/stable/common/optimization.html
                 opt = self.optimizers()
