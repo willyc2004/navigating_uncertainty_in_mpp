@@ -12,6 +12,7 @@ from rl4co.utils.ops import batchify
 from rl4co.utils.pylogger import get_pylogger
 from models.projection import ProjectionFactory
 from models.clipped_gaussian import ClippedGaussian
+from models.projection_n_step_ppo import check_tensors_for_nans
 
 log = get_pylogger(__name__)
 
@@ -218,16 +219,6 @@ def process_logits(
 
         # Ensure std_x is positive
         std_x = torch.clamp(std_x, min=1e-3)
-
-        # if nan, inf, or 0 in e_x, std_x; print full tensor (all values shown)
-        torch.set_printoptions(profile="full")
-        if torch.isnan(e_x).any() or torch.isinf(e_x).any():
-            print("e_x", e_x)
-            raise ValueError("Nan, or inf in e_x")
-        if torch.isnan(std_x).any() or torch.isinf(std_x).any() or (std_x == 0).any():
-            print("std_x", std_x)
-            raise ValueError("Nan, inf, or 0 in std_x")
-
         return e_x, std_x
     else:
         raise ValueError("Continuous action space requires logits and std_x.")
@@ -472,6 +463,19 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 discrete=False,
                 scale_factor=scale_factor,
             )
+
+            # if nan, inf, or 0 in e_x, std_x; print full tensor (all values shown)
+            torch.set_printoptions(profile="full")
+            if torch.isnan(mean_logits).any() or torch.isinf(mean_logits).any():
+                print("e_x", mean_logits)
+                check_tensors_for_nans(td)
+                raise ValueError("Nan, or inf in e_x")
+            if torch.isnan(std_logits).any() or torch.isinf(std_logits).any() or (std_logits == 0).any():
+                print("std_x", std_logits)
+                check_tensors_for_nans(td)
+                raise ValueError("Nan, inf, or 0 in std_x")
+
+
             # Project mean logits
             proj_mean_logits = self.projection_layer(mean_logits, td["lhs_A"], td["rhs"],)
 
