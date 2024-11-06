@@ -334,6 +334,7 @@ if __name__ == "__main__":
 
         # Print the error for local console logging as well
         print(f"An error occurred during training: {e}")
+        breakpoint()
     finally:
         wandb.finish()
 
