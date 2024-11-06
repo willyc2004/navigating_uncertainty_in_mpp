@@ -297,6 +297,10 @@ class Projection_Nstep_PPO(RL4COLitModule):
                     memory.rewards[:,i] = td["reward"].view(-1, 1)
                     memory.profit[:,i] = td["profit"].view(-1, 1)
 
+                    # check for for nans
+                    print(f"Act Step {i}")
+                    check_tensors_for_nans(td)
+
             t += self.ppo_cfg["n_step"]
 
             # PPO inner epoch, K
@@ -304,6 +308,9 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 # with torch.autograd.detect_anomaly():
                 step_memory.clear_memory()
                 for i in range(self.ppo_cfg["n_step"]):
+                    # check for for nans
+                    print(f"Eval. Step {i}")
+                    check_tensors_for_nans(memory.tds[i])
                     out = self.policy.evaluate(
                         memory.tds[i],
                         action=memory.actions[:,i],
@@ -449,6 +456,16 @@ def check_for_nans(tensor, name):
         print(f"NaN detected in {name}")
     if torch.isinf(tensor).any():
         print(f"Inf detected in {name}")
+
+def check_tensors_for_nans(td, parent_key=""):
+    for key, value in td.items():
+        full_key = f"{parent_key}.{key}" if parent_key else key
+        if isinstance(value, torch.Tensor):
+            check_for_nans(value, full_key)
+        elif isinstance(value, TensorDict):
+            # Recursively check nested TensorDicts
+            check_tensors_for_nans(value, full_key)
+
 
 
 def initialize_stats_from_rollouts(env, normalizer, batch_size, num_rollouts=100, device="cuda"):
