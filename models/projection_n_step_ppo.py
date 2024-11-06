@@ -297,9 +297,9 @@ class Projection_Nstep_PPO(RL4COLitModule):
                     memory.rewards[:,i] = td["reward"].view(-1, 1)
                     memory.profit[:,i] = td["profit"].view(-1, 1)
 
-                    # check for for nans
-                    print(f"Act Step {i}")
-                    check_tensors_for_nans(td)
+                    # # check for for nans
+                    # print(f"Act Step {i}")
+                    # check_tensors_for_nans(td)
 
             t += self.ppo_cfg["n_step"]
 
@@ -309,8 +309,8 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 step_memory.clear_memory()
                 for i in range(self.ppo_cfg["n_step"]):
                     # check for for nans
-                    print(f"Eval. Step {i}")
-                    check_tensors_for_nans(memory.tds[i])
+                    # print(f"Eval. Step {i}")
+                    # check_tensors_for_nans(memory.tds[i])
                     out = self.policy.evaluate(
                         memory.tds[i],
                         action=memory.actions[:,i],
