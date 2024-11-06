@@ -95,7 +95,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         self.W = kwargs.get("weight_classes")  # Number of weight classes
 
         # Init fns
-        self.float_type = kwargs.get("float_type", th.float32) # th.float16
+        self.float_type = kwargs.get("float_type", th.float16)
         self.demand_uncertainty = kwargs.get("demand_uncertainty", False)
         self.generator = MPP_Generator(**kwargs)
         self._make_spec(self.generator)
