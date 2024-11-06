@@ -80,6 +80,9 @@ class LinearViolationAdaption(th.nn.Module):
         x_ = x.clone()
         count = 0
 
+        if th.isnan(x_).any():
+            return x_
+
         while th.any(active_mask):
             # Compute current violation for each batch
             violation_new = th.clamp(th.bmm(A, x_.unsqueeze(-1)).squeeze(-1) - b, min=0)  # Shape: [batch_size, m]
