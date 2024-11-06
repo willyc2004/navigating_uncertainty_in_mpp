@@ -476,7 +476,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 # print the full tensor dict for the first batch_idx
                 for key, value in td[batch_idx].items():
                     print(key, value)
-                    if key == "state":
+                    if isinstance(value, TensorDict):
                         for key2, value2 in value.items():
                             print(key2, value2)
                 raise ValueError("Nan, or inf in e_x")
