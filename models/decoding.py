@@ -192,6 +192,10 @@ def process_logits(
     # For continuous action space, we have logits and std_x
     if logits.dim() == 3:
         e_x, std_x = logits[..., 0], logits[..., 1]
+
+        print(f"e_x: {e_x.mean(dim=0)}")
+        print(f"std_x: {std_x.mean(dim=0)}")
+
         if clip_min is not None:
             e_x = torch.clamp(e_x, min=clip_min)
 
