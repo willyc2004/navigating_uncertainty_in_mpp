@@ -55,7 +55,7 @@ ppo:
   gamma: 0.99
   gae_lambda: 0.95
   vf_lambda: 0.5
-  entropy_lambda: 0.01
+  entropy_lambda: 0.0005
   feasibility_lambda: 0.7
   demand_lambda: 0.2
   stability_lambda: 0.1
