@@ -21,6 +21,7 @@ env:
   iid_demand: True
   cv_demand: 0.5
   demand_uncertainty: True
+  float_type: torch.float32
 
 # Model settings
 model:
