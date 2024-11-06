@@ -73,7 +73,7 @@ class LinearViolationAdaption(th.nn.Module):
     def __init__(self, **kwargs):
         super(LinearViolationAdaption, self).__init__()
 
-    def forward(self, x, A, b, alpha=0.01, delta=0.05, tolerance=1e-4):
+    def forward(self, x, A, b, alpha=0.01, delta=0.05, tolerance=0.01):
         batch_size, m = b.shape
         violation_old = th.zeros(batch_size, m, dtype=x.dtype, device=x.device)
         active_mask = th.ones(batch_size, dtype=th.bool, device=x.device)  # Start with all batches active
@@ -88,6 +88,8 @@ class LinearViolationAdaption(th.nn.Module):
             # Define batch-wise stopping conditions
             no_violation = total_violation < tolerance
             stalling_check = th.abs(total_violation - th.sum(violation_old, dim=1)) < delta
+            print(f"Total violation: {total_violation.mean()}")
+            print(f"Violation diff: {th.abs(total_violation - th.sum(violation_old, dim=1)).mean()}")
 
             # Update active mask: only keep batches that are neither within tolerance nor stalled
             active_mask = ~(no_violation | stalling_check)
