@@ -229,6 +229,14 @@ def process_logits(
 
         print(f"e_x: {e_x.mean(dim=0)}")
         print(f"std_x: {std_x.mean(dim=0)}")
+        # print nans and infs coordinates
+        print("Coordinates with NaNs and Infs")
+        print(f"e_x (nan): {torch.isnan(e_x).nonzero()}")
+        print(f"std_x (nan): {torch.isnan(std_x).nonzero()}")
+        print(f"e_x (inf): {torch.isinf(e_x).nonzero()}")
+        print(f"std_x (inf): {torch.isinf(std_x).nonzero()}")
+
+
 
         # Assert no NaNs, infs or negative values
         assert not torch.isnan(e_x).any(), "Logits contain NaNs"
