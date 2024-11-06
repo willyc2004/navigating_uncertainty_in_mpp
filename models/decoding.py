@@ -221,9 +221,9 @@ def process_logits(
 
         # if nan, inf, or 0 in e_x, std_x; print full tensor (all values shown)
         torch.set_printoptions(profile="full")
-        if torch.isnan(e_x).any() or torch.isinf(e_x).any() or (e_x == 0).any():
+        if torch.isnan(e_x).any() or torch.isinf(e_x).any():
             print("e_x", e_x)
-            raise ValueError("Nan, inf, or 0 in e_x")
+            raise ValueError("Nan, or inf in e_x")
         if torch.isnan(std_x).any() or torch.isinf(std_x).any() or (std_x == 0).any():
             print("std_x", std_x)
             raise ValueError("Nan, inf, or 0 in std_x")
