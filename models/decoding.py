@@ -189,36 +189,44 @@ def process_logits(
         # Compute log probabilities
         return F.log_softmax(logits, dim=-1)
 
-    # For continuous action space, we have logits and log_std
+    # For continuous action space, we have logits and std_x
     if logits.dim() == 3:
-        # logits = logits * 4
-        logits_, log_std = logits[..., 0], logits[..., 1]
+        e_x, std_x = logits[..., 0], logits[..., 1]
         if clip_min is not None:
-            logits_ = torch.clamp(logits_, min=clip_min)
+            e_x = torch.clamp(e_x, min=clip_min)
 
         # temperature scaling
-        logits_ = logits_ / temperature
+        e_x = e_x / temperature
 
         # Apply masking
         if mask is not None:
-            logits_ = logits_ * mask
-            log_std = torch.clamp(log_std * mask, min=1e-6)
+            e_x = e_x * mask
+            std_x = torch.clamp(std_x * mask, min=1e-6)
 
         # # Apply linear scaling for constant_sum
         if constant_sum is not None:
-            logits_ = logits_ / logits_.sum(dim=-1, keepdim=True) * constant_sum.view(-1,1)
+            e_x = e_x / e_x.sum(dim=-1, keepdim=True) * constant_sum.view(-1,1)
 
         # Apply scale factor (teu)
         if scale_factor is not None:
-            logits_ = logits_ * scale_factor
+            e_x = e_x * scale_factor
 
         # Apply clipping
         if clip_max is not None:
-            logits_ = torch.clamp(logits_, max=clip_max)
+            e_x = torch.clamp(e_x, max=clip_max)
 
-        return logits_, log_std
+        # Assert no NaNs, infs or negative values
+        assert not torch.isnan(e_x).any(), "Logits contain NaNs"
+        assert not torch.isinf(e_x).any(), "Logits contain infs"
+        assert (e_x >= 0).all(), "Logits contain negative values"
+        assert not torch.isnan(std_x).any(), "std_x contain NaNs"
+        assert not torch.isinf(std_x).any(), "std_x contain infs"
+        assert (std_x >= 0).all(), "std_x contain negative values"
+
+
+        return e_x, std_x
     else:
-        raise ValueError("Continuous action space requires logits and log_std.")
+        raise ValueError("Continuous action space requires logits and std_x.")
 
 def random_policy(td):
     """Helper function to select a random action from available actions"""
@@ -439,7 +447,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             td: TensorDict containing the current state of the environment.
             action: Optional action to use, e.g. for evaluating log probabilities.
         """
-        if self.name in ["continuous_greedy", "continuous_sampling", "continuous_evaluate", "continuous_projection"]:
+        if self.name.startswith("continuous"):
             # Continuous action logits processing
             clip_min = td.get("clip_min", None)
             clip_max = td.get("clip_max", None)
@@ -448,8 +456,8 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             # Process logits (output is scaled
             mean_logits, std_logits = process_logits(
                 logits,
-                # mask=None,
-                mask=mask, # Change to None to avoid masking logits
+                mask=None,
+                # mask=mask, # Change to None to avoid masking logits
                 clip_min=clip_min,
                 clip_max=clip_max,
                 constant_sum=td["state"].get("current_demand", None),
