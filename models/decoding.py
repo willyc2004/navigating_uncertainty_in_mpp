@@ -468,13 +468,22 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             torch.set_printoptions(profile="full")
             if torch.isnan(mean_logits).any() or torch.isinf(mean_logits).any():
                 print("e_x", mean_logits)
-                check_tensors_for_nans(td)
+                # get batch_idx of nan, inf, or 0
+                batch_idx = torch.where(torch.isnan(mean_logits))
+                # only extract the first batch_idx
+                batch_idx = batch_idx[0][0]
+
+                # print the full tensor dict for the first batch_idx
+                for key, value in td[batch_idx].items():
+                    print(key, value)
+                    if key == "state":
+                        for key2, value2 in value.items():
+                            print(key2, value2)
                 raise ValueError("Nan, or inf in e_x")
             if torch.isnan(std_logits).any() or torch.isinf(std_logits).any() or (std_logits == 0).any():
                 print("std_x", std_logits)
                 check_tensors_for_nans(td)
                 raise ValueError("Nan, inf, or 0 in std_x")
-
 
             # Project mean logits
             proj_mean_logits = self.projection_layer(mean_logits, td["lhs_A"], td["rhs"],)

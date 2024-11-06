@@ -277,194 +277,194 @@ class Projection_Nstep_PPO(RL4COLitModule):
         list_metrics = []
         lambda_values = self.lambda_violations
 
-        with torch.autograd.detect_anomaly():
+        # with torch.autograd.detect_anomaly():
 
-            while t < self.ppo_cfg["T_train"]:
-                memory.clear_memory()
+        while t < self.ppo_cfg["T_train"]:
+            memory.clear_memory()
 
-                # Rollout for n_step; store the information in memory
-                with torch.no_grad():
-                    for i in range(self.ppo_cfg["n_step"]):
-                        # todo: causes nans
-                        # self.obs_norm.update_stats(td["obs"]) # Update running stats
-                        # td["obs"] = self.obs_norm(td["obs"]) # Normalize
-                        # for key, val in td["obs"].items():
-                        #     check_for_nans(val, key)
-                        memory.tds.append(td.clone())
-                        td = self.policy.act(memory.tds[i], self.env, phase=phase,)
-                        memory.values[:,i] = self.critic(memory.tds[i]).view(-1, 1)
-                        td = self.env.step(td.clone())["next"] # must clone to avoid in-place operation
-                        memory.actions[:,i] = td["action"]
-                        memory.logprobs[:,i] = td["logprobs"]
-                        memory.rewards[:,i] = td["reward"].view(-1, 1)
-                        memory.profit[:,i] = td["profit"].view(-1, 1)
+            # Rollout for n_step; store the information in memory
+            with torch.no_grad():
+                for i in range(self.ppo_cfg["n_step"]):
+                    # todo: causes nans
+                    # self.obs_norm.update_stats(td["obs"]) # Update running stats
+                    # td["obs"] = self.obs_norm(td["obs"]) # Normalize
+                    # for key, val in td["obs"].items():
+                    #     check_for_nans(val, key)
+                    memory.tds.append(td.clone())
+                    td = self.policy.act(memory.tds[i], self.env, phase=phase,)
+                    memory.values[:,i] = self.critic(memory.tds[i]).view(-1, 1)
+                    td = self.env.step(td.clone())["next"] # must clone to avoid in-place operation
+                    memory.actions[:,i] = td["action"]
+                    memory.logprobs[:,i] = td["logprobs"]
+                    memory.rewards[:,i] = td["reward"].view(-1, 1)
+                    memory.profit[:,i] = td["profit"].view(-1, 1)
 
-                        # # check for for nans
-                        # print(f"Act Step {i}")
-                        # check_tensors_for_nans(td)
+                    # # check for for nans
+                    # print(f"Act Step {i}")
+                    # check_tensors_for_nans(td)
 
-                t += self.ppo_cfg["n_step"]
+            t += self.ppo_cfg["n_step"]
 
-                # PPO inner epoch, K
-                for k in range(self.ppo_cfg["ppo_epochs"]):
-                    # with torch.autograd.detect_anomaly():
-                    step_memory.clear_memory()
-                    for i in range(self.ppo_cfg["n_step"]):
-                        # check for for nans
-                        # print(f"Eval. Step {i}")
-                        # check_tensors_for_nans(memory.tds[i])
-                        out = self.policy.evaluate(
-                            memory.tds[i],
-                            action=memory.actions[:,i],
-                            env=self.env,
-                            phase=phase,
-                            return_actions=False,
-                        )
-                        # Store all metrics of new policy
-                        step_memory.value_preds[:,i] = self.critic(memory.tds[i]).view(-1, 1)
-                        step_memory.dones[:,i] = out["done"].view(-1,1)
-                        step_memory.ll[:,i] = out["logprobs"]
-                        step_memory.entropy[:,i] = out["entropy"].view(-1, 1)
-                        step_memory.mean_logits[:,i] = out["mean_logits"]
-                        step_memory.std_logits[:,i] = out["std_logits"]
-                        step_memory.proj_mean_logits[:,i] = out["proj_mean_logits"]
-                        step_memory.lhs_A[:,i] = out["lhs_A"]
-                        step_memory.rhs[:,i] = out["rhs"]
-
-                    # ratio is always 1 for first ppo epoch
-                    if k == 0:
-                        step_memory.ll = memory.logprobs  # [batch, n_step, D*B]
-                        old_ll = memory.logprobs # [batch, n_step, D*B]
-                        old_values = memory.values  # [batch, n_step, 1]
-                        rewards = memory.rewards  # [batch, n_step, 1]
-                        agg_reward += rewards.sum(dim=1)  # [batch, 1]
-
-                    # prepare metrics for computation
-                    ll = step_memory.ll
-                    value_preds = step_memory.value_preds
-                    entropy = step_memory.entropy
-                    mean_logits = step_memory.mean_logits
-                    proj_mean_logits = step_memory.proj_mean_logits
-                    # std_logits = step_memory.std_logits
-                    lhs_A = step_memory.lhs_A
-                    rhs = step_memory.rhs
-                    dones = step_memory.dones
-
-                    # Compute the sample importance ratio of new and old actions
-                    log_ratios = (ll - old_ll.detach()) # [batch, n_step, F]
-                    ratios = torch.exp(log_ratios) # [batch, n_step, F]
-                    clipped_ratios = torch.clamp(
-                        ratios,
-                        1 - self.ppo_cfg["clip_range"],
-                        1 + self.ppo_cfg["clip_range"],
+            # PPO inner epoch, K
+            for k in range(self.ppo_cfg["ppo_epochs"]):
+                # with torch.autograd.detect_anomaly():
+                step_memory.clear_memory()
+                for i in range(self.ppo_cfg["n_step"]):
+                    # check for for nans
+                    # print(f"Eval. Step {i}")
+                    # check_tensors_for_nans(memory.tds[i])
+                    out = self.policy.evaluate(
+                        memory.tds[i],
+                        action=memory.actions[:,i],
+                        env=self.env,
+                        phase=phase,
+                        return_actions=False,
                     )
+                    # Store all metrics of new policy
+                    step_memory.value_preds[:,i] = self.critic(memory.tds[i]).view(-1, 1)
+                    step_memory.dones[:,i] = out["done"].view(-1,1)
+                    step_memory.ll[:,i] = out["logprobs"]
+                    step_memory.entropy[:,i] = out["entropy"].view(-1, 1)
+                    step_memory.mean_logits[:,i] = out["mean_logits"]
+                    step_memory.std_logits[:,i] = out["std_logits"]
+                    step_memory.proj_mean_logits[:,i] = out["proj_mean_logits"]
+                    step_memory.lhs_A[:,i] = out["lhs_A"]
+                    step_memory.rhs[:,i] = out["rhs"]
 
-                    # Compute GAE
-                    adv, returns = generalized_advantage_estimate(
-                        gamma=self.ppo_cfg["gamma"], lmbda=self.ppo_cfg["gae_lambda"],state_value=old_values,
-                        next_state_value=value_preds, reward=rewards, done=dones.bool(),)
+                # ratio is always 1 for first ppo epoch
+                if k == 0:
+                    step_memory.ll = memory.logprobs  # [batch, n_step, D*B]
+                    old_ll = memory.logprobs # [batch, n_step, D*B]
+                    old_values = memory.values  # [batch, n_step, 1]
+                    rewards = memory.rewards  # [batch, n_step, 1]
+                    agg_reward += rewards.sum(dim=1)  # [batch, 1]
 
-                    # Normalize advantage
-                    # todo: normalization throws magnitude of feasibility loss off
-                    if self.ppo_cfg["normalize_adv"]:
-                        adv = (adv - adv.mean()) / (adv.std() + 1e-8)
+                # prepare metrics for computation
+                ll = step_memory.ll
+                value_preds = step_memory.value_preds
+                entropy = step_memory.entropy
+                mean_logits = step_memory.mean_logits
+                proj_mean_logits = step_memory.proj_mean_logits
+                # std_logits = step_memory.std_logits
+                lhs_A = step_memory.lhs_A
+                rhs = step_memory.rhs
+                dones = step_memory.dones
 
-                    # Normalize returns
-                    if self.ppo_cfg["normalize_return"]:
-                        # todo: issue with normalization to differentiate
-                        # self.update_running_return_stats(returns)
-                        # returns = self.normalize_returns(returns)
-                        returns = (returns - returns.mean()) / (returns.std() + 1e-8)
+                # Compute the sample importance ratio of new and old actions
+                log_ratios = (ll - old_ll.detach()) # [batch, n_step, F]
+                ratios = torch.exp(log_ratios) # [batch, n_step, F]
+                clipped_ratios = torch.clamp(
+                    ratios,
+                    1 - self.ppo_cfg["clip_range"],
+                    1 + self.ppo_cfg["clip_range"],
+                )
 
-                    # Compute the surrogate loss
-                    surrogate_loss = -torch.min(ratios * adv, clipped_ratios * adv,).mean()
+                # Compute GAE
+                adv, returns = generalized_advantage_estimate(
+                    gamma=self.ppo_cfg["gamma"], lmbda=self.ppo_cfg["gae_lambda"],state_value=old_values,
+                    next_state_value=value_preds, reward=rewards, done=dones.bool(),)
 
-                    # compute value and entropy loss
-                    value_loss = F.huber_loss(value_preds.detach(), returns, reduction='mean')
+                # Normalize advantage
+                # todo: normalization throws magnitude of feasibility loss off
+                if self.ppo_cfg["normalize_adv"]:
+                    adv = (adv - adv.mean()) / (adv.std() + 1e-8)
 
-                    # Custom loss terms are computed with the mean logit, as it is part of the computation graph.
-                    # Note that actions are sampled from policy distribution derived from logits, i.e. detached from
-                    # the computation graph. Instead, we use the mean to compute distances;
-                    # - Feasibility loss computes distance between the feasible set and the project policy distribution
-                    # - Projection loss computes the distance between the raw and projected policy distributions
-                    lhs = (lhs_A * proj_mean_logits.unsqueeze(-2)).sum(dim=-1)
-                    violation = torch.clamp(lhs - rhs, min=0)
-                    if self.ppo_cfg["adaptive_feasibility_lambda"]:
-                        lambda_values = torch.where(
-                            violation > tolerance,
-                            lambda_values * (1 + alpha * violation),
-                            lambda_values,
-                        )
-                    feasibility_loss = F.mse_loss(self.lambda_violations * violation,
-                                                  torch.zeros_like(violation),
-                                                  reduction="mean")
-                    projection_loss = F.mse_loss(mean_logits, proj_mean_logits, reduction="mean")
+                # Normalize returns
+                if self.ppo_cfg["normalize_return"]:
+                    # todo: issue with normalization to differentiate
+                    # self.update_running_return_stats(returns)
+                    # returns = self.normalize_returns(returns)
+                    returns = (returns - returns.mean()) / (returns.std() + 1e-8)
 
-                    # compute total loss:
-                    #   max surrogate loss, entropy,
-                    #   min value loss, feasibility, and projection loss
-                    loss = (
-                            surrogate_loss
-                            + self.ppo_cfg["vf_lambda"] * value_loss
-                            - self.ppo_cfg["entropy_lambda"] * entropy.mean() # entropy loss works for surrogate loss
-                            + self.ppo_cfg["feasibility_lambda"] * feasibility_loss
-                            + self.ppo_cfg["projection_lambda"] * projection_loss
-                    ).mean()
+                # Compute the surrogate loss
+                surrogate_loss = -torch.min(ratios * adv, clipped_ratios * adv,).mean()
 
-                    # check nans
-                    check_for_nans(loss, "loss")
-                    check_for_nans(surrogate_loss, "surrogate_loss")
-                    check_for_nans(value_loss, "value_loss")
-                    check_for_nans(entropy, "entropy")
-                    check_for_nans(feasibility_loss, "feasibility_loss")
-                    check_for_nans(projection_loss, "projection_loss")
+                # compute value and entropy loss
+                value_loss = F.huber_loss(value_preds.detach(), returns, reduction='mean')
+
+                # Custom loss terms are computed with the mean logit, as it is part of the computation graph.
+                # Note that actions are sampled from policy distribution derived from logits, i.e. detached from
+                # the computation graph. Instead, we use the mean to compute distances;
+                # - Feasibility loss computes distance between the feasible set and the project policy distribution
+                # - Projection loss computes the distance between the raw and projected policy distributions
+                lhs = (lhs_A * proj_mean_logits.unsqueeze(-2)).sum(dim=-1)
+                violation = torch.clamp(lhs - rhs, min=0)
+                if self.ppo_cfg["adaptive_feasibility_lambda"]:
+                    lambda_values = torch.where(
+                        violation > tolerance,
+                        lambda_values * (1 + alpha * violation),
+                        lambda_values,
+                    )
+                feasibility_loss = F.mse_loss(self.lambda_violations * violation,
+                                              torch.zeros_like(violation),
+                                              reduction="mean")
+                projection_loss = F.mse_loss(mean_logits, proj_mean_logits, reduction="mean")
+
+                # compute total loss:
+                #   max surrogate loss, entropy,
+                #   min value loss, feasibility, and projection loss
+                loss = (
+                        surrogate_loss
+                        + self.ppo_cfg["vf_lambda"] * value_loss
+                        - self.ppo_cfg["entropy_lambda"] * entropy.mean() # entropy loss works for surrogate loss
+                        + self.ppo_cfg["feasibility_lambda"] * feasibility_loss
+                        + self.ppo_cfg["projection_lambda"] * projection_loss
+                ).mean()
+
+                # check nans
+                check_for_nans(loss, "loss")
+                check_for_nans(surrogate_loss, "surrogate_loss")
+                check_for_nans(value_loss, "value_loss")
+                check_for_nans(entropy, "entropy")
+                check_for_nans(feasibility_loss, "feasibility_loss")
+                check_for_nans(projection_loss, "projection_loss")
 
 
-                    # perform manual optimization following the Lightning routine
-                    # https://lightning.ai/docs/pytorch/stable/common/optimization.html
-                    opt = self.optimizers()
-                    opt.zero_grad()
-                    self.manual_backward(loss)
-                    if self.ppo_cfg["max_grad_norm"] is not None:
-                        self.clip_gradients(
-                            opt,
-                            gradient_clip_val=self.ppo_cfg["max_grad_norm"],
-                            gradient_clip_algorithm="norm",
-                        )
-                    opt.step()
+                # perform manual optimization following the Lightning routine
+                # https://lightning.ai/docs/pytorch/stable/common/optimization.html
+                opt = self.optimizers()
+                opt.zero_grad()
+                self.manual_backward(loss)
+                if self.ppo_cfg["max_grad_norm"] is not None:
+                    self.clip_gradients(
+                        opt,
+                        gradient_clip_val=self.ppo_cfg["max_grad_norm"],
+                        gradient_clip_algorithm="norm",
+                    )
+                opt.step()
 
-                    # check nans in gradients
-                    for param in self.policy.parameters():
-                        if param.grad is not None and torch.isnan(param.grad).any():
-                            print(f"NaN detected in gradients of {param}")
-                            raise ValueError("NaN detected in gradients")
+                # check nans in gradients
+                for param in self.policy.parameters():
+                    if param.grad is not None and torch.isnan(param.grad).any():
+                        print(f"NaN detected in gradients of {param}")
+                        raise ValueError("NaN detected in gradients")
 
-                # Return metrics of last ppo epoch
-                list_metrics.append({
-                        # main logging
-                        "loss": loss,
-                        "surrogate_loss": surrogate_loss,
-                        "value_loss": self.ppo_cfg["vf_lambda"] * value_loss,
-                        "entropy": -self.ppo_cfg["entropy_lambda"] * entropy,
-                        "feasibility_loss": self.ppo_cfg["feasibility_lambda"] * feasibility_loss,
-                        "projection_loss": self.ppo_cfg["projection_lambda"] * projection_loss,
-                        # extra logging
-                        "episodic_reward": agg_reward.mean(), # mean over batch and n_step
-                        "return": returns.mean(),
-                        "ratios": ratios.mean(),
-                        "clipped_ratios": clipped_ratios.mean(),
-                        # "kl_div": kl_divergence.mean(),
-                        "adv": adv,
-                        "value_pred": value_preds,
-                        "total_loaded": td["state"]["total_loaded"].mean(),
-                        "violations": violation.mean(dim=0).sum(), # total violation during n-steps
-                        # "ll": ll.sum(),
-                        # "old_ll": old_ll.sum(),
-                        # "action": action.mean(),
-                        # profit metrics
-                        # "revenue": revenue.mean(),
-                        # "costs": costs.mean(),
-                    })
+            # Return metrics of last ppo epoch
+            list_metrics.append({
+                    # main logging
+                    "loss": loss,
+                    "surrogate_loss": surrogate_loss,
+                    "value_loss": self.ppo_cfg["vf_lambda"] * value_loss,
+                    "entropy": -self.ppo_cfg["entropy_lambda"] * entropy,
+                    "feasibility_loss": self.ppo_cfg["feasibility_lambda"] * feasibility_loss,
+                    "projection_loss": self.ppo_cfg["projection_lambda"] * projection_loss,
+                    # extra logging
+                    "episodic_reward": agg_reward.mean(), # mean over batch and n_step
+                    "return": returns.mean(),
+                    "ratios": ratios.mean(),
+                    "clipped_ratios": clipped_ratios.mean(),
+                    # "kl_div": kl_divergence.mean(),
+                    "adv": adv,
+                    "value_pred": value_preds,
+                    "total_loaded": td["state"]["total_loaded"].mean(),
+                    "violations": violation.mean(dim=0).sum(), # total violation during n-steps
+                    # "ll": ll.sum(),
+                    # "old_ll": old_ll.sum(),
+                    # "action": action.mean(),
+                    # profit metrics
+                    # "revenue": revenue.mean(),
+                    # "costs": costs.mean(),
+                })
         dict_metrics = {k: torch.stack([dic[k] for dic in list_metrics], dim=0) for k in list_metrics[0]}
         return dict_metrics
 
