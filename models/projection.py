@@ -88,8 +88,13 @@ class LinearViolationAdaption(th.nn.Module):
             # Define batch-wise stopping conditions
             no_violation = total_violation < tolerance
             stalling_check = th.abs(total_violation - th.sum(violation_old, dim=1)) < delta
+            print(f"x: {x_.mean()}")
             print(f"Total violation: {total_violation.mean()}")
             print(f"Violation diff: {th.abs(total_violation - th.sum(violation_old, dim=1)).mean()}")
+
+            if total_violation.mean().isnan():
+                print("Nan")
+                breakpoint()
 
             # Update active mask: only keep batches that are neither within tolerance nor stalled
             active_mask = ~(no_violation | stalling_check)
