@@ -216,6 +216,16 @@ def process_logits(
         if clip_max is not None:
             e_x = torch.clamp(e_x, max=clip_max)
 
+
+        # if nan, inf, or 0 in e_x, std_x; print full tensor (all values shown)
+        torch.set_printoptions(profile="full")
+        if torch.isnan(e_x).any() or torch.isinf(e_x).any() or (e_x == 0).any():
+            print("e_x", e_x)
+            raise ValueError("Nan, inf, or 0 in e_x")
+        if torch.isnan(std_x).any() or torch.isinf(std_x).any() or (std_x == 0).any():
+            print("std_x", std_x)
+            raise ValueError("Nan, inf, or 0 in std_x")
+
         return e_x, std_x
     else:
         raise ValueError("Continuous action space requires logits and std_x.")
