@@ -78,7 +78,7 @@ class LinearViolationAdaption(th.nn.Module):
         violation_old = th.zeros(batch_size, m, dtype=x.dtype, device=x.device)
         active_mask = th.ones(batch_size, dtype=th.bool, device=x.device)  # Start with all batches active
         x_ = x.clone()
-        count = 0
+        # count = 0
 
         if th.isnan(x_).any():
             return x_
@@ -91,13 +91,6 @@ class LinearViolationAdaption(th.nn.Module):
             # Define batch-wise stopping conditions
             no_violation = total_violation < tolerance
             stalling_check = th.abs(total_violation - th.sum(violation_old, dim=1)) < delta
-            print(f"x: {x_.mean()}")
-            print(f"Total violation: {total_violation.mean()}")
-            print(f"Violation diff: {th.abs(total_violation - th.sum(violation_old, dim=1)).mean()}")
-
-            if total_violation.mean().isnan():
-                print("Nan")
-                breakpoint()
 
             # Update active mask: only keep batches that are neither within tolerance nor stalled
             active_mask = ~(no_violation | stalling_check)
@@ -114,10 +107,7 @@ class LinearViolationAdaption(th.nn.Module):
 
             # Update violation_old for the next iteration
             violation_old = violation_new.clone()
-            count += 1
-            if count % 100 == 0:
-                print(f"Count: {count}")
-        print(f"Count: {count}")
+            # count += 1
         return x_
 
 
