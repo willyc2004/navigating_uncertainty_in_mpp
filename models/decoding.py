@@ -216,24 +216,6 @@ def process_logits(
         if clip_max is not None:
             e_x = torch.clamp(e_x, max=clip_max)
 
-        print("---------------------")
-        print(f"clip_min: {clip_min.mean(dim=0)}")
-        print(f"clip_max: {clip_max.mean(dim=0)}")
-        print(f"constant_sum: {constant_sum.mean(dim=0)}")
-        print(f"Scale factor: {scale_factor.mean(dim=0)}")
-        print(f"temperature: {temperature}")
-        print(f"e_x: {e_x.mean(dim=0)}")
-        print(f"std_x: {std_x.mean(dim=0)}")
-
-        # Assert no NaNs, infs or negative values
-        assert not torch.isnan(e_x).any(), "Logits contain NaNs"
-        assert not torch.isinf(e_x).any(), "Logits contain infs"
-        assert (e_x >= 0).all(), "Logits contain negative values"
-        assert not torch.isnan(std_x).any(), "std_x contain NaNs"
-        assert not torch.isinf(std_x).any(), "std_x contain infs"
-        assert (std_x >= 0).all(), "std_x contain negative values"
-
-
         return e_x, std_x
     else:
         raise ValueError("Continuous action space requires logits and std_x.")
