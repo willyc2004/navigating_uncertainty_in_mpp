@@ -124,7 +124,7 @@ class AttentionModelPolicy4PPO(AttentionModelPolicy):
 
     def evaluate(self, td, env, phase: str = "train", action=None, **kwargs) -> TensorDict:
         # Encoder: get encoder output and initial embeddings from initial state
-        from projection_n_step_ppo import check_for_nans
+        from models.projection_n_step_ppo import check_for_nans
 
         # run through td and check for nans
         for key in td.keys():
