@@ -86,7 +86,7 @@ class MPPContextEmbedding(nn.Module):
         self.violation = nn.Linear(5, embed_dim)
         self.rhs = nn.Linear(5, embed_dim)
         self.lhs_A = nn.Linear(action_dim * 5, embed_dim)
-        self.project_context = nn.Linear(embed_dim * 2, embed_dim, )
+        self.project_context = nn.Linear(embed_dim * 3, embed_dim, )
 
         # Self-attention layer
         # self.demand = SelfAttentionStateMapping(feature_dim=demand_dim, embed_dim=embed_dim, device=device)
