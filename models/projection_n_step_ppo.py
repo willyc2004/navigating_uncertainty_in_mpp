@@ -435,7 +435,9 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 # check nans in gradients
                 for param in self.policy.parameters():
                     if param.grad is not None and torch.isnan(param.grad).any():
-                        raise ValueError(f"NaN detected in gradients of {param.grad}")
+                        # name of the parameter
+                        name = [name for name, value in self.policy.named_parameters() if value is param][0]
+                        raise ValueError(f"NaN detected in gradients of {name}")
 
             # Return metrics of last ppo epoch
             list_metrics.append({
