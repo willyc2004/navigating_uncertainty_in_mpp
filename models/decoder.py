@@ -111,13 +111,6 @@ class AttentionDecoderWithCache(nn.Module):
         # Compute query, key, and value for the attention mechanism
         glimpse_k, glimpse_v, logit_k = self._compute_kvl(cached, td)
         glimpse_q = self._compute_q(cached, td)
-        print("Shapes of q, k, v")
-        print(glimpse_q.shape, glimpse_k.shape, glimpse_v.shape)
-
-        # Log or assert ranges
-        assert not torch.isnan(glimpse_q).any(), "NaN in glimpse_q"
-        assert not torch.isnan(glimpse_k).any(), "NaN in glimpse_k"
-        assert not torch.isnan(glimpse_v).any(), "NaN in glimpse_v"
 
         # Perform multi-head attention
         attn_output, _ = self.attention(glimpse_q, glimpse_k, glimpse_v)
@@ -254,6 +247,8 @@ class FP32Attention(nn.MultiheadAttention):
         query_fp32 = query.float()
         key_fp32 = key.float()
         value_fp32 = value.float()
+        print("Shapes of query, key, value")
+        print(query_fp32.shape, key_fp32.shape, value_fp32.shape)
 
         # Perform multi-head attention in FP32 and cast back to FP16
         attn_output_fp32, attn_weights_fp32 = super(FP32Attention, self).forward(query_fp32, key_fp32, value_fp32)
