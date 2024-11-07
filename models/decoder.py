@@ -113,8 +113,6 @@ class AttentionDecoderWithCache(nn.Module):
         glimpse_q = self._compute_q(cached, td)
         print("Shapes of q, k, v")
         print(glimpse_q.shape, glimpse_k.shape, glimpse_v.shape)
-        breakpoint()
-
         # Perform multi-head attention
         attn_output, _ = self.attention(glimpse_q, glimpse_k, glimpse_v)
         # attn_output = self.attn_layer_norm(attn_output + glimpse_q)
@@ -243,12 +241,6 @@ class FP32LayerNorm(nn.LayerNorm):
         normalized_output = super(FP32LayerNorm, self).forward(x_fp32)
         return normalized_output.to(x.dtype)
 
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
-
 class FP32Attention(nn.MultiheadAttention):
     """Multi-head Attention using FP32 computation and FP16 storage, with adjusted initialization."""
 
@@ -280,9 +272,8 @@ class FP32Attention(nn.MultiheadAttention):
         print(f"Using embed_dim={self.embed_dim}, num_heads={self.num_heads}, head_dim={head_dim}")
 
         # Perform multi-head attention in FP32 and cast back to input dtype
-        attn_output_fp32, attn_weights_fp32 = super(FP32Attention, self).forward(query_fp32, key_fp32, value_fp32,
-                                                                                 **kwargs)
+        breakpoint()
+        attn_output_fp32, attn_weights_fp32 = super(FP32Attention, self).forward(query_fp32, key_fp32, value_fp32,**kwargs)
         attn_output = attn_output_fp32.to(query.dtype)
         attn_weights = attn_weights_fp32.to(query.dtype)
-
         return attn_output, attn_weights
