@@ -172,10 +172,10 @@ def main(config=None):
     encoder = AttentionModelEncoder(**encoder_args,)
     # AM Model initialization
     model_params = {
-        "decoder": AttentionDecoderWithCache(**decoder_args),
+        # "decoder": AttentionDecoderWithCache(**decoder_args),
         "encoder": encoder,
         # Uncomment for changes to decoder - not much difference in computation time
-        # "decoder":MLPDecoderWithCache(**decoder_args),
+        "decoder":MLPDecoderWithCache(**decoder_args),
         "init_embedding": init_embed,
         "context_embedding": context_embed,
         "dynamic_embedding": dynamic_embed,
