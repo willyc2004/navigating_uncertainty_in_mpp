@@ -111,6 +111,8 @@ class AttentionDecoderWithCache(nn.Module):
         # Compute query, key, and value for the attention mechanism
         glimpse_k, glimpse_v, logit_k = self._compute_kvl(cached, td)
         glimpse_q = self._compute_q(cached, td)
+        print("Shapes of q, k, v")
+        print(glimpse_q.shape, glimpse_k.shape, glimpse_v.shape)
 
         # Log or assert ranges
         assert not torch.isnan(glimpse_q).any(), "NaN in glimpse_q"
