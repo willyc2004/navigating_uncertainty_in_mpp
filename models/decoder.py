@@ -63,8 +63,7 @@ class AttentionDecoderWithCache(nn.Module):
         self.dropout = nn.Dropout(dropout_rate)
 
         # Attention and Feedforward Layers
-        self.attention = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout_rate, bias=False).to(torch.float32)
-        # self.attention = FP32Attention(embed_dim, num_heads)
+        self.attention = FP32Attention(embed_dim, num_heads, dropout=dropout_rate, bias=False)
 
         # Layer Normalization
         self.q_layer_norm = FP32LayerNorm(embed_dim)
@@ -99,8 +98,6 @@ class AttentionDecoderWithCache(nn.Module):
         """Compute query of static and context embedding for the attention mechanism."""
         node_embeds_cache = cached.init_embeddings
         glimpse_q = self.context_embedding(node_embeds_cache, td)
-        glimpse_q = self.q_layer_norm(glimpse_q)
-
         glimpse_q = glimpse_q.unsqueeze(1) if glimpse_q.ndim == 2 else glimpse_q
         return glimpse_q
 
@@ -112,6 +109,7 @@ class AttentionDecoderWithCache(nn.Module):
         # Compute query, key, and value for the attention mechanism
         glimpse_k, glimpse_v, logit_k = self._compute_kvl(cached, td)
         glimpse_q = self._compute_q(cached, td)
+        glimpse_q = self.q_layer_norm(glimpse_q)
 
         # Perform multi-head attention
         attn_output, _ = self.attention(glimpse_q, glimpse_k, glimpse_v)
@@ -267,14 +265,8 @@ class FP32Attention(nn.MultiheadAttention):
             f"embed_dim ({self.embed_dim}) is not compatible with num_heads ({self.num_heads})."
         )
 
-        # Log shapes for debugging purposes
-        print(f"query shape: {query_fp32.shape}, key shape: {key_fp32.shape}, value shape: {value_fp32.shape}")
-        print(f"Using embed_dim={self.embed_dim}, num_heads={self.num_heads}, head_dim={head_dim}")
-
         # Perform multi-head attention in FP32 and cast back to input dtype
         attn_output_fp32, attn_weights_fp32 = super(FP32Attention, self).forward(query_fp32, key_fp32, value_fp32)
         attn_output = attn_output_fp32.to(query.dtype)
         attn_weights = attn_weights_fp32.to(query.dtype)
-        print(f"attn_output shape: {attn_output.shape}, attn_weights shape: {attn_weights.shape}")
-        breakpoint()
         return attn_output, attn_weights
