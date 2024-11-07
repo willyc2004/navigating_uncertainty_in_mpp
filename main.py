@@ -170,12 +170,13 @@ def main(config=None):
         "normalization": config.model.normalization,
     }
     encoder = AttentionModelEncoder(**encoder_args,)
+    decoder = AttentionDecoderWithCache(**decoder_args)
+    # decoder = MLPDecoderWithCache(**decoder_args) # Uncomment for changes to decoder - not much difference in computation time
+
     # AM Model initialization
     model_params = {
-        # "decoder": AttentionDecoderWithCache(**decoder_args),
+        "decoder": decoder,
         "encoder": encoder,
-        # Uncomment for changes to decoder - not much difference in computation time
-        "decoder":MLPDecoderWithCache(**decoder_args),
         "init_embedding": init_embed,
         "context_embedding": context_embed,
         "dynamic_embedding": dynamic_embed,
