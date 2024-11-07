@@ -26,6 +26,7 @@ class MPPInitEmbedding(nn.Module):
         self.ex_demand = nn.Linear(1, embed_dim)
         self.stdx_demand = nn.Linear(1, embed_dim)
         self.fc = nn.Linear(8 * embed_dim, embed_dim)
+        self.layer_norm = nn.LayerNorm(embed_dim)
         self.positional_encoding = DynamicSinusoidalPositionalEncoding(embed_dim)
         self.cache_initialized = False  # Flag to check if cache has been created
 
@@ -64,6 +65,8 @@ class MPPInitEmbedding(nn.Module):
         ], dim=-1)
         # Final projection
         initial_embedding = self.fc(combined_emb)
+        initial_embedding = self.layer_norm(initial_embedding)
+        # todo: Add positional encoding
         return initial_embedding
 
 class MPPContextEmbedding(nn.Module):
@@ -88,6 +91,7 @@ class MPPContextEmbedding(nn.Module):
         self.rhs = nn.Linear(5, embed_dim)
         self.lhs_A = nn.Linear(action_dim * 5, embed_dim)
         self.project_context = nn.Linear(embed_dim * 3, embed_dim, )
+        self.layer_norm = nn.LayerNorm(embed_dim)
 
         # Self-attention layer
         # self.demand = SelfAttentionStateMapping(feature_dim=demand_dim, embed_dim=embed_dim, device=device)
@@ -104,6 +108,7 @@ class MPPContextEmbedding(nn.Module):
         # Project state, concat embeddings, and project concat to output
         context_embedding = torch.cat([select_init_embedding, state_embedding], dim=-1)
         output = self.project_context(context_embedding)
+        output = self.layer_norm(output)
         return output
 
     def _state_embedding(self, embeddings, td):
