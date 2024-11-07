@@ -182,9 +182,15 @@ class MLPDecoderWithCache(nn.Module):
         self.state_size = state_size
         self.action_size = action_size
 
+        # Layer Normalization
+        self.q_layer_norm = nn.LayerNorm(embed_dim)
+        self.ffn_layer_norm = nn.LayerNorm(embed_dim)
+
         # Create MLP layers with ReLU activation, add some layer parameter
         num_layers = num_hidden_layers
-        layers = [nn.Linear(embed_dim, embed_dim), nn.ReLU()] * num_layers
+        layers = [nn.Linear(embed_dim, embed_dim),
+                  nn.Dropout(dropout_rate),
+                  nn.ReLU()] * num_layers
         self.mlp = nn.Sequential(*layers)
 
         # Output projection to action size
@@ -196,9 +202,11 @@ class MLPDecoderWithCache(nn.Module):
 
         # Compute step context
         step_context = self.context_embedding(init_embeds_cache, td)
+        step_context = self.q_layer_norm(step_context)
 
         # Compute mask and logits
         logits = self.mlp(step_context)
+        logits = self.ffn_layer_norm(logits)
 
         # Project logits to mean and log_std logits (use softplus)
         logits = self.output_projection(logits).view(td.batch_size[0], self.action_size, 2)
