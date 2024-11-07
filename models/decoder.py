@@ -111,6 +111,9 @@ class AttentionDecoderWithCache(nn.Module):
         # Compute query, key, and value for the attention mechanism
         glimpse_k, glimpse_v, logit_k = self._compute_kvl(cached, td)
         glimpse_q = self._compute_q(cached, td)
+        print("Shapes of q, k, v")
+        print(glimpse_q.shape, glimpse_k.shape, glimpse_v.shape)
+        breakpoint()
 
         # Perform multi-head attention
         attn_output, _ = self.attention(glimpse_q, glimpse_k, glimpse_v)
