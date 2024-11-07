@@ -133,7 +133,8 @@ class AttentionDecoderWithCache(nn.Module):
 
         # Project logits to mean and log_std logits (use softplus)
         logits = self.output_projection(combined_output).view(td.batch_size[0], self.action_size, 2)
-        output_logits = F.softplus(logits)
+        output_logits = F.relu(logits).clamp(min=1e-6, max=1e6)
+        # output_logits = F.softplus(logits)
         return output_logits, td["action_mask"]
 
     def pre_decoder_hook(self, td: TensorDict, env, embeddings: Tensor, num_starts: int = 0):
