@@ -166,7 +166,7 @@ class DynamicSinusoidalPositionalEncoding(nn.Module):
         pe = torch.zeros(seq_length, self.embed_dim, device=x.device)
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        return x + pe.unsqueeze(0)
+        return x + pe
 
 class SelfAttentionStateMapping(nn.Module):
     def __init__(self, feature_dim, embed_dim, device):
