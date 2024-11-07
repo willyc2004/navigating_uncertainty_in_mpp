@@ -67,7 +67,9 @@ class AttentionDecoderWithCache(nn.Module):
         self.attention = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
 
         # Layer Normalization
-        self.layer_norm = nn.LayerNorm(embed_dim)
+        self.q_layer_norm = nn.LayerNorm(embed_dim)
+        self.attn_layer_norm = nn.LayerNorm(embed_dim)
+        self.ffn_layer_norm = nn.LayerNorm(embed_dim)
         self.output_layer_norm = nn.LayerNorm(embed_dim*2)
 
         # Configurable Feedforward Network with Variable Hidden Layers
@@ -105,21 +107,18 @@ class AttentionDecoderWithCache(nn.Module):
 
     def forward(self, td: TensorDict, cached: PrecomputedCache, num_starts: int = 0) -> Tuple[Tensor,Tensor]:
         # Compute query, key, and value for the attention mechanism
-        glimpse_q = self._compute_q(cached, td)
         glimpse_k, glimpse_v, logit_k = self._compute_kvl(cached, td)
+        glimpse_q = self._compute_q(cached, td)
+        glimpse_q = self.q_layer_norm(glimpse_q)
 
         # Multi-head Attention
         attn_output, _ = self.attention(glimpse_q, glimpse_k, glimpse_v)
         attn_output = self.dropout(attn_output)
-
-        # Apply Residual Connection and Layer Normalization
-        attn_output = self.layer_norm(attn_output + glimpse_q)
-        # attn_output = attn_output + glimpse_q
+        attn_output = self.attn_layer_norm(attn_output + glimpse_q)
 
         # # Feedforward Network with Residual Connection
         ffn_output = self.feed_forward(attn_output)
-        # ffn_output = ffn_output + attn_output
-        ffn_output = self.layer_norm(ffn_output + attn_output)
+        ffn_output = self.ffn_layer_norm(ffn_output + attn_output)
 
         # Pointer mechanism: compute pointer logits (scores) over the sequence
         # The pointer logits are used to select an index (action) from the input sequence
