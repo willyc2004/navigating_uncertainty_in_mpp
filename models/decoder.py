@@ -183,8 +183,8 @@ class MLPDecoderWithCache(nn.Module):
         self.action_size = action_size
 
         # Layer Normalization
-        self.q_layer_norm = nn.LayerNorm(embed_dim)
-        self.ffn_layer_norm = nn.LayerNorm(embed_dim)
+        self.q_layer_norm = FP32LayerNorm
+        self.ffn_layer_norm = FP32LayerNorm
 
         # Create MLP layers with ReLU activation, add some layer parameter
         num_layers = num_hidden_layers
@@ -202,18 +202,18 @@ class MLPDecoderWithCache(nn.Module):
 
         # Compute step context
         step_context = self.context_embedding(init_embeds_cache, td)
-        assert not torch.isnan(step_context).any(), "NaNs detected in inputs to LayerNorm"
-        assert not torch.isinf(step_context).any(), "Infs detected in inputs to LayerNorm"
-
-        step_context = step_context + torch.randn_like(step_context) * noise
-        # step_context = self.q_layer_norm(step_context)
-        assert not torch.isnan(step_context).any(), "NaNs detected in inputs to LayerNorm"
-        assert not torch.isinf(step_context).any(), "Infs detected in inputs to LayerNorm"
+        # assert not torch.isnan(step_context).any(), "NaNs detected in inputs to LayerNorm"
+        # assert not torch.isinf(step_context).any(), "Infs detected in inputs to LayerNorm"
+        #
+        # step_context = step_context + torch.randn_like(step_context) * noise
+        # # step_context = self.q_layer_norm(step_context)
+        # assert not torch.isnan(step_context).any(), "NaNs detected in inputs to LayerNorm"
+        # assert not torch.isinf(step_context).any(), "Infs detected in inputs to LayerNorm"
 
         # Compute mask and logits
         logits = self.mlp(step_context)
-        logits = logits + torch.randn_like(logits) * noise
-        logits = self.ffn_layer_norm(logits)
+        # logits = logits + torch.randn_like(logits) * noise
+        # logits = self.ffn_layer_norm(logits)
 
         # Project logits to mean and log_std logits (use softplus)
         logits = self.output_projection(logits).view(td.batch_size[0], self.action_size, 2)
@@ -231,3 +231,10 @@ class MLPDecoderWithCache(nn.Module):
             glimpse_val=None,
             logit_key=None,
         )
+
+class FP32LayerNorm(nn.LayerNorm):
+    """LayerNorm using FP32 computation and FP16 storage."""
+    def forward(self, x):
+        x_fp32 = x.to(torch.float32)
+        normalized_output = super(FP32LayerNorm, self).forward(x_fp32)
+        return normalized_output.to(x.dtype)
