@@ -63,7 +63,7 @@ class AttentionDecoderWithCache(nn.Module):
         self.dropout = nn.Dropout(dropout_rate)
 
         # Attention and Feedforward Layers
-        self.attention = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True, bias=False, dropout=dropout_rate)
+        self.attention = FP32Attention(embed_dim, num_heads)
 
         # Layer Normalization
         self.q_layer_norm = FP32LayerNorm(embed_dim)
@@ -98,6 +98,8 @@ class AttentionDecoderWithCache(nn.Module):
         """Compute query of static and context embedding for the attention mechanism."""
         node_embeds_cache = cached.init_embeddings
         glimpse_q = self.context_embedding(node_embeds_cache, td)
+        glimpse_q = self.q_layer_norm(glimpse_q)
+
         glimpse_q = glimpse_q.unsqueeze(1) if glimpse_q.ndim == 2 else glimpse_q
         return glimpse_q
 
@@ -109,7 +111,6 @@ class AttentionDecoderWithCache(nn.Module):
         # Compute query, key, and value for the attention mechanism
         glimpse_k, glimpse_v, logit_k = self._compute_kvl(cached, td)
         glimpse_q = self._compute_q(cached, td)
-        # glimpse_q = self.q_layer_norm(glimpse_q)
 
         # Log or assert ranges
         assert not torch.isnan(glimpse_q).any(), "NaN in glimpse_q"
@@ -254,14 +255,17 @@ class FP32LayerNorm(nn.LayerNorm):
         normalized_output = super(FP32LayerNorm, self).forward(x_fp32)
         return normalized_output.to(x.dtype)
 
-class FP32Attention(nn.Module):
-    def __init__(self, embed_dim, num_heads):
-        super(FP32Attention, self).__init__()
-        self.attention = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
+class FP32Attention(nn.MultiheadAttention):
+    """Multi-head Attention using FP32 computation and FP16 storage."""
+    def forward(self, query, key, value, **kwargs):
+        # Cast inputs to FP32 for stable attention computation
+        query_fp32 = query.float()
+        key_fp32 = key.float()
+        value_fp32 = value.float()
 
-    def forward(self, x, attention_mask=None):
-        # Disable autocasting for this attention block to ensure FP32 computation
-        with autocast(enabled=False):
-            # Compute attention in FP32, casting input `x` to FP32 if necessary
-            x = x.float()  # Ensure input is in FP32
-            return self.attention(x, x, x, attn_mask=attention_mask)
+        # Perform multi-head attention in FP32 and cast back to FP16
+        attn_output_fp32, attn_weights_fp32 = super(FP32Attention, self).forward(query_fp32, key_fp32, value_fp32)
+        attn_output = attn_output_fp32.to(query.dtype)
+        attn_weights = attn_weights_fp32.to(query.dtype)
+
+        return attn_output, attn_weights
