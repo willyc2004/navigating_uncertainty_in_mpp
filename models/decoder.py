@@ -202,18 +202,11 @@ class MLPDecoderWithCache(nn.Module):
 
         # Compute step context
         step_context = self.context_embedding(init_embeds_cache, td)
-        # assert not torch.isnan(step_context).any(), "NaNs detected in inputs to LayerNorm"
-        # assert not torch.isinf(step_context).any(), "Infs detected in inputs to LayerNorm"
-        #
-        # step_context = step_context + torch.randn_like(step_context) * noise
-        # # step_context = self.q_layer_norm(step_context)
-        # assert not torch.isnan(step_context).any(), "NaNs detected in inputs to LayerNorm"
-        # assert not torch.isinf(step_context).any(), "Infs detected in inputs to LayerNorm"
+        step_context = self.q_layer_norm(step_context)
 
         # Compute mask and logits
         logits = self.mlp(step_context)
-        # logits = logits + torch.randn_like(logits) * noise
-        # logits = self.ffn_layer_norm(logits)
+        logits = self.ffn_layer_norm(logits)
 
         # Project logits to mean and log_std logits (use softplus)
         logits = self.output_projection(logits).view(td.batch_size[0], self.action_size, 2)

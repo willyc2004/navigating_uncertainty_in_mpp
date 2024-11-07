@@ -170,8 +170,12 @@ def main(config=None):
         "normalization": config.model.normalization,
     }
     encoder = AttentionModelEncoder(**encoder_args,)
-    decoder = AttentionDecoderWithCache(**decoder_args)
-    # decoder = MLPDecoderWithCache(**decoder_args) # Uncomment for changes to decoder - not much difference in computation time
+    if config.model.decoder_type == "attention":
+        decoder = AttentionDecoderWithCache(**decoder_args)
+    elif config.model.decoder_type == "mlp":
+        decoder = MLPDecoderWithCache(**decoder_args)
+    else:
+        raise ValueError(f"Decoder type {config.model.decoder_type} not recognized.")
 
     # AM Model initialization
     model_params = {
