@@ -206,7 +206,7 @@ class MLPDecoderWithCache(nn.Module):
         assert not torch.isinf(step_context).any(), "Infs detected in inputs to LayerNorm"
 
         step_context = step_context + torch.randn_like(step_context) * noise
-        step_context = self.q_layer_norm(step_context)
+        # step_context = self.q_layer_norm(step_context)
         assert not torch.isnan(step_context).any(), "NaNs detected in inputs to LayerNorm"
         assert not torch.isinf(step_context).any(), "Infs detected in inputs to LayerNorm"
 
