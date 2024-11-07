@@ -577,12 +577,14 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
         """Sample from Normal distribution given by mean and std logits.
         Get logprobs based on sampled action."""
         if clip_min is not None and clip_max is not None:
+            print("Clipping Gaussian")
             dist = ClippedGaussian(mean_logits, std_logits, clip_min, clip_max)
         else:
             dist = Normal(mean_logits, std_logits)
         selected = dist.sample()
         logprobs = dist.log_prob(selected)
         if mask is not None:
+            print("Masking Gaussian")
             logprobs = logprobs.masked_fill(~mask, 0)
         return selected, logprobs
 
