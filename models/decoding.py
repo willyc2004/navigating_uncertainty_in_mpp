@@ -205,20 +205,20 @@ def process_logits(
             e_x = e_x * mask
             std_x = torch.clamp(std_x * mask, min=1e-6)
 
-        # # Apply linear scaling for constant_sum
-        if constant_sum is not None:
-            e_x = e_x / e_x.sum(dim=-1, keepdim=True) * constant_sum.view(-1,1)
-
-        # Apply scale factor (teu)
-        if scale_factor is not None:
-            e_x = e_x * scale_factor
+        # # # Apply linear scaling for constant_sum
+        # if constant_sum is not None:
+        #     e_x = e_x / e_x.sum(dim=-1, keepdim=True) * constant_sum.view(-1,1)
+        #
+        # # Apply scale factor (teu)
+        # if scale_factor is not None:
+        #     e_x = e_x * scale_factor
 
         # Apply clipping
         if clip_max is not None:
             e_x = torch.clamp(e_x, max=clip_max)
 
         # Ensure std_x is positive
-        std_x = torch.clamp(std_x, min=1e-3, max=1.0)
+        std_x = torch.clamp(std_x, min=1e-3)
         return e_x, std_x
     else:
         raise ValueError("Continuous action space requires logits and std_x.")
@@ -444,8 +444,8 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
         """
         if self.name.startswith("continuous"):
             # Continuous action logits processing
-            clip_min = None # td.get("clip_min", None)
-            clip_max = None # td.get("clip_max", None)
+            clip_min = td.get("clip_min", None)
+            clip_max = td.get("clip_max", None)
             scale_factor = kwargs.get("scale_factor", None).view(-1,1)
 
             # Process logits (output is scaled
