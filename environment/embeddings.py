@@ -166,7 +166,9 @@ class DynamicSinusoidalPositionalEncoding(nn.Module):
         pe = torch.zeros(seq_length, self.embed_dim, device=x.device)
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        print(pe.shape)
+        print("pe shape", pe.shape)
+        print("x shape", x.shape)
+        breakpoint()
 
         pe = pe.unsqueeze(0).expand(batch_size, -1, -1)
         return x + pe
