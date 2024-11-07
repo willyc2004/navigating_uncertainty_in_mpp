@@ -65,7 +65,7 @@ class MPPInitEmbedding(nn.Module):
         ], dim=-1)
         # Final projection
         initial_embedding = self.fc(combined_emb)
-        initial_embedding = self.layer_norm(initial_embedding)
+        # initial_embedding = self.layer_norm(initial_embedding)
         # todo: Add positional encoding
         return initial_embedding
 
@@ -108,7 +108,7 @@ class MPPContextEmbedding(nn.Module):
         # Project state, concat embeddings, and project concat to output
         context_embedding = torch.cat([select_init_embedding, state_embedding], dim=-1)
         output = self.project_context(context_embedding)
-        output = self.layer_norm(output)
+        # output = self.layer_norm(output)
         return output
 
     def _state_embedding(self, embeddings, td):
