@@ -113,13 +113,13 @@ class AttentionDecoderWithCache(nn.Module):
         attn_output = self.dropout(attn_output)
 
         # Apply Residual Connection and Layer Normalization
-        # attn_output = self.layer_norm(attn_output + glimpse_q)
-        attn_output = attn_output + glimpse_q
+        attn_output = self.layer_norm(attn_output + glimpse_q)
+        # attn_output = attn_output + glimpse_q
 
         # # Feedforward Network with Residual Connection
         ffn_output = self.feed_forward(attn_output)
-        ffn_output = ffn_output + attn_output
-            # self.layer_norm(ffn_output + attn_output)
+        # ffn_output = ffn_output + attn_output
+        ffn_output = self.layer_norm(ffn_output + attn_output)
 
         # Pointer mechanism: compute pointer logits (scores) over the sequence
         # The pointer logits are used to select an index (action) from the input sequence
