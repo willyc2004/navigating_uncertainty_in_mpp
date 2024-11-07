@@ -306,8 +306,8 @@ def main(config=None):
 def init_he_weights(m):
     if isinstance(m, torch.nn.Linear):
         torch.nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')  # He initialization for ReLU
-        if m.bias is not None:
-            m.bias.data.fill_(0.01)  # Initialize bias with small positive value
+    if isinstance(m, torch.nn.MultiheadAttention):
+        torch.nn.init.normal_(m.in_proj_weight, mean=0.0, std=0.01)  # Small normal init for attention weights
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
