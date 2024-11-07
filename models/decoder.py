@@ -120,6 +120,7 @@ class AttentionDecoderWithCache(nn.Module):
 
             # Perform multi-head attention in FP32 and cast back to FP16
             attn_output_fp32, _ = self.attention(glimpse_q_fp32, glimpse_k_fp32, glimpse_v_fp32)
+            attn_output_fp32 = torch.clamp(attn_output_fp32, min=-10.0, max=10.0)
             attn_output = attn_output_fp32.to(glimpse_q.dtype)
 
         attn_output = self.dropout(attn_output)
