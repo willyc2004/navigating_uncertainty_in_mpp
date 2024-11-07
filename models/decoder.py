@@ -272,8 +272,9 @@ class FP32Attention(nn.MultiheadAttention):
         print(f"Using embed_dim={self.embed_dim}, num_heads={self.num_heads}, head_dim={head_dim}")
 
         # Perform multi-head attention in FP32 and cast back to input dtype
-        breakpoint()
-        attn_output_fp32, attn_weights_fp32 = super(FP32Attention, self).forward(query_fp32, key_fp32, value_fp32,**kwargs)
+        attn_output_fp32, attn_weights_fp32 = super(FP32Attention, self).forward(query_fp32, key_fp32, value_fp32)
         attn_output = attn_output_fp32.to(query.dtype)
         attn_weights = attn_weights_fp32.to(query.dtype)
+        print(f"attn_output shape: {attn_output.shape}, attn_weights shape: {attn_weights.shape}")
+        breakpoint()
         return attn_output, attn_weights
