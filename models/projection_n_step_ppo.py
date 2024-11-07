@@ -419,7 +419,6 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 check_for_nans(feasibility_loss, "feasibility_loss")
                 check_for_nans(projection_loss, "projection_loss")
 
-
                 # perform manual optimization following the Lightning routine
                 # https://lightning.ai/docs/pytorch/stable/common/optimization.html
                 opt = self.optimizers()
@@ -436,7 +435,6 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 # check nans in gradients
                 for param in self.policy.parameters():
                     if param.grad is not None and torch.isnan(param.grad).any():
-                        print(f"NaN detected in gradients of {param}")
                         raise ValueError("NaN detected in gradients")
 
             # Return metrics of last ppo epoch
@@ -470,9 +468,9 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
 def check_for_nans(tensor, name):
     if torch.isnan(tensor).any():
-        print(f"NaN detected in {name}")
+        raise ValueError(f"NaN detected in {name}")
     if torch.isinf(tensor).any():
-        print(f"Inf detected in {name}")
+        raise ValueError(f"Inf detected in {name}")
 
 def check_tensors_for_nans(td, parent_key=""):
     for key, value in td.items():
