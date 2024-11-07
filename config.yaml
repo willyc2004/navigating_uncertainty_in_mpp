@@ -38,8 +38,8 @@ model:
   temperature: 1.0
   tanh_clipping: 0
   train_decode_type: "continuous_sampling"
-  val_decode_type: "continuous_projection"
-  test_decode_type: "continuous_projection"
+  val_decode_type: "continuous_sampling"
+  test_decode_type: "continuous_sampling"
   phase: "train" # train, test
   logger: wandb
 
