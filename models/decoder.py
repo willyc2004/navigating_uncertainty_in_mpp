@@ -119,8 +119,6 @@ class AttentionDecoderWithCache(nn.Module):
 
         # Perform multi-head attention
         attn_output, _ = self.attention(glimpse_q, glimpse_k, glimpse_v)
-
-
         # attn_output = self.attn_layer_norm(attn_output + glimpse_q)
 
         # # # Feedforward Network with Residual Connection
