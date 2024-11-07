@@ -160,12 +160,13 @@ class DynamicSinusoidalPositionalEncoding(nn.Module):
         self.embed_dim = embed_dim
 
     def forward(self, x):
-        seq_length = x.size(1)
+        batch_size, seq_length, embed_dim = x.size()
         position = torch.arange(seq_length, dtype=torch.float, device=x.device).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, self.embed_dim, 2, device=x.device).float() * -(math.log(10000.0) / seq_length))
         pe = torch.zeros(seq_length, self.embed_dim, device=x.device)
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).expand(batch_size, -1, -1)
         return x + pe
 
 class SelfAttentionStateMapping(nn.Module):
