@@ -63,7 +63,8 @@ class AttentionDecoderWithCache(nn.Module):
         self.dropout = nn.Dropout(dropout_rate)
 
         # Attention and Feedforward Layers
-        self.attention = FP32Attention(embed_dim, num_heads)
+        self.attention = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout_rate, bias=False).to(torch.float32)
+        # self.attention = FP32Attention(embed_dim, num_heads)
 
         # Layer Normalization
         self.q_layer_norm = FP32LayerNorm(embed_dim)
@@ -111,8 +112,7 @@ class AttentionDecoderWithCache(nn.Module):
         # Compute query, key, and value for the attention mechanism
         glimpse_k, glimpse_v, logit_k = self._compute_kvl(cached, td)
         glimpse_q = self._compute_q(cached, td)
-        print("Shapes of q, k, v")
-        print(glimpse_q.shape, glimpse_k.shape, glimpse_v.shape)
+
         # Perform multi-head attention
         attn_output, _ = self.attention(glimpse_q, glimpse_k, glimpse_v)
         # attn_output = self.attn_layer_norm(attn_output + glimpse_q)
