@@ -26,7 +26,6 @@ class MPPInitEmbedding(nn.Module):
         self.ex_demand = nn.Linear(1, embed_dim)
         self.stdx_demand = nn.Linear(1, embed_dim)
         self.fc = nn.Linear(8 * embed_dim, embed_dim)
-        self.layer_norm = nn.LayerNorm(embed_dim)
         self.positional_encoding = DynamicSinusoidalPositionalEncoding(embed_dim)
         self.cache_initialized = False  # Flag to check if cache has been created
 
@@ -64,9 +63,8 @@ class MPPInitEmbedding(nn.Module):
             self.revenue_emb_cache.expand(batch_size, -1, -1),
         ], dim=-1)
         # Final projection
-        initial_embedding = self.fc(combined_emb)
-        # initial_embedding = self.layer_norm(initial_embedding)
-        # todo: Add positional encoding
+        positional_emb = self.positional_encoding(combined_emb)
+        initial_embedding = self.fc(positional_emb)
         return initial_embedding
 
 class MPPContextEmbedding(nn.Module):
@@ -90,8 +88,7 @@ class MPPContextEmbedding(nn.Module):
         self.violation = nn.Linear(5, embed_dim)
         self.rhs = nn.Linear(5, embed_dim)
         self.lhs_A = nn.Linear(action_dim * 5, embed_dim)
-        self.project_context = nn.Linear(embed_dim * 8, embed_dim, )
-        self.layer_norm = nn.LayerNorm(embed_dim)
+        self.project_context = nn.Linear(embed_dim * 14, embed_dim, )
 
         # Self-attention layer
         # self.demand = SelfAttentionStateMapping(feature_dim=demand_dim, embed_dim=embed_dim, device=device)
@@ -108,7 +105,6 @@ class MPPContextEmbedding(nn.Module):
         # Project state, concat embeddings, and project concat to output
         context_embedding = torch.cat([select_init_embedding, state_embedding], dim=-1)
         output = self.project_context(context_embedding)
-        # output = self.layer_norm(output)
         return output
 
     def _state_embedding(self, embeddings, td):
@@ -128,25 +124,25 @@ class MPPContextEmbedding(nn.Module):
 
         # Vessel
         residual_capacity = self.residual_capacity(td["obs"]["residual_capacity"].view(td.batch_size[0], -1))
-        # origin_embed = self.origin_location(td["state"]["agg_pol_location"].view(td.batch_size[0], -1))
-        # destination_embed = self.destination_location(td["state"]["agg_pod_location"].view(td.batch_size[0], -1))
+        origin_embed = self.origin_location(td["state"]["agg_pol_location"].view(td.batch_size[0], -1))
+        destination_embed = self.destination_location(td["state"]["agg_pod_location"].view(td.batch_size[0], -1))
 
         # # Performance
         overstowage = self.overstowage(td["obs"]["overstowage"].view(td.batch_size[0], -1))
         excess_crane_moves = self.excess_crane_moves(td["obs"]["excess_crane_moves"].view(td.batch_size[0], -1))
-        # total_loaded = self.total_loaded(td["obs"]["total_loaded"].view(td.batch_size[0], -1))
+        total_loaded = self.total_loaded(td["obs"]["total_loaded"].view(td.batch_size[0], -1))
 
         # # Feasibility
-        # violation = self.violation(td["obs"]["violation"].view(td.batch_size[0], -1))
-        # rhs = self.rhs(td["rhs"].view(td.batch_size[0], -1))
-        # lhs_A = self.lhs_A(td["lhs_A"].view(td.batch_size[0], -1))
+        violation = self.violation(td["obs"]["violation"].view(td.batch_size[0], -1))
+        rhs = self.rhs(td["rhs"].view(td.batch_size[0], -1))
+        lhs_A = self.lhs_A(td["lhs_A"].view(td.batch_size[0], -1))
 
         # Concatenate all embeddings
         state_embed = torch.cat([
             current_demand, expected_demand, std_demand, observed_demand,
-            residual_capacity, #origin_embed, destination_embed,
-            overstowage, excess_crane_moves, #total_loaded,
-            #violation, rhs, lhs_A
+            residual_capacity, origin_embed, destination_embed,
+            overstowage, excess_crane_moves, total_loaded,
+            violation, rhs, lhs_A
         ], dim=-1)
         return state_embed
 
