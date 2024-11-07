@@ -241,8 +241,24 @@ class FP32LayerNorm(nn.LayerNorm):
         return normalized_output.to(x.dtype)
 
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
 class FP32Attention(nn.MultiheadAttention):
-    """Multi-head Attention using FP32 computation and FP16 storage."""
+    """Multi-head Attention using FP32 computation and FP16 storage, with adjusted initialization."""
+
+    def __init__(self, embed_dim: int, num_heads: int, **kwargs):
+        # Ensure embed_dim is divisible by num_heads
+        if embed_dim % num_heads != 0:
+            print(f"Warning: embed_dim ({embed_dim}) is not divisible by num_heads ({num_heads}). Adjusting embed_dim.")
+            embed_dim = (embed_dim // num_heads) * num_heads
+
+        # Call superclass with adjusted embed_dim
+        super(FP32Attention, self).__init__(embed_dim, num_heads, **kwargs)
+        self.embed_dim = embed_dim  # Store adjusted embed_dim if it was changed
+        self.num_heads = num_heads  # Ensure num_heads is consistent
 
     def forward(self, query, key, value, **kwargs):
         # Cast inputs to FP32 for stable attention computation
@@ -250,14 +266,17 @@ class FP32Attention(nn.MultiheadAttention):
         key_fp32 = key.float()
         value_fp32 = value.float()
 
-        # Add debugging for shapes
+        # Ensure head_dim is consistent
+        head_dim = self.embed_dim // self.num_heads
+        assert self.embed_dim == head_dim * self.num_heads, (
+            f"embed_dim ({self.embed_dim}) is not compatible with num_heads ({self.num_heads})."
+        )
+
+        # Log shapes for debugging purposes
         print(f"query shape: {query_fp32.shape}, key shape: {key_fp32.shape}, value shape: {value_fp32.shape}")
+        print(f"Using embed_dim={self.embed_dim}, num_heads={self.num_heads}, head_dim={head_dim}")
 
-        # Ensure that head_dim is consistent
-        embed_dim = query_fp32.size(-1)
-        assert embed_dim % self.num_heads == 0, "Embedding dimension must be divisible by num_heads"
-
-        # Perform multi-head attention in FP32 and cast back to FP16
+        # Perform multi-head attention in FP32 and cast back to input dtype
         attn_output_fp32, attn_weights_fp32 = super(FP32Attention, self).forward(query_fp32, key_fp32, value_fp32,
                                                                                  **kwargs)
         attn_output = attn_output_fp32.to(query.dtype)
