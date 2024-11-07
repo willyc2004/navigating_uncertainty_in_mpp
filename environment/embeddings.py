@@ -26,7 +26,7 @@ class MPPInitEmbedding(nn.Module):
         self.ex_demand = nn.Linear(1, embed_dim)
         self.stdx_demand = nn.Linear(1, embed_dim)
         self.fc = nn.Linear(8 * embed_dim, embed_dim)
-        self.positional_encoding = DynamicSinusoidalPositionalEncoding(embed_dim)
+        self.positional_encoding = DynamicSinusoidalPositionalEncoding(embed_dim*8) # 8 is the number of embeddings
         self.cache_initialized = False  # Flag to check if cache has been created
 
     def initialize_cache(self,):
@@ -166,12 +166,7 @@ class DynamicSinusoidalPositionalEncoding(nn.Module):
         pe = torch.zeros(seq_length, self.embed_dim, device=x.device)
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        print("pe shape", pe.shape)
-        print("x shape", x.shape)
-        breakpoint()
-
-        pe = pe.unsqueeze(0).expand(batch_size, -1, -1)
-        return x + pe
+        return x + pe.unsqueeze(0)
 
 class SelfAttentionStateMapping(nn.Module):
     def __init__(self, feature_dim, embed_dim, device):
