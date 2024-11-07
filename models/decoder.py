@@ -111,6 +111,11 @@ class AttentionDecoderWithCache(nn.Module):
         glimpse_q = self._compute_q(cached, td)
         glimpse_q = self.q_layer_norm(glimpse_q)
 
+        # Log or assert ranges
+        assert not torch.isnan(glimpse_q).any(), "NaN in glimpse_q"
+        assert not torch.isnan(glimpse_k).any(), "NaN in glimpse_k"
+        assert not torch.isnan(glimpse_v).any(), "NaN in glimpse_v"
+
         # Multi-head Attention in FP32
         with torch.cuda.amp.autocast(enabled=False):  # Disables autocasting, forcing FP32
             # Cast inputs to FP32 for stable attention computation
@@ -118,13 +123,15 @@ class AttentionDecoderWithCache(nn.Module):
             glimpse_k_fp32 = glimpse_k.float()
             glimpse_v_fp32 = glimpse_v.float()
 
+
+
             # Perform multi-head attention in FP32 and cast back to FP16
             attn_output_fp32, _ = self.attention(glimpse_q_fp32, glimpse_k_fp32, glimpse_v_fp32)
             attn_output_fp32 = torch.clamp(attn_output_fp32, min=-10.0, max=10.0)
             attn_output = attn_output_fp32.to(glimpse_q.dtype)
 
-        attn_output = self.dropout(attn_output)
-        attn_output = self.attn_layer_norm(attn_output + glimpse_q)
+        # attn_output = self.dropout(attn_output)
+        # attn_output = self.attn_layer_norm(attn_output + glimpse_q)
 
         # # # Feedforward Network with Residual Connection
         # ffn_output = self.feed_forward(attn_output)
