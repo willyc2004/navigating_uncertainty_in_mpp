@@ -205,13 +205,13 @@ def process_logits(
             e_x = e_x * mask
             std_x = torch.clamp(std_x * mask, min=1e-6)
 
-        # # # Apply linear scaling for constant_sum
-        # if constant_sum is not None:
-        #     e_x = e_x / e_x.sum(dim=-1, keepdim=True) * constant_sum.view(-1,1)
-        #
-        # # Apply scale factor (teu)
-        # if scale_factor is not None:
-        #     e_x = e_x * scale_factor
+        # # Apply linear scaling for constant_sum
+        if constant_sum is not None:
+            e_x = e_x / e_x.sum(dim=-1, keepdim=True) * constant_sum.view(-1,1)
+
+        # Apply scale factor (teu)
+        if scale_factor is not None:
+            e_x = e_x * scale_factor
 
         # Apply clipping
         if clip_max is not None:
