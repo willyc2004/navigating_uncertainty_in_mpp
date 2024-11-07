@@ -63,7 +63,7 @@ class AttentionDecoderWithCache(nn.Module):
         self.dropout = nn.Dropout(dropout_rate)
 
         # Attention and Feedforward Layers
-        self.attention = FP32Attention(embed_dim, num_heads, dropout=dropout_rate, bias=False)
+        self.attention = FP32Attention(embed_dim, num_heads, batch_first=True)
 
         # Layer Normalization
         self.q_layer_norm = FP32LayerNorm(embed_dim)
