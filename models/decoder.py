@@ -117,17 +117,9 @@ class AttentionDecoderWithCache(nn.Module):
         assert not torch.isnan(glimpse_k).any(), "NaN in glimpse_k"
         assert not torch.isnan(glimpse_v).any(), "NaN in glimpse_v"
 
-        # Multi-head Attention in FP32
-        with torch.cuda.amp.autocast(enabled=False):  # Disables autocasting, forcing FP32
-            # Cast inputs to FP32 for stable attention computation
-            glimpse_q_fp32 = glimpse_q.float()
-            glimpse_k_fp32 = glimpse_k.float()
-            glimpse_v_fp32 = glimpse_v.float()
+        # Perform multi-head attention
+        attn_output, _ = self.attention(glimpse_q, glimpse_k, glimpse_v)
 
-            # Perform multi-head attention in FP32 and cast back to FP16
-            attn_output_fp32, _ = self.attention(glimpse_q_fp32, glimpse_k_fp32, glimpse_v_fp32)
-            attn_output_fp32 = torch.clamp(attn_output_fp32, min=-10.0, max=10.0)
-            attn_output = attn_output_fp32.to(glimpse_q.dtype)
 
         # attn_output = self.attn_layer_norm(attn_output + glimpse_q)
 
