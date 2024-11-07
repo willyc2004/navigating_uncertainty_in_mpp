@@ -89,6 +89,7 @@ class AttentionDecoderWithCache(nn.Module):
         # Projection Layers
         self.project_embeddings_kv = nn.Linear(embed_dim, embed_dim * 3)  # For key, value, and logit
         self.output_projection = nn.Linear(embed_dim * 2, action_size * 2)  # For mean and log_std
+        self.output_projection2 = nn.Linear(embed_dim, action_size * 2)  # For mean and log_std
 
         # Optionally, use graph context
         self.use_graph_context = use_graph_context
@@ -124,24 +125,25 @@ class AttentionDecoderWithCache(nn.Module):
         attn_output = self.dropout(attn_output)
         attn_output = self.attn_layer_norm(attn_output + glimpse_q)
 
-        # # Feedforward Network with Residual Connection
-        ffn_output = self.feed_forward(attn_output)
-        ffn_output = self.ffn_layer_norm(ffn_output + attn_output)
-
-        # Pointer mechanism: compute pointer logits (scores) over the sequence
-        # The pointer logits are used to select an index (action) from the input sequence
-        pointer_logits = torch.matmul(ffn_output, glimpse_k.transpose(-2, -1))  # [batch_size, seq_len, seq_len]
-        pointer_probs = F.softmax(pointer_logits, dim=-1)
-        # Compute the context vector (weighted sum of values based on attention probabilities)
-        pointer_output = torch.matmul(pointer_probs, glimpse_v)  # [batch_size, seq_len, hidden_dim]
-
-        # Combine pointer_output with ffn_output to feed into the output projection
-        combined_output = torch.cat([ffn_output, pointer_output], dim=-1)
-        combined_output = self.output_layer_norm(combined_output)
-
-        # Project logits to mean and log_std logits (use softplus)
-        logits = self.output_projection(combined_output).view(td.batch_size[0], self.action_size, 2)
+        # # # Feedforward Network with Residual Connection
+        # ffn_output = self.feed_forward(attn_output)
+        # ffn_output = self.ffn_layer_norm(ffn_output + attn_output)
+        #
+        # # Pointer mechanism: compute pointer logits (scores) over the sequence
+        # # The pointer logits are used to select an index (action) from the input sequence
+        # pointer_logits = torch.matmul(ffn_output, glimpse_k.transpose(-2, -1))  # [batch_size, seq_len, seq_len]
+        # pointer_probs = F.softmax(pointer_logits, dim=-1)
+        # # Compute the context vector (weighted sum of values based on attention probabilities)
+        # pointer_output = torch.matmul(pointer_probs, glimpse_v)  # [batch_size, seq_len, hidden_dim]
+        #
+        # # Combine pointer_output with ffn_output to feed into the output projection
+        # combined_output = torch.cat([ffn_output, pointer_output], dim=-1)
+        # combined_output = self.output_layer_norm(combined_output)
+        #
+        # # Project logits to mean and log_std logits (use softplus)
+        # logits = self.output_projection(combined_output).view(td.batch_size[0], self.action_size, 2)
         # output_logits = F.relu(logits).clamp(min=1e-6, max=1e6)
+        logits = self.output_projection2(attn_output).view(td.batch_size[0], self.action_size, 2)
         output_logits = F.softplus(logits)
         return output_logits, td["action_mask"]
 
