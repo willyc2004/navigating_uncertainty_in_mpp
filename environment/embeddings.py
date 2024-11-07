@@ -76,6 +76,7 @@ class MPPContextEmbedding(nn.Module):
         self.origin_location = nn.Linear(action_dim, embed_dim)
         self.destination_location = nn.Linear(action_dim, embed_dim)
         # Continuous embeddings
+        self.current_demand = nn.Linear(1, embed_dim)
         self.expected_demand = nn.Linear(1, embed_dim)
         self.std_demand = nn.Linear(1, embed_dim)
         self.observed_demand = nn.Linear(1, embed_dim)
@@ -112,7 +113,7 @@ class MPPContextEmbedding(nn.Module):
         - todo: It does depend on vessel size now, but this could be changed.
         """
         # Demand
-        current_demand = self.expected_demand(td["obs"]["current_demand"].view(td.batch_size[0], -1))
+        current_demand = self.current_demand(td["obs"]["current_demand"].view(td.batch_size[0], -1))
         # expected_demand = self.expected_demand(
         #     torch.sum(td["obs"]["expected_demand"].view(td.batch_size[0], -1), dim=-1, keepdim=True))
         # std_demand = self.std_demand(
@@ -134,7 +135,7 @@ class MPPContextEmbedding(nn.Module):
         # violation = self.violation(td["obs"]["violation"].view(td.batch_size[0], -1))
         # rhs = self.rhs(td["rhs"].view(td.batch_size[0], -1))
         # lhs_A = self.lhs_A(td["lhs_A"].view(td.batch_size[0], -1))
-        #
+
         # Concatenate all embeddings
         state_embed = torch.cat([
             current_demand, #expected_demand, std_demand, observed_demand,
