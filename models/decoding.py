@@ -490,8 +490,8 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 raise ValueError("Nan, inf, or 0 in std_x")
 
             # # Project mean logits
-            proj_mean_logits = mean_logits
-            # proj_mean_logits = self.projection_layer(mean_logits, td["lhs_A"], td["rhs"],)
+            # proj_mean_logits = mean_logits
+            proj_mean_logits = self.projection_layer(mean_logits, td["lhs_A"], td["rhs"],)
 
             # Get logprobs and actions from policy
             logprobs, selected_action, _ = self._step(
