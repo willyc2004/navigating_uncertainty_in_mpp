@@ -31,7 +31,6 @@ def check_for_nans(tensor, name):
     if torch.isinf(tensor).any():
         print(f"Inf detected in {name}")
 
-
 class AttentionDecoderWithCache(nn.Module):
     def __init__(self,
                  state_size: int,
@@ -111,8 +110,17 @@ class AttentionDecoderWithCache(nn.Module):
         glimpse_q = self._compute_q(cached, td)
         glimpse_q = self.q_layer_norm(glimpse_q)
 
-        # Multi-head Attention
-        attn_output, _ = self.attention(glimpse_q, glimpse_k, glimpse_v)
+        # Multi-head Attention in FP32
+        with torch.cuda.amp.autocast(enabled=False):  # Disables autocasting, forcing FP32
+            # Cast inputs to FP32 for stable attention computation
+            glimpse_q_fp32 = glimpse_q.float()
+            glimpse_k_fp32 = glimpse_k.float()
+            glimpse_v_fp32 = glimpse_v.float()
+
+            # Perform multi-head attention in FP32 and cast back to FP16
+            attn_output_fp32, _ = self.attention(glimpse_q_fp32, glimpse_k_fp32, glimpse_v_fp32)
+            attn_output = attn_output_fp32.to(glimpse_q.dtype)
+
         attn_output = self.dropout(attn_output)
         attn_output = self.attn_layer_norm(attn_output + glimpse_q)
 
@@ -238,3 +246,15 @@ class FP32LayerNorm(nn.LayerNorm):
         x_fp32 = x.to(torch.float32)
         normalized_output = super(FP32LayerNorm, self).forward(x_fp32)
         return normalized_output.to(x.dtype)
+
+class FP32Attention(nn.Module):
+    def __init__(self, embed_dim, num_heads):
+        super(FP32Attention, self).__init__()
+        self.attention = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
+
+    def forward(self, x, attention_mask=None):
+        # Disable autocasting for this attention block to ensure FP32 computation
+        with autocast(enabled=False):
+            # Compute attention in FP32, casting input `x` to FP32 if necessary
+            x = x.float()  # Ensure input is in FP32
+            return self.attention(x, x, x, attn_mask=attention_mask)
