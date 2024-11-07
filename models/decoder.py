@@ -240,18 +240,26 @@ class FP32LayerNorm(nn.LayerNorm):
         normalized_output = super(FP32LayerNorm, self).forward(x_fp32)
         return normalized_output.to(x.dtype)
 
+
 class FP32Attention(nn.MultiheadAttention):
     """Multi-head Attention using FP32 computation and FP16 storage."""
+
     def forward(self, query, key, value, **kwargs):
         # Cast inputs to FP32 for stable attention computation
         query_fp32 = query.float()
         key_fp32 = key.float()
         value_fp32 = value.float()
-        print("Shapes of query, key, value")
-        print(query_fp32.shape, key_fp32.shape, value_fp32.shape)
+
+        # Add debugging for shapes
+        print(f"query shape: {query_fp32.shape}, key shape: {key_fp32.shape}, value shape: {value_fp32.shape}")
+
+        # Ensure that head_dim is consistent
+        embed_dim = query_fp32.size(-1)
+        assert embed_dim % self.num_heads == 0, "Embedding dimension must be divisible by num_heads"
 
         # Perform multi-head attention in FP32 and cast back to FP16
-        attn_output_fp32, attn_weights_fp32 = super(FP32Attention, self).forward(query_fp32, key_fp32, value_fp32)
+        attn_output_fp32, attn_weights_fp32 = super(FP32Attention, self).forward(query_fp32, key_fp32, value_fp32,
+                                                                                 **kwargs)
         attn_output = attn_output_fp32.to(query.dtype)
         attn_weights = attn_weights_fp32.to(query.dtype)
 
