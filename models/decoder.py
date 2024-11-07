@@ -63,7 +63,7 @@ class AttentionDecoderWithCache(nn.Module):
         self.dropout = nn.Dropout(dropout_rate)
 
         # Attention and Feedforward Layers
-        self.attention = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
+        self.attention = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True, bias=False, dropout=dropout_rate)
 
         # Layer Normalization
         self.q_layer_norm = FP32LayerNorm(embed_dim)
@@ -128,7 +128,6 @@ class AttentionDecoderWithCache(nn.Module):
             attn_output_fp32 = torch.clamp(attn_output_fp32, min=-10.0, max=10.0)
             attn_output = attn_output_fp32.to(glimpse_q.dtype)
 
-        # attn_output = self.dropout(attn_output)
         # attn_output = self.attn_layer_norm(attn_output + glimpse_q)
 
         # # # Feedforward Network with Residual Connection
