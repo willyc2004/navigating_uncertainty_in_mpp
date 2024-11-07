@@ -90,7 +90,7 @@ class MPPContextEmbedding(nn.Module):
         self.violation = nn.Linear(5, embed_dim)
         self.rhs = nn.Linear(5, embed_dim)
         self.lhs_A = nn.Linear(action_dim * 5, embed_dim)
-        self.project_context = nn.Linear(embed_dim * 3, embed_dim, )
+        self.project_context = nn.Linear(embed_dim * 8, embed_dim, )
         self.layer_norm = nn.LayerNorm(embed_dim)
 
         # Self-attention layer
@@ -119,12 +119,12 @@ class MPPContextEmbedding(nn.Module):
         """
         # Demand
         current_demand = self.current_demand(td["obs"]["current_demand"].view(td.batch_size[0], -1))
-        # expected_demand = self.expected_demand(
-        #     torch.sum(td["obs"]["expected_demand"].view(td.batch_size[0], -1), dim=-1, keepdim=True))
-        # std_demand = self.std_demand(
-        #     torch.sum(td["obs"]["std_demand"].view(td.batch_size[0], -1), dim=-1, keepdim=True))
-        # observed_demand = self.observed_demand(
-        #     torch.sum(td["obs"]["observed_demand"].view(td.batch_size[0], -1), dim=-1, keepdim=True))
+        expected_demand = self.expected_demand(
+            torch.sum(td["obs"]["expected_demand"].view(td.batch_size[0], -1), dim=-1, keepdim=True))
+        std_demand = self.std_demand(
+            torch.sum(td["obs"]["std_demand"].view(td.batch_size[0], -1), dim=-1, keepdim=True))
+        observed_demand = self.observed_demand(
+            torch.sum(td["obs"]["observed_demand"].view(td.batch_size[0], -1), dim=-1, keepdim=True))
 
         # Vessel
         residual_capacity = self.residual_capacity(td["obs"]["residual_capacity"].view(td.batch_size[0], -1))
@@ -132,10 +132,10 @@ class MPPContextEmbedding(nn.Module):
         # destination_embed = self.destination_location(td["state"]["agg_pod_location"].view(td.batch_size[0], -1))
 
         # # Performance
+        overstowage = self.overstowage(td["obs"]["overstowage"].view(td.batch_size[0], -1))
+        excess_crane_moves = self.excess_crane_moves(td["obs"]["excess_crane_moves"].view(td.batch_size[0], -1))
         # total_loaded = self.total_loaded(td["obs"]["total_loaded"].view(td.batch_size[0], -1))
-        # overstowage = self.overstowage(td["obs"]["overstowage"].view(td.batch_size[0], -1))
-        # excess_crane_moves = self.excess_crane_moves(td["obs"]["excess_crane_moves"].view(td.batch_size[0], -1))
-        #
+
         # # Feasibility
         # violation = self.violation(td["obs"]["violation"].view(td.batch_size[0], -1))
         # rhs = self.rhs(td["rhs"].view(td.batch_size[0], -1))
@@ -143,9 +143,9 @@ class MPPContextEmbedding(nn.Module):
 
         # Concatenate all embeddings
         state_embed = torch.cat([
-            current_demand, #expected_demand, std_demand, observed_demand,
+            current_demand, expected_demand, std_demand, observed_demand,
             residual_capacity, #origin_embed, destination_embed,
-            #total_loaded, overstowage, excess_crane_moves,
+            overstowage, excess_crane_moves, #total_loaded,
             #violation, rhs, lhs_A
         ], dim=-1)
         return state_embed
