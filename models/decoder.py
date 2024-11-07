@@ -183,8 +183,8 @@ class MLPDecoderWithCache(nn.Module):
         self.action_size = action_size
 
         # Layer Normalization
-        self.q_layer_norm = FP32LayerNorm
-        self.ffn_layer_norm = FP32LayerNorm
+        self.q_layer_norm = FP32LayerNorm(embed_dim)
+        self.ffn_layer_norm = FP32LayerNorm(embed_dim)
 
         # Create MLP layers with ReLU activation, add some layer parameter
         num_layers = num_hidden_layers
