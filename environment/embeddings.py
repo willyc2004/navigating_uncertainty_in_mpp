@@ -122,8 +122,8 @@ class MPPContextEmbedding(nn.Module):
 
         # Vessel
         residual_capacity = self.residual_capacity(td["obs"]["residual_capacity"].view(td.batch_size[0], -1))
-        origin_embed = self.origin_location(td["state"]["agg_pol_location"].view(td.batch_size[0], -1))
-        destination_embed = self.destination_location(td["state"]["agg_pod_location"].view(td.batch_size[0], -1))
+        # origin_embed = self.origin_location(td["state"]["agg_pol_location"].view(td.batch_size[0], -1))
+        # destination_embed = self.destination_location(td["state"]["agg_pod_location"].view(td.batch_size[0], -1))
 
         # Performance
         total_loaded = self.total_loaded(td["obs"]["total_loaded"].view(td.batch_size[0], -1))
@@ -138,7 +138,7 @@ class MPPContextEmbedding(nn.Module):
         # Concatenate all embeddings
         state_embed = torch.cat([
             current_demand, expected_demand, std_demand, observed_demand,
-            residual_capacity, origin_embed, destination_embed,
+            residual_capacity, #origin_embed, destination_embed,
             total_loaded, overstowage, excess_crane_moves,
             violation, rhs, lhs_A
         ], dim=-1)
