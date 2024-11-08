@@ -101,7 +101,7 @@ def calculate_gaussian_entropy(logits):
         # Number of dimensions
         d = mean.shape[1]
         # Calculate entropy for each sample in the batch
-        entropy = 0.5 * d * (1 + torch.log(torch.tensor(2 * torch.pi))) + torch.log(std + 1e-8).sum(dim=1)
+        entropy = 0.5 * d * (1 + torch.log(torch.tensor(2 * torch.pi))) + torch.log(std + 1e-8).sum(dim=-1)
 
     else:
         mean = logits[..., 0]
@@ -191,7 +191,7 @@ def process_logits(
         return F.log_softmax(logits, dim=-1)
 
     # For continuous action space, we have logits and std_x
-    if logits.dim() == 3:
+    if logits.dim() == 3 or logits.dim() == 4:
         e_x, std_x = logits[..., 0], logits[..., 1]
 
         if clip_min is not None:
@@ -207,10 +207,11 @@ def process_logits(
 
         # # Apply linear scaling for constant_sum
         if constant_sum is not None:
-            e_x = e_x / e_x.sum(dim=-1, keepdim=True) * constant_sum.view(-1,1)
+            e_x = e_x / e_x.sum(dim=-1, keepdim=True) * constant_sum.unsqueeze(-1)
 
         # Apply scale factor (teu)
         if scale_factor is not None:
+            scale_factor = scale_factor.unsqueeze(-1)
             e_x = e_x * scale_factor
 
         # Apply clipping
@@ -446,7 +447,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             # Continuous action logits processing
             clip_min = td.get("clip_min", None)
             clip_max = td.get("clip_max", None)
-            scale_factor = kwargs.get("scale_factor", None).view(-1,1)
+            scale_factor = kwargs.get("scale_factor", None)
 
             # Process logits (output is scaled
             mean_logits, std_logits = process_logits(

@@ -209,7 +209,14 @@ class MLPDecoderWithCache(nn.Module):
         logits = self.ffn_layer_norm(logits)
 
         # Project logits to mean and log_std logits (use softplus)
-        logits = self.output_projection(logits).view(td.batch_size[0], self.action_size, 2)
+        if td["done"].dim() == 2:
+            view_transform = lambda x: x.view(td.batch_size[0], self.action_size, 2)
+        elif td["done"].dim() == 3:
+            view_transform = lambda x: x.view(td.batch_size[0], -1, self.action_size, 2)
+        else:
+            raise ValueError("Invalid dimension for done tensor.")
+
+        logits = view_transform(self.output_projection(logits))
         output_logits = F.softplus(logits)
         return output_logits, td["action_mask"]
 
