@@ -425,7 +425,7 @@ class MasterPlanningEnv(RL4COEnvBase):
 
     def _check_done(self, t: Tensor) -> Tensor:
         """Determine if the episode is done based on the state."""
-        return (t == (self.K * self.T) - 1)
+        return (t == (self.K * self.T) - 1).view(-1,1)
 
     # Extraction functions
     def _extract_from_td(self, td) -> Tuple:
