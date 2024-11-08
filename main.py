@@ -237,9 +237,9 @@ def main(config=None):
         logger = None
 
     # Initialize datasets and dataloaders
-    train_dataset = StateDependentDataset(env=env, td=None, batch_size=[config.ppo.mini_batch_size],
+    train_dataset = StateDependentDataset(env=env, td=None, batch_size=config.model.batch_size,
                                           total_samples=config.am_ppo.train_data_size)
-    val_dataset = StateDependentDataset(env=env, td=None, batch_size=[config.ppo.mini_batch_size],
+    val_dataset = StateDependentDataset(env=env, td=None, batch_size=config.model.batch_size,
                                         total_samples=config.am_ppo.val_data_size)
     train_dataloader = DataLoader(train_dataset, batch_size=None, num_workers=0, collate_fn=custom_collate_fn,
                                   pin_memory=False,) # shuffle=False (for iterable dataset)
