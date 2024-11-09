@@ -14,8 +14,10 @@ parameters:
     values: [4, 8,]
   ppo_epochs:
     values: [3, 5, 7]
+  batch_size:
+    values: [512, 1024, 2048] # 64, 128, 256, 512, 1024, 2048
   mini_batch_size:
-    values: [1024] # 64, 128, 256, 512, 1024, 2048
+    values: [128, 256, 512] # 64, 128, 256, 512, 1024, 2048
   lr:
     min: 0.000001
     max: 0.001
