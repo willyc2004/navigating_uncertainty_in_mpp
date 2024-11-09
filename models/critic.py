@@ -79,7 +79,7 @@ class CriticNetwork(nn.Module):
             h = self.context_embedding(h, x)
 
         # Step 3: Compute value using value_head
-        output = self.value_head(h).mean(dim=1)  # [batch_size, N] -> [batch_size]
+        output = self.value_head(h) #.mean(dim=-1)  # [batch_size, N] -> [batch_size]
         return output
 
 
