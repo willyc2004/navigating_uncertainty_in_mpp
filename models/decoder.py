@@ -88,7 +88,7 @@ class AttentionDecoderWithCache(nn.Module):
 
         # Projection Layers
         self.project_embeddings_kv = nn.Linear(embed_dim, embed_dim * 3)  # For key, value, and logit
-        self.output_projection = nn.Linear(embed_dim * 1, action_size * 2)  # For mean and log_std
+        self.output_projection = nn.Linear(embed_dim * 2, action_size * 2)  # For mean and log_std
         self.output_projection2 = nn.Linear(embed_dim, action_size * 2)  # For mean and log_std
 
         # Optionally, use graph context
