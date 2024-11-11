@@ -157,7 +157,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
         },
         gamma: float = 0.99,  # gamma
         gae_lambda: float = 0.95,  # lambda of GAE
-        n_step: float = 36,  # n-step for n-step PPO
+        n_step: float = 72,  # n-step for n-step PPO
         T_train: int = 72,  # the maximum inference T used for training
         T_test: int = 72,  # the maximum inference T used for test
         lr: float = 1e-4,  # learning rate of policy network
