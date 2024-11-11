@@ -44,29 +44,6 @@ class Memory:
         self.values = self.values.new_zeros(self.values.size())
         self.profit = self.profit.new_zeros(self.profit.size())
 
-class n_step_Memory:
-    def __init__(self, batch_size, n_step, env, device="cuda"):
-        self.ll = torch.zeros((*batch_size, n_step, env.D * env.B), device=device)
-        self.value_preds = torch.zeros((*batch_size, n_step, 1), device=device)
-        self.entropy = torch.zeros((*batch_size, n_step, 1), device=device)
-        self.mean_logits = torch.zeros((*batch_size, n_step, env.D * env.B), device=device)
-        self.std_logits = torch.zeros((*batch_size, n_step, env.D * env.B), device=device)
-        self.proj_mean_logits = torch.zeros((*batch_size, n_step, env.D * env.B), device=device)
-        self.lhs_A = torch.zeros((*batch_size, n_step, env.n_constraints, env.D * env.B), device=device)
-        self.rhs = torch.zeros((*batch_size, n_step, env.n_constraints), device=device)
-        self.dones = torch.zeros((*batch_size, n_step, 1), device=device)
-
-    def clear_memory(self):
-        self.ll = self.ll.new_zeros(self.ll.size())
-        self.value_preds = self.value_preds.new_zeros(self.value_preds.size())
-        self.entropy = self.entropy.new_zeros(self.entropy.size())
-        self.mean_logits = self.mean_logits.new_zeros(self.mean_logits.size())
-        self.std_logits = self.std_logits.new_zeros(self.std_logits.size())
-        self.proj_mean_logits = self.proj_mean_logits.new_zeros(self.proj_mean_logits.size())
-        self.lhs_A = self.lhs_A.new_zeros(self.lhs_A.size())
-        self.rhs = self.rhs.new_zeros(self.rhs.size())
-        self.dones = self.dones.new_zeros(self.dones.size())
-
 class ObservationNormalizer(nn.Module):
     def __init__(self, obs_spec, epsilon=1e-5, momentum=0.1):
         super().__init__()
@@ -116,7 +93,7 @@ class ObservationNormalizer(nn.Module):
 
 class Projection_Nstep_PPO(RL4COLitModule):
     """
-    An implementation of the n-step dactProximal Policy Optimization (PPO) algorithm (https://arxiv.org/abs/2110.02544)
+    An implementation of the n-step Proximal Policy Optimization (PPO) algorithm (https://arxiv.org/abs/2110.02544)
     is presented for training improvement models.
     """
     def __init__(
@@ -316,12 +293,6 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
                 # Store values directly in the memory object
                 value_preds = self.critic(mini_batch_tds)
-                ll = out["logprobs"]
-                entropy = out["entropy"]
-                mean_logits = out["mean_logits"]
-                proj_mean_logits = out["proj_mean_logits"]
-                lhs_A = out["lhs_A"]
-                rhs = out["rhs"]
                 dones = out["done"]
 
                 # Compute advantages and returns
@@ -342,9 +313,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
                 # Compute losses and metrics
                 loss, metrics = self._compute_losses(
-                    ll, entropy, mean_logits, proj_mean_logits, lhs_A, rhs, adv, returns, memory, mini_batch_indices,
-                    self.lambda_violations, tolerance, alpha
-                )
+                    adv, returns, out, memory, td, mini_batch_indices, self.lambda_violations, tolerance, alpha)
 
                 # Perform the backward pass and optimization
                 opt = self.optimizers()
@@ -361,18 +330,22 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
         return self._aggregate_metrics(list_metrics)
 
-    # Helper function to normalize tensors if enabled in configuration
     def _normalize_if_enabled(self, tensor, enabled):
+        """Normalize tensors if enabled in configuration"""
         return (tensor - tensor.mean()) / (tensor.std() + 1e-8) if enabled else tensor
 
-    # Helper function to compute losses
-    def _compute_losses(self, ll, entropy,
-                        mean_logits, proj_mean_logits, lhs_A, rhs, adv, returns, memory,
+    def _compute_losses(self, adv, returns, out, memory, td,
                         mini_batch_indices, lambda_values, tolerance, alpha):
-
-        # Extract from memory
+        """Compute the PPO loss, value loss, entropy loss, feasibility loss, and projection loss."""
+        # Extract from memory/out
         old_ll = memory.logprobs[mini_batch_indices]
         value_preds = memory.values[mini_batch_indices]
+        ll = out["logprobs"]
+        entropy = out["entropy"]
+        mean_logits = out["mean_logits"]
+        proj_mean_logits = out["proj_mean_logits"]
+        lhs_A = out["lhs_A"]
+        rhs = out["rhs"]
 
         # Compute the ratios for PPO clipping
         log_ratios = ll - old_ll.detach()
@@ -386,7 +359,6 @@ class Projection_Nstep_PPO(RL4COLitModule):
         # Feasibility and projection losses
         lhs = (lhs_A * proj_mean_logits.unsqueeze(-2)).sum(dim=-1)
         violation = torch.clamp(lhs - rhs, min=0)
-
         if self.ppo_cfg["adaptive_feasibility_lambda"]:
             lambda_values = torch.where(
                 violation > tolerance,
@@ -415,17 +387,14 @@ class Projection_Nstep_PPO(RL4COLitModule):
             "feasibility_loss": self.ppo_cfg["feasibility_lambda"] * feasibility_loss,
             "projection_loss": self.ppo_cfg["projection_lambda"] * projection_loss,
             # extra logging
-            # todo: episodic reward
-            # "episodic_reward": agg_reward.mean(),  # mean over batch and n_step
             "return": returns.mean(),
             "ratios": ratios.mean(),
             "clipped_ratios": clipped_ratios.mean(),
-            # "kl_div": kl_divergence.mean(),
             "adv": adv,
             "value_pred": value_preds,
-            # todo: total loaded
-            # "total_loaded": td["state"]["total_loaded"].mean(),
+            "total_loaded": td["state"]["total_loaded"].mean(),
             "violations": violation.mean(dim=0).sum(),  # total violation during n-steps
+            # todo: episodic reward
             # "ll": ll.sum(),
             # "old_ll": old_ll.sum(),
             # "action": action.mean(),
@@ -433,21 +402,21 @@ class Projection_Nstep_PPO(RL4COLitModule):
             # "revenue": revenue.mean(),
             # "costs": costs.mean(),
         }
-
         return total_loss, metrics
 
-    # Helper function to aggregate metrics
     def _aggregate_metrics(self, list_metrics):
+        """Aggregate metrics across PPO inner epochs and mini-batches."""
         return {k: torch.stack([dic[k] for dic in list_metrics], dim=0) for k in list_metrics[0]}
 
-
 def check_for_nans(tensor, name):
+    """Check for NaNs and Infs in a tensor and raise an error if found."""
     if torch.isnan(tensor).any():
         raise ValueError(f"NaN detected in {name}")
     if torch.isinf(tensor).any():
         raise ValueError(f"Inf detected in {name}")
 
 def check_tensors_for_nans(td, parent_key=""):
+    """Recursive check for NaNs and Infs in e.g. TensorDicts and raise an error if found."""
     for key, value in td.items():
         full_key = f"{parent_key}.{key}" if parent_key else key
         if isinstance(value, torch.Tensor):
@@ -455,8 +424,6 @@ def check_tensors_for_nans(td, parent_key=""):
         elif isinstance(value, TensorDict):
             # Recursively check nested TensorDicts
             check_tensors_for_nans(value, full_key)
-
-
 
 def initialize_stats_from_rollouts(env, normalizer, batch_size, num_rollouts=100, device="cuda"):
     """
