@@ -394,7 +394,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
             "violations": violation.mean(dim=0).sum(),  # total violation during n-steps
             # performance metrics
             "total_loaded": td["state"]["total_loaded"].mean(),
-            "total_profit":  td["state"]["total_revenue"].mean() - td["state"]["total_costs"].mean(),
+            "total_profit":  td["state"]["total_revenue"].mean() - td["state"]["total_cost"].mean(),
             "total_revenue": td["state"]["total_revenue"].mean(),
             "total_cost": td["state"]["total_cost"].mean(),
         }
