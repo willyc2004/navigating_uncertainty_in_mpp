@@ -88,7 +88,7 @@ class AttentionDecoderWithCache(nn.Module):
 
         # Projection Layers
         self.project_embeddings_kv = nn.Linear(embed_dim, embed_dim * 3)  # For key, value, and logit
-        self.output_projection = nn.Linear(embed_dim * 2, action_size * 2)  # For mean and log_std
+        self.output_projection = nn.Linear(embed_dim * 1, action_size * 2)  # For mean and log_std
         self.output_projection2 = nn.Linear(embed_dim, action_size * 2)  # For mean and log_std
 
         # Optionally, use graph context
@@ -129,11 +129,16 @@ class AttentionDecoderWithCache(nn.Module):
         # # Combine pointer_output with ffn_output to feed into the output projection
         # combined_output = torch.cat([ffn_output, pointer_output], dim=-1)
         # combined_output = self.output_layer_norm(combined_output)
-        #
-        # # Project logits to mean and log_std logits (use softplus)
-        # logits = self.output_projection(combined_output).view(td.batch_size[0], self.action_size, 2)
-        # output_logits = F.relu(logits).clamp(min=1e-6, max=1e6)
-        logits = self.output_projection2(attn_output).view(td.batch_size[0], self.action_size, 2)
+        combined_output = attn_output
+
+        # Project logits to mean and log_std logits (use softplus)
+        if td["done"].dim() == 2:
+            view_transform = lambda x: x.view(td.batch_size[0], self.action_size, 2)
+        elif td["done"].dim() == 3:
+            view_transform = lambda x: x.view(td.batch_size[0], -1, self.action_size, 2)
+        else:
+            raise ValueError("Invalid dimension for done tensor.")
+        logits = view_transform(self.output_projection(combined_output))
         output_logits = F.softplus(logits)
         return output_logits, td["action_mask"]
 
