@@ -160,8 +160,6 @@ class MasterPlanningEnv(RL4COEnvBase):
 
     def _step(self, td: TensorDict) -> TensorDict:
         """Perform a step in the environment and return the next state."""
-        # todo: perform gather_index for speed?
-
         ## Extraction and precompute
         action, lhs_A, rhs, t, batch_size = self._extract_from_td(td)
         pol, pod, k, tau, rev = self._extract_cargo_parameters_for_step(t[0])
@@ -261,12 +259,6 @@ class MasterPlanningEnv(RL4COEnvBase):
                 "expected_demand": next_state_dict["expected_demand"].view(*batch_size, self.K * self.T),
                 "std_demand": next_state_dict["std_demand"].view(*batch_size, self.K * self.T),
                 "residual_capacity": residual_capacity.view(*batch_size, self.B * self.D),
-
-                # Performance
-                "total_loaded": total_loaded,
-                "overstowage": overstowage,
-                "excess_crane_moves": excess_crane_moves,
-                "violation": violation,
             },
 
             # Feasibility and constraints
@@ -287,13 +279,6 @@ class MasterPlanningEnv(RL4COEnvBase):
 
     def _reset(self,  td: Optional[TensorDict] = None,  batch_size=None) -> TensorDict:
         """Reset the environment to the initial state."""
-        # # todo: with torchRL transformed, we need this
-        # if batch_size is None:
-        #     batch_size = [1] if td is None else td.batch_size
-        # if td is None or td.is_empty():
-        #     td = self.generator(batch_size=batch_size)
-        # batch_size = [batch_size] if isinstance(batch_size, int) else batch_size
-        # self.to(td.device)
         device = td.device
 
         # Initialize cargo parameters
@@ -319,16 +304,7 @@ class MasterPlanningEnv(RL4COEnvBase):
             "std_demand": td["std_demand"].view(*batch_size, self.K * self.T),
             # Vessel
             "residual_capacity": clip_max.view(*batch_size, self.B*self.D),
-            # "location_utilization": locations_utilization,
-            # "location_weight": th.zeros_like(locations_utilization),
-            # Performance
-            "total_loaded": th.zeros_like(pol[:, 0], dtype=self.float_type),
-            "overstowage": th.zeros((*batch_size, self.B,),  device=device, dtype=self.float_type),
-            "excess_crane_moves": th.zeros((*batch_size, self.B-1,),  device=device, dtype=self.float_type),
-            "violation": th.zeros((*batch_size, self.n_constraints), device=device, dtype=self.float_type),
-
         }, batch_size=batch_size, device=device,)
-
 
         initial_state = TensorDict({
             # Demand
@@ -438,7 +414,6 @@ class MasterPlanningEnv(RL4COEnvBase):
         lhs_A = td["lhs_A"].clone()
         rhs = td["rhs"].clone()
         return action, lhs_A, rhs, episodic_step, batch_size
-        # return action, action_mask, lhs_A, rhs,episodic_step, batch_size
 
     def _extract_cargo_parameters_for_step(self, t) -> Tuple:
         """Extract cargo-related parameters"""
@@ -472,7 +447,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         return observed_demand, expected_demand, std_demand
 
     # Reward/costs functions
-    def _get_reward(self, td, actions) -> Tensor:
+    def _get_reward(self, td, utilizations) -> Tensor:
         """Compute total profit for episode"""
         return td["state"]["total_revenue"] - td["state"]["total_cost"]
 
