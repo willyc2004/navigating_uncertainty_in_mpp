@@ -396,7 +396,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
             "total_loaded": td["state"]["total_loaded"].mean(),
             "total_profit":  td["state"]["total_revenue"].mean() - td["state"]["total_costs"].mean(),
             "total_revenue": td["state"]["total_revenue"].mean(),
-            "total_costs": td["state"]["total_costs"].mean(),
+            "total_cost": td["state"]["total_cost"].mean(),
         }
         return total_loss, metrics
 
