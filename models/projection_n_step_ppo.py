@@ -379,28 +379,24 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
         # Collect metrics for logging
         metrics = {
-            # main logging
+            # loss logging
             "loss": total_loss,
             "surrogate_loss": surrogate_loss,
             "value_loss": self.ppo_cfg["vf_lambda"] * value_loss,
             "entropy": -self.ppo_cfg["entropy_lambda"] * entropy.mean(),
             "feasibility_loss": self.ppo_cfg["feasibility_lambda"] * feasibility_loss,
             "projection_loss": self.ppo_cfg["projection_lambda"] * projection_loss,
-            # extra logging
             "return": returns.mean(),
             "ratios": ratios.mean(),
             "clipped_ratios": clipped_ratios.mean(),
             "adv": adv,
             "value_pred": value_preds,
-            "total_loaded": td["state"]["total_loaded"].mean(),
             "violations": violation.mean(dim=0).sum(),  # total violation during n-steps
-            # todo: episodic reward
-            # "ll": ll.sum(),
-            # "old_ll": old_ll.sum(),
-            # "action": action.mean(),
-            # profit metrics
-            # "revenue": revenue.mean(),
-            # "costs": costs.mean(),
+            # performance metrics
+            "total_loaded": td["state"]["total_loaded"].mean(),
+            "total_profit":  td["state"]["total_revenue"].mean() - td["state"]["total_costs"].mean(),
+            "total_revenue": td["state"]["total_revenue"].mean(),
+            "total_costs": td["state"]["total_costs"].mean(),
         }
         return total_loss, metrics
 
