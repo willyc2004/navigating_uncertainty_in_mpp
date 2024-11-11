@@ -194,14 +194,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
         self.lambda_violations = torch.tensor([demand_lambda] + [stability_lambda] * env.n_stability,
                                               device='cuda', dtype=torch.float32)
-
-        # Normalization
-        self.obs_norm = ObservationNormalizer(self.env.obs_spec)
-        initialize_stats_from_rollouts(env, self.obs_norm, batch_size=mini_batch_size)
-        self.return_mean = 0
-        self.return_var = 0
-        self.return_count = 0
-        self.epsilon = 1e-4
+        # todo: normalization of observation
 
     def configure_optimizers(self):
         parameters = list(self.policy.parameters()) + list(self.critic.parameters())
@@ -420,45 +413,3 @@ def check_tensors_for_nans(td, parent_key=""):
         elif isinstance(value, TensorDict):
             # Recursively check nested TensorDicts
             check_tensors_for_nans(value, full_key)
-
-def initialize_stats_from_rollouts(env, normalizer, batch_size, num_rollouts=100, device="cuda"):
-    """
-    Perform random rollouts to initialize mean and std in ObservationNormalizer.
-
-    Args:
-        env: The environment instance.
-        normalizer: The ObservationNormalizer instance.
-        rollout_mpp: Function that performs a rollout and returns observation TensorDict.
-        num_rollouts: Number of rollouts to perform.
-        device: Device for computations (e.g., "cuda").
-    """
-
-    # Test the environment
-    def random_action_policy(td):
-        """Helper function to select a random action from available actions"""
-        batch_size = td.batch_size
-        action = torch.distributions.Uniform(env.action_spec.low, env.action_spec.high).sample(batch_size)
-        td.set("action", action.to(torch.float16))
-        return td
-
-    # Collect observations across rollouts
-    collected_obs = {key: [] for key in normalizer.mean.keys()}
-    for idx in range(num_rollouts):
-        td = env.reset(batch_size=batch_size,)
-        while not td["done"].all():
-            td = random_action_policy(td)
-            td = env.step(td)["next"]
-            # Collect each observation field in the TensorDict
-            for key, value in td["obs"].items():
-                collected_obs[key].append(value)
-
-    # Calculate and set initial mean and std in the normalizer
-    for key, values in collected_obs.items():
-        # Stack values along a new dimension and calculate mean/std
-        values_stack = torch.stack(values, dim=0)  # Shape: [num_rollouts, *obs_shape]
-        mean = values_stack.mean(dim=0)
-        std = values_stack.std(dim=0)
-
-        # Set initial mean and std in the normalizer with clamping on std
-        normalizer.mean[key].data = mean.to(device)
-        normalizer.std[key].data = torch.clamp(std, min=1e-6).to(device)  # Avoid near-zero std
