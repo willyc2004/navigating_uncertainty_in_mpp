@@ -122,15 +122,13 @@ class Projection_Nstep_PPO(RL4COLitModule):
         buffer_size: int = 100_000,
         buffer_storage_device: str = "gpu",
         metrics: dict = {
-            "train": ["loss", "surrogate_loss", "value_loss", "entropy",
-                      "feasibility_loss", "projection_loss",
-                      "return", "adv", "value_pred", "ratios", "clipped_ratios",
-                      "episodic_reward", "total_loaded", "violations",
-                        "proj_mean_logits", "std_logits", "profit"
-                      ],
-                      # "costs", "revenue",
-                        # "ll", "old_ll",
-                        # "action", "logprobs", "logprobs_old",]
+            "train": [
+                # loss logging
+                "loss", "surrogate_loss", "value_loss", "entropy", "feasibility_loss", "projection_loss",
+                "return", "ratios", "clipped_ratios", "adv", "value_pred", "violations",
+                # performance metrics
+                "total_loaded", "total_profit", "total_revenue", "total_cost",
+            ]
         },
         gamma: float = 0.99,  # gamma
         gae_lambda: float = 0.95,  # lambda of GAE
