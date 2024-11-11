@@ -472,73 +472,9 @@ class MasterPlanningEnv(RL4COEnvBase):
         return observed_demand, expected_demand, std_demand
 
     # Reward/costs functions
-    def _get_reward(self, td, utilizations) -> Tensor:
+    def _get_reward(self, td, actions) -> Tensor:
         """Compute total profit for episode"""
-        metrics = self._get_metrics_n_step(td, utilizations)
-        total_revenue = self._compute_total_revenue(metrics["actions"], metrics["realized_demand"])
-        total_costs = self._compute_total_costs(metrics["total_overstowage"], metrics["total_excess_crane_moves"])
-        return total_revenue - total_costs
-
-    def _compute_total_revenue(self, actions, realized_demand) -> Tensor:
-        """Compute total revenue during episode"""
-        cargo = th.min(actions.sum(dim=(-1)), realized_demand[:,:,0,0].view(-1, self.K * self.T))
-        return (cargo * self.revenues[:-1].view(1, -1,)).sum(dim=(-1)) # / self.total_capacity
-
-    def _compute_total_costs(self, total_overstowage:Tensor, total_long_crane:Tensor) -> Tensor:
-        """Compute total costs during episode"""
-        return (total_overstowage * self.ho_costs + total_long_crane * self.lc_costs) # / self.total_capacity
-
-    def _get_metrics_n_step(self, td, utilizations, actions=None) -> Dict:
-        # ALlow for n_steps to be passed
-        t = td["episodic_step"][0]
-        n_steps = utilizations.shape[1]
-        if utilizations.dim() == 2 or utilizations.dim() == 5:
-            n_steps = 1
-        # Reshape only once: [batch, n_steps, features]
-        utilizations = utilizations.view(-1, n_steps, self.B, self.D, self.K, self.T)
-        # todo: fix
-        try:
-            moves = self.moves_idx_episode[t-n_steps:t,:].view(1, n_steps, 1, 1, 1, self.T)
-            ac_transport = self.remain_on_board_transport_episode[t - n_steps:t, :].view(1, n_steps, 1, 1, 1, self.T)
-        except:
-            moves = self.moves_idx_episode.view(1, n_steps, 1, 1, 1, self.T)
-            ac_transport = self.remain_on_board_transport_episode.view(1, n_steps, 1, 1, 1, self.T)
-        # todo: expand is expensive and should be avoided
-        realized_demand = td["realized_demand"].view(-1, 1, self.K, self.T).expand(-1, n_steps, -1, -1)
-
-        # Compute overstowage, target, and long crane moves in batches
-        overstowage = self._compute_hatch_overstowage_n_step(utilizations, moves, ac_transport)
-        target_long_crane = self._compute_target_long_crane_n_step(realized_demand, moves.view(1, n_steps, 1, self.T))
-        long_crane_moves = self._compute_long_crane_n_step(utilizations, moves)
-        # Compute long crane excess in-place to reduce memory operations
-        lc_excess = th.clamp_(long_crane_moves - target_long_crane, min=0)
-
-        # Sum overstowage and excess with mask applied in a single step
-        mask = self.next_port_mask.view(1, -1, 1)
-        total_overstowage = (overstowage * mask).sum(dim=(-2, -1))
-        total_excess_crane_moves = ((lc_excess * mask.view(1, -1)).sum(dim=-1))
-
-        # Compute last port long crane excess
-        if t + n_steps >= self.K * self.T:
-            moves_bays_last_port = td["state"]["utilization"].sum(dim=(2, 3, 4))
-            long_crane_moves_last_port = (moves_bays_last_port[..., :-1] + moves_bays_last_port[..., 1:]).max(dim=-1).values
-            target_last_port = td["state"]["target_long_crane"]
-            lc_excess_last_port = th.clamp_(long_crane_moves_last_port - target_last_port, min=0)
-            total_excess_crane_moves += lc_excess_last_port
-
-        # Extract actions, permute only once and reuse the result
-        if actions == None:
-            actions = utilizations.max(dim=1).values.permute(0, 3, 4, 1, 2).view(-1, self.K * self.T, self.B * self.D)
-            actions[:, -1] = td["action"].view(-1, self.B * self.D)
-
-        return {
-            "utilizations": utilizations,
-            "actions": actions,
-            "realized_demand": realized_demand,
-            "total_loaded": actions.sum(dim=(-1, -2)),
-            "total_overstowage": total_overstowage,
-            "total_excess_crane_moves": total_excess_crane_moves,
-        }
+        return td["state"]["total_revenue"] - td["state"]["total_cost"]
 
     def _compute_min_pod(self,pod_locations: Tensor) -> Tensor:
         """Compute min_pod based on utilization"""
