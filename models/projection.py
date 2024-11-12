@@ -40,11 +40,6 @@ class ConvexProgramLayer(th.nn.Module):
         # check code: https://github.com/INFERLab/PROF/blob/main/agents/nn_policy.py
 
     def forward(self, x, A, b, t):
-        # # Solve the convex program, with A_, b, x as inputs
-        # A_ = A[0].T
-        # _, x_, = self.cvxpylayer(A_, b, x, solver_args=self.solver_options)
-        # return x_
-
         # Get the dimensions of the input
         batch_size = A.shape[0]
         x_out = []
@@ -78,7 +73,7 @@ class LinearViolationAdaption(th.nn.Module):
         violation_old = th.zeros(batch_size, m, dtype=x.dtype, device=x.device)
         active_mask = th.ones(batch_size, dtype=th.bool, device=x.device)  # Start with all batches active
         x_ = x.clone()
-        count = 0
+        # count = 0
 
         if th.isnan(x_).any():
             return x_
@@ -107,8 +102,8 @@ class LinearViolationAdaption(th.nn.Module):
 
             # Update violation_old for the next iteration
             violation_old = violation_new.clone()
-            count += 1
-        print(f"Count: {count}")
+            # count += 1
+        # print(f"Count: {count}")
         return x_
 
 
