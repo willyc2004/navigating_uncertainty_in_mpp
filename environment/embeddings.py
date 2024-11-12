@@ -131,14 +131,14 @@ class MPPContextEmbedding(nn.Module):
         else:
             raise ValueError("Invalid shape of done in td")
 
-        # Demand embeddings
+        # Demand embeddings - Number of containers
         # todo: improve demand?
         current_demand = self.current_demand(view_transform(td["obs"]["current_demand"]))
         expected_demand = self.expected_demand(torch.sum(view_transform(td["obs"]["expected_demand"]), dim=-1, keepdim=True))
         std_demand = self.std_demand(torch.sum(view_transform(td["obs"]["std_demand"]), dim=-1, keepdim=True))
         observed_demand = self.observed_demand(torch.sum(view_transform(td["obs"]["observed_demand"]), dim=-1, keepdim=True))
 
-        # Vessel embeddings
+        # Vessel embeddings - Number of containers
         residual_capacity = self.residual_capacity(view_transform(td["obs"]["residual_capacity"]))
         origin_embed = self.origin_location(view_transform(td["state"]["agg_pol_location"]))
         destination_embed = self.destination_location(view_transform(td["state"]["agg_pod_location"]))
