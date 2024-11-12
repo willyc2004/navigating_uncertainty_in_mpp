@@ -163,15 +163,15 @@ class MasterPlanningEnv(RL4COEnvBase):
         ## Extraction and precompute
         action, lhs_A, rhs, t, batch_size = self._extract_from_td(td)
         pol, pod, k, tau, rev = self._extract_cargo_parameters_for_step(t[0])
-        current_demand, realized_demand, utilization, target_long_crane, total_loaded, total_revenue, total_cost\
-            = self._extract_from_state(td["state"])
+        current_demand, realized_demand, utilization, target_long_crane, \
+            total_loaded, total_revenue, total_cost, total_rc = self._extract_from_state(td["state"])
         observed_demand, expected_demand, std_demand = self._extract_from_obs(td["obs"], batch_size)
 
         ## Current state
         # Check done, update utilization, and compute violation
         done = self._check_done(t)
         utilization = self._update_state_loading(action, utilization, k, tau,)
-        violation = compute_violation(lhs_A, rhs, action, batch_size)
+        # violation = compute_violation(lhs_A, rhs, action, batch_size)
 
         # Compute overstowage
         pol_locations, pod_locations = self._compute_pol_pod_locations(utilization)
@@ -205,7 +205,8 @@ class MasterPlanningEnv(RL4COEnvBase):
         utilization_ = next_state_dict["utilization"]
         lhs_A = self.create_lhs_A(lhs_A, t)
         rhs = self.create_rhs(utilization_, current_demand, batch_size)
-        residual_capacity = th.clamp(self.norm_capacity - utilization_.sum(dim=-1) @ self.teus, min=self.zero) # teu
+        # Express residual capacity in number of containers for next step
+        residual_capacity = th.clamp(self.norm_capacity - utilization_.sum(dim=-1) @ self.teus, min=self.zero) / self.teus_episode[t]
 
         # # Update action mask
         # # action_mask[t] = 0
@@ -227,13 +228,20 @@ class MasterPlanningEnv(RL4COEnvBase):
             profit -= cost_
             cost += cost_
 
-        # Track metrics and normalization
+        # Track metrics
+        total_rc += residual_capacity
         total_revenue += revenue
         total_cost += cost
-        # Normalize revenue based on highest possible step reward
-        max_revenue = th.max(self.revenues) * th.max(realized_demand.view(-1, self.K*self.T), dim=1).values
-        reward = profit / max_revenue # (total_revenue - total_cost) / self.total_capacity # profit per container
-        scale_factor = self.teus_episode[t]
+        # Normalize revenue \in [0,1]:
+        # revenue_norm = rev_t / max(rev_t) * min(q_t, sum(a_t)) / min(q_t, sum_t(rc_t))
+        normalize_revenue = self.revenues.max() * th.minimum(residual_capacity.sum(dim=(-2,-1)), current_demand)
+        # Normalize accumulated cost \in [0, t_cost], where t_cost is the time at which we evaluate cost:
+        # cost_norm = cost_{t_cost} / E[min(q_t, sum_t(rc_t))]
+        normalize_cost = th.minimum(total_rc.sum(dim=(-2,-1)) / t[0],
+                                    realized_demand.view(*batch_size, -1)[:,:t[0]].sum(dim=-1) / t[0])
+        # Normalize reward: r_t = revenue_norm - cost_norm
+        # We have spikes over delayed costs at specific time steps.
+        reward = (revenue / normalize_revenue) - (cost / normalize_cost)
 
         # Update td output
         td.update({
@@ -251,6 +259,7 @@ class MasterPlanningEnv(RL4COEnvBase):
                 "total_loaded": total_loaded,
                 "total_revenue": total_revenue,
                 "total_cost": total_cost,
+                "total_rc": total_rc,
             },
             "obs":{
                 # Demand
@@ -273,7 +282,6 @@ class MasterPlanningEnv(RL4COEnvBase):
             "cost": cost,
             "done": done,
             "episodic_step":t,
-            "scale_factor": scale_factor,
         })
         return td
 
@@ -323,6 +331,7 @@ class MasterPlanningEnv(RL4COEnvBase):
             "total_loaded": th.zeros_like(pol[:, 0], dtype=self.float_type),
             "total_revenue": th.zeros_like(pol[:, 0], dtype=self.float_type),
             "total_cost": th.zeros_like(pol[:, 0], dtype=self.float_type),
+            "total_rc": th.zeros_like(locations_utilization),
         }, batch_size=batch_size, device=device,)
 
         # Init td
@@ -363,9 +372,6 @@ class MasterPlanningEnv(RL4COEnvBase):
             "cost": th.zeros_like(reward),
             "done": th.zeros_like(pol[:,0], dtype=th.bool,),
             "episodic_step": t,
-
-            # Scale factor (for next step)
-            "scale_factor": self.teus_episode[t], #/self.total_capacity,
         }, batch_size=batch_size, device=device)
         return td
 
@@ -436,8 +442,10 @@ class MasterPlanningEnv(RL4COEnvBase):
         total_loaded = state["total_loaded"].clone()
         total_revenue = state["total_revenue"].clone()
         total_cost = state["total_cost"].clone()
+        total_rc = state["total_rc"].clone()
         # Return
-        return current_demand, realized_demand, utilization, target_long_crane, total_loaded, total_revenue, total_cost
+        return current_demand, realized_demand, utilization, target_long_crane, \
+            total_loaded, total_revenue, total_cost, total_rc
 
     def _extract_from_obs(self, obs, batch_size) -> Tuple:
         """Extract and clone state variables from the obs TensorDict."""
