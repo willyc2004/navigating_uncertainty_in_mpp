@@ -138,7 +138,7 @@ def main(config=None):
 
     # Embedding initialization
     init_embed = MPPInitEmbedding(embed_dim, action_dim, env)
-    context_embed = MPPContextEmbedding(action_dim, embed_dim, env, device,)
+    context_embed = MPPContextEmbedding(action_dim, embed_dim, env, config.model.demand_aggregation)
     dynamic_embed = StaticEmbedding(obs_dim, embed_dim)
 
     # Model initialization
