@@ -246,7 +246,6 @@ class ConstructivePolicy(nn.Module):
                     mask,
                     td,
                     action=actions[:, step,] if actions is not None else None,
-                    scale_factor=td["scale_factor"],
                 )
                 _, _, k, tau, _ = env._extract_cargo_parameters_for_step(step)
                 td = env.step(td)["next"]
@@ -275,7 +274,6 @@ class ConstructivePolicy(nn.Module):
                     mask,
                     td,
                     action=actions[:, step,] if actions is not None else None,
-                    scale_factor=td["scale_factor"],
                 )
                 td = env.step(td)["next"]
                 step += 1
