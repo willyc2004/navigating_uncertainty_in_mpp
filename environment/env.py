@@ -616,7 +616,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         """Update next state, following options:
         - Next step moves to new port POL+1
         - Next step moves to new transport (POL, POD-1)
-        - Last step of episode; compute crane violation at last port
+        - Last step of episode; compute excess crane moves at last port
         """
         # Get cargo parameters
         pol, pod, k, tau, _ = self._extract_cargo_parameters_for_step(t[0])

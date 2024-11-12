@@ -53,7 +53,7 @@ ppo:
   max_grad_norm: 0.5
   kl_threshold: None #0.01 - 0.1
   kl_penalty_lambda: None # 1.0
-  gamma: 0.99
+  gamma: 0.999
   gae_lambda: 0.95
   vf_lambda: 0.5
   entropy_lambda: 0.01
