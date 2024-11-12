@@ -76,8 +76,12 @@ class MPPInitEmbedding(nn.Module):
         return initial_embedding
 
 class MPPContextEmbedding(nn.Module):
+    """Context embedding of the MPP;
+    - Selects the initial embedding based on the episodic step
+    - Embeds the state of the MPP for the context
+    """
 
-    def __init__(self, action_dim, embed_dim, env, device, demand_dim=3,):
+    def __init__(self, action_dim, embed_dim, env, demand_aggregation="self_attn",):
         super(MPPContextEmbedding, self).__init__()
         self.env = env
 
@@ -86,20 +90,21 @@ class MPPContextEmbedding(nn.Module):
         self.destination_location = nn.Linear(action_dim, embed_dim)
         # Continuous embeddings
         self.current_demand = nn.Linear(1, embed_dim)
-        self.expected_demand = nn.Linear(1, embed_dim)
-        self.std_demand = nn.Linear(1, embed_dim)
-        self.observed_demand = nn.Linear(1, embed_dim)
         self.residual_capacity = nn.Linear(action_dim, embed_dim)
-        self.total_loaded = nn.Linear(1, embed_dim)
-        self.overstowage = nn.Linear(self.env.B, embed_dim)
-        self.excess_crane_moves = nn.Linear(self.env.B - 1, embed_dim)
-        self.violation = nn.Linear(5, embed_dim)
-        self.rhs = nn.Linear(5, embed_dim)
-        self.lhs_A = nn.Linear(action_dim * 5, embed_dim)
         self.project_context = nn.Linear(embed_dim * 8, embed_dim, )
 
         # Self-attention layer
-        # self.demand = SelfAttentionStateMapping(feature_dim=demand_dim, embed_dim=embed_dim, device=device)
+        self.demand_aggregation = demand_aggregation
+        if self.demand_aggregation == "sum":
+            self.observed_demand = nn.Linear(1, embed_dim)
+            self.expected_demand = nn.Linear(1, embed_dim)
+            self.std_demand = nn.Linear(1, embed_dim)
+        elif self.demand_aggregation == "self_attn":
+            self.observed_demand = SelfAttentionStateMapping(embed_dim=embed_dim,)
+            self.expected_demand = SelfAttentionStateMapping(embed_dim=embed_dim,)
+            self.std_demand = SelfAttentionStateMapping(embed_dim=embed_dim,)
+        else:
+            raise ValueError(f"Invalid demand aggregation: {demand_aggregation}")
 
     def forward(self,
                 init_embeddings: Tensor,
@@ -132,11 +137,15 @@ class MPPContextEmbedding(nn.Module):
             raise ValueError("Invalid shape of done in td")
 
         # Demand embeddings - Number of containers
-        # todo: improve demand?
         current_demand = self.current_demand(view_transform(td["obs"]["current_demand"]))
-        expected_demand = self.expected_demand(torch.sum(view_transform(td["obs"]["expected_demand"]), dim=-1, keepdim=True))
-        std_demand = self.std_demand(torch.sum(view_transform(td["obs"]["std_demand"]), dim=-1, keepdim=True))
-        observed_demand = self.observed_demand(torch.sum(view_transform(td["obs"]["observed_demand"]), dim=-1, keepdim=True))
+        if self.demand_aggregation == "sum":
+            expected_demand = self.expected_demand(torch.sum(view_transform(td["obs"]["expected_demand"]), dim=-1, keepdim=True))
+            std_demand = self.std_demand(torch.sum(view_transform(td["obs"]["std_demand"]), dim=-1, keepdim=True))
+            observed_demand = self.observed_demand(torch.sum(view_transform(td["obs"]["observed_demand"]), dim=-1, keepdim=True))
+        elif self.demand_aggregation == "self_attn":
+            expected_demand = self.expected_demand(view_transform(td["obs"]["expected_demand"]))
+            std_demand = self.std_demand(view_transform(td["obs"]["std_demand"]))
+            observed_demand = self.observed_demand(view_transform(td["obs"]["observed_demand"]))
 
         # Vessel embeddings - Number of containers
         residual_capacity = self.residual_capacity(view_transform(td["obs"]["residual_capacity"]))
@@ -173,7 +182,7 @@ class DynamicSinusoidalPositionalEncoding(nn.Module):
         return x + pe
 
 class SelfAttentionStateMapping(nn.Module):
-    def __init__(self, feature_dim, embed_dim, device):
+    def __init__(self, embed_dim, feature_dim=1, device='cuda'):
         super(SelfAttentionStateMapping, self).__init__()
         self.feature_dim = feature_dim  # F (number of features)
 

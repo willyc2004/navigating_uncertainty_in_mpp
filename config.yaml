@@ -25,7 +25,7 @@ env:
 # Model settings
 model:
   lr_end_factor: 0.5
-  batch_size: [1024]
+  batch_size: [32]
   init_dim: 8
   embed_dim: 128
   feedforward_hidden: 512
@@ -42,13 +42,14 @@ model:
   test_decode_type: "continuous_projection"
   phase: "train" # train, test
   decoder_type: "mlp" # mlp, attention
+  demand_aggregation: "self_attn" # sum, self_attn
   logger: wandb
 
 # PPO parameters
 ppo:
   clip_range: 0.2 # 0.2
   ppo_epochs: 5 # 2, 3, 5, 7, 10
-  mini_batch_size: 256 # [256, 512, 1024]
+  mini_batch_size: 16 # [256, 512, 1024]
   normalize_adv: False
   max_grad_norm: 0.5
   kl_threshold: None #0.01 - 0.1
@@ -71,6 +72,6 @@ am_ppo:
     iters: 5
     use_lp_solver: False
   optimizer: "Adam" #AdamW, Adam
-  train_data_size: 5000000 #3000000 # 1000000
-  val_data_size: 50000
+  train_data_size: 100 #5000000 #3000000 # 1000000
+  val_data_size: 50 #000
   test_data_size: 50000
