@@ -146,6 +146,9 @@ class Projection_Nstep_PPO(RL4COLitModule):
     ):
         self.projection_type = kwargs.pop("projection_type", None)  # pop before passing to super
         self.projection_kwargs = kwargs.pop("projection_kwargs", None)  # pop before passing to super
+        self.decoder_type = kwargs.pop("decoder_type", None)  # pop before passing to super
+        self.env_kwargs = kwargs.pop("env_kwargs", None)  # pop before passing to super
+        self.model_kwargs = kwargs.pop("model_kwargs", None)  # pop before passing to super
         super().__init__(
             env,
             policy,

@@ -203,6 +203,9 @@ def main(config=None):
         "lr_scheduler": LinearLR,
         "lr_scheduler_kwargs": {"end_factor": config.model.lr_end_factor,},
         "projection_kwargs": projection_kwargs,
+        "decoder_type": config.model.decoder_type,
+        "env_kwargs": env_kwargs,
+        "model_kwargs": model_params,
         **config.ppo,
         **config.am_ppo,
     }
@@ -232,7 +235,7 @@ def main(config=None):
 
     # Initialize logger
     if config.model.logger == "wandb":
-        logger = WandbLogger(project="mpp", name="mpp_under_uncertainty", log_model='all', config=config)
+        logger = WandbLogger(project="mpp", name="mpp_under_uncertainty", log_model=True, config=config)
     else:
         logger = None
 
