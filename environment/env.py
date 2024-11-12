@@ -242,7 +242,7 @@ class MasterPlanningEnv(RL4COEnvBase):
                                     realized_demand.view(*batch_size, -1)[:,:t[0]].sum(dim=-1) / t[0])
         # Normalize reward: r_t = revenue_norm - cost_norm
         # We have spikes over delayed costs at specific time steps.
-        reward = (revenue / normalize_revenue) - (cost / normalize_cost)
+        reward = (revenue.clone() / normalize_revenue) - (cost.clone() / normalize_cost)
 
         # Update td output
         td.update({
