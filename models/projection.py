@@ -69,44 +69,55 @@ class LinearViolationAdaption(th.nn.Module):
         super(LinearViolationAdaption, self).__init__()
 
     def forward(self, x, A, b, alpha=0.025, delta=0.05, tolerance=0.05):
-        batch_size, m = b.shape
-        violation_old = th.zeros(batch_size, m, dtype=x.dtype, device=x.device)
-        active_mask = th.ones(batch_size, dtype=th.bool, device=x.device)  # Start with all batches active
+        # Determine the shape based on dimensionality of b
         x_ = x.clone()
-        # count = 0
-
+        if b.dim() == 2:
+            batch_size, m = b.shape
+            n_step = 1
+            A = A.unsqueeze(1)  # Expand to [batch_size, 1, m, F] for consistency
+            b = b.unsqueeze(1)  # Expand to [batch_size, 1, m] for consistency
+            x_ = x_.unsqueeze(1)  # Expand to [batch_size, 1, F] for consistency
+        elif b.dim() == 3:
+            batch_size, n_step, m = b.shape
+        else:
+            raise ValueError("Invalid shape of 'b'. Expected dimensions 2 or 3.")
+        violation_old = th.zeros(batch_size, n_step, m, dtype=x.dtype, device=x.device)
+        active_mask = th.ones(batch_size, n_step, dtype=th.bool, device=x.device)  # Start with all batches active
         if th.isnan(x_).any():
             return x_
 
         while th.any(active_mask):
-            # Compute current violation for each batch
-            violation_new = th.clamp(th.bmm(A, x_.unsqueeze(-1)).squeeze(-1) - b, min=0)  # Shape: [batch_size, m]
-            total_violation = th.sum(violation_new, dim=1)  # Sum violations per batch
+            # Compute current violation for each batch and step
+            violation_new = th.clamp(th.matmul(x_.unsqueeze(2), A.transpose(-2, -1)).squeeze(2) - b, min=0)
+            # Shape: [batch_size, n_step, m]
+            total_violation = th.sum(violation_new, dim=-1)  # Sum violations in [batch_size, n_step]
 
             # Define batch-wise stopping conditions
             no_violation = total_violation < tolerance
-            stalling_check = th.abs(total_violation - th.sum(violation_old, dim=1)) < delta
+            stalling_check = th.abs(total_violation - th.sum(violation_old, dim=-1)) < delta
 
-            # Update active mask: only keep batches that are neither within tolerance nor stalled
+            # Update active mask: only keep batches and steps that are neither within tolerance nor stalled
             active_mask = ~(no_violation | stalling_check)
 
-            # Break if no batches are left active
+            # Break if no batches/steps are left active
             if not th.any(active_mask):
                 break
 
             # Calculate penalty gradient for adjustment
-            penalty_gradient = th.bmm(A.transpose(-2, -1), violation_new.unsqueeze(-1)).squeeze(-1)
+            penalty_gradient = th.matmul(violation_new.unsqueeze(2), A).squeeze(2)  # Shape: [32, 1, 20]
 
-            # Apply penalty gradient update only for active batches
-            x_ = th.where(active_mask.unsqueeze(1), x_ - alpha * penalty_gradient, x_)
+            # Apply penalty gradient update only for active batches/steps
+            x_ = th.where(active_mask.unsqueeze(2), x_ - alpha * penalty_gradient, x_)
 
             # Update violation_old for the next iteration
             violation_old = violation_new.clone()
-            # count += 1
-        # print(f"Count: {count}")
-        return x_
 
-
+        # Return the adjusted x_, reshaped to remove n_step dimension if it was initially 2D
+        if n_step == 1:
+            return x_.squeeze(1)
+        else:
+            return x_
+        # return x_.squeeze(1) if n_step == 1 else x_
 
 class LinearProgramLayer(th.nn.Module):
     def __init__(self, **kwargs):
