@@ -85,7 +85,6 @@ class ObservationNormalizer(nn.Module):
                 print(f"Warning: NaNs detected in batch statistics for '{key}'. Replacing with zero mean and min_std.")
                 batch_mean = torch.nan_to_num(batch_mean, nan=0.0)
                 batch_std = torch.nan_to_num(batch_std, nan=self.epsilon)
-                breakpoint()
 
             # Update running statistics with momentum for stability
             self.mean[key].data = self.momentum * batch_mean + (1 - self.momentum) * self.mean[key].data
