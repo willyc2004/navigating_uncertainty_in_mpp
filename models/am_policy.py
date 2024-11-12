@@ -117,7 +117,6 @@ class AttentionModelPolicy4PPO(AttentionModelPolicy):
             mask,
             td,
             action=action if action is not None else None,
-            scale_factor=td["scale_factor"],
         )
         return td
 
@@ -153,7 +152,6 @@ class AttentionModelPolicy4PPO(AttentionModelPolicy):
             mask,
             td,
             action=action if action is not None else None,
-            scale_factor=td["scale_factor"],
         )
         # Compute entropy
         td["entropy"] = calculate_gaussian_entropy((td["proj_mean_logits"], td["std_logits"]))
