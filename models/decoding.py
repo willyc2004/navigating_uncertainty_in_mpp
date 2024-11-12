@@ -150,7 +150,7 @@ def process_logits(
     top_k: int = 0,
     tanh_clipping: float = 0,
     discrete: bool = False,
-    scale_factor: torch.Tensor = None,
+    eps = 1e-3,
     ):
     """Convert logits to log probabilities with additional features like temperature scaling, top-k and top-p sampling.
 
@@ -192,8 +192,10 @@ def process_logits(
 
     # For continuous action space, we have logits and std_x
     if logits.dim() == 3 or logits.dim() == 4:
+        # Unpack logits
         e_x, std_x = logits[..., 0], logits[..., 1]
 
+        # Apply lower bound - todo: not sure if this is general
         if clip_min is not None:
             e_x = torch.clamp(e_x, min=clip_min)
 
@@ -209,17 +211,12 @@ def process_logits(
         if constant_sum is not None:
             e_x = e_x / e_x.sum(dim=-1, keepdim=True) * constant_sum.unsqueeze(-1)
 
-        # Apply scale factor (teu)
-        if scale_factor is not None:
-            scale_factor = scale_factor.unsqueeze(-1)
-            e_x = e_x * scale_factor
-
         # Apply clipping
         if clip_max is not None:
             e_x = torch.clamp(e_x, max=clip_max)
 
         # Ensure std_x is positive
-        std_x = torch.clamp(std_x, min=1e-3)
+        std_x = torch.clamp(std_x, min=eps)
         return e_x, std_x
     else:
         raise ValueError("Continuous action space requires logits and std_x.")
@@ -447,7 +444,6 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             # Continuous action logits processing
             clip_min = td.get("clip_min", None)
             clip_max = td.get("clip_max", None)
-            scale_factor = kwargs.get("scale_factor", None)
 
             # Process logits (output is scaled
             mean_logits, std_logits = process_logits(
@@ -462,7 +458,6 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 top_k=self.top_k,
                 tanh_clipping=self.tanh_clipping,
                 discrete=False,
-                scale_factor=scale_factor,
             )
 
             # if nan, inf, or 0 in e_x, std_x; print full tensor (all values shown)
@@ -511,7 +506,6 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                        "proj_mean_logits": proj_mean_logits,
                        "logprobs":logprobs,
                        "action":selected_action,
-                       "scale_factor":scale_factor
                        })
         else:
             # Discrete action space
