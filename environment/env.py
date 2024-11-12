@@ -206,7 +206,8 @@ class MasterPlanningEnv(RL4COEnvBase):
         lhs_A = self.create_lhs_A(lhs_A, t)
         rhs = self.create_rhs(utilization_, current_demand, batch_size)
         # Express residual capacity in number of containers for next step
-        residual_capacity = th.clamp(self.norm_capacity - utilization_.sum(dim=-1) @ self.teus, min=self.zero) / self.teus_episode[t]
+        residual_capacity = th.clamp(self.norm_capacity - utilization_.sum(dim=-1) @ self.teus, min=self.zero) \
+                            / self.teus_episode[t].view(-1,1,1)
 
         # # Update action mask
         # # action_mask[t] = 0
