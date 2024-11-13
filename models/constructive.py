@@ -288,7 +288,7 @@ class ConstructivePolicy(nn.Module):
 
         # Output dictionary construction
         if calc_reward:
-            td.set("episodic_return", env.get_reward(td, dict_out["utilization"]))
+            td.set("val_return", env.get_reward(td, dict_out["utilization"]))
 
         outdict = {
             "episodic_return": td["episodic_return"],
@@ -312,7 +312,7 @@ class ConstructivePolicy(nn.Module):
             outdict["rhs"] = dict_out["rhs"]
             lhs = (dict_out["lhs_A"] * dict_out["proj_mean_logits"].unsqueeze(-2)).sum(dim=-1)
             outdict["violation"] = torch.clamp(lhs - dict_out["rhs"], min=0) # shape [batch_size, seq, num_constraints]
-            outdict["episodic_return"] -= outdict["violation"].sum(dim=(-1,-2)) / 10
+            outdict["val_return"] -= outdict["violation"].sum(dim=(-1,-2)) / 10
         if return_entropy:
             outdict["entropy"] = calculate_entropy(dict_out["logprobs"])
         if return_td:
