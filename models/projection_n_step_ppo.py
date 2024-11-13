@@ -319,6 +319,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
                         gradient_clip_algorithm="norm",
                     )
                 opt.step()
+                print("metrics", metrics)
                 list_metrics.append(metrics)
 
         return self._aggregate_metrics(list_metrics)
