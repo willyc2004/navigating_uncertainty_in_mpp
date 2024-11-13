@@ -97,8 +97,6 @@ class LinearViolationAdaption(th.nn.Module):
 
             # Define batch-wise stopping conditions
             no_violation = total_violation < tolerance
-            # print("count", count, "total_violation", total_violation.mean(),
-            #       "diff", th.abs(total_violation - th.sum(violation_old, dim=-1)).mean())
             stalling_check = th.abs(total_violation - th.sum(violation_old, dim=-1)) < delta
 
             # Update active mask: only keep batches and steps that are neither within tolerance nor stalled
@@ -117,6 +115,8 @@ class LinearViolationAdaption(th.nn.Module):
             # Update violation_old for the next iteration
             violation_old = violation_new.clone()
             count += 1
+            # print("count", count, "total_violation", total_violation.mean(),
+            #       "diff", th.abs(total_violation - th.sum(violation_old, dim=-1)).mean())
         # print("tot_count", count)
         # Return the adjusted x_, reshaped to remove n_step dimension if it was initially 2D
         if n_step == 1:
