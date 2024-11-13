@@ -239,6 +239,13 @@ class Projection_Nstep_PPO(RL4COLitModule):
             td = self.env.reset(batch)
             out = self.policy.generate(td, env=self.env, phase=phase, return_feasibility=True,
                                        projection_type=self.projection_type, projection_kwargs=self.projection_kwargs)
+            # Log metrics
+            self.log("val/val_return", out["val_return"].mean(), on_epoch=True, prog_bar=True, logger=True)
+            self.log("val/total_profit", out["total_profit"].mean(), on_epoch=True, prog_bar=True, logger=True)
+            self.log("val/total_revenue", out["total_revenue"].mean(), on_epoch=True, prog_bar=True, logger=True)
+            self.log("val/total_cost", out["total_cost"].mean(), on_epoch=True, prog_bar=True, logger=True)
+            self.log("val/total_loaded", out["total_loaded"].mean(), on_epoch=True, prog_bar=True, logger=True)
+            self.log("val/violation", out["violation"].sum(dim=(-2,-1)).mean(), on_epoch=True, prog_bar=True, logger=True)
         else:
             memory = Memory(batch.batch_size, self.ppo_cfg["n_step"],self.env)
             td = self.env.reset(batch)
