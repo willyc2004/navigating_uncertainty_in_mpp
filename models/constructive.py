@@ -223,68 +223,54 @@ class ConstructivePolicy(nn.Module):
             env=env,
             **decoding_kwargs,
         )
+
         # Pre-decoding hook: used for the initial step(s) of the decoding strategy
         td, env, num_starts = decode_strategy.pre_decoder_hook(td, env)
-
         # Additionally call a decoder hook if needed before main decoding
         td, env, hidden = self.decoder.pre_decoder_hook(td, env, hidden, num_starts)
 
         # Initialize lp_solver flag
         batch_size = td.batch_size[0]
-        use_lp_solver = decoding_kwargs.get("projection_kwargs", {}).get("use_lp_solver", False)
-        lp_input = np.zeros((batch_size, env.B, env.D, env.K, env.T,))
-        demand_input = np.zeros((batch_size, env.K, env.T,))
+        use_lp_solver = decoding_kwargs.get("projection_kwargs", {}).get("project_per_port", False)
+        project_per_port = decoding_kwargs.get("projection_kwargs", {}).get("project_per_port", False)
         lp_output = []
 
-        if use_lp_solver:
-            # Main decoding: loop until all sequences are done
-            step = 0
-            while not td["done"].all():
-                logits, mask = self.decoder(td, hidden, num_starts)
-                td = decode_strategy.step(
-                    logits,
-                    mask,
-                    td,
-                    action=actions[:, step,] if actions is not None else None,
-                )
-                _, _, k, tau, _ = env._extract_cargo_parameters_for_step(step)
-                td = env.step(td)["next"]
-                # Get actions and demand
-                lp_input[:, :, :, k, tau] = td["action"].detach().cpu().numpy().reshape(batch_size, env.B, env.D,)
-                demand_input[:, k, tau] = td["state"]["current_demand"].detach().cpu().numpy()
+        if project_per_port:
+            # todo: implement project_per_port
+            # Perform decoding per port to construct the solution
+            for port in range(env.P-1):
+                # Get arrival condition td at port
+                arrival_condition_td = td.copy()
 
-                step += 1
-                if step > max_steps:
-                    log.error(
-                        f"Exceeded maximum number of steps ({max_steps}) during decoding"
-                    )
-                    break
+                # 1. todo: perform decoder prediction based on td for xx steps
+                # 2. todo: decode actions from predictions
+                # 3. todo: project actions to feasible region
+                # proj_actions = [] # todo: ensure correct shape
 
-            # Run solver for each batch
-            for i in range(batch_size):
-                util_lp, _, _, _ = polwise_lp(lp_input[i], demand_input[i], env, verbose=False)
-                lp_output.append(util_lp)
+                # 4. #todo: Construct solution with projected actions
+                self.construct_solution_port(arrival_condition_td, env, actions=proj_actions, hidden=hidden, num_starts=num_starts,
+                                             decode_strategy=decode_strategy, max_steps=max_steps, use_lp_solver=use_lp_solver)
+
+                # 5. todo: update td with the new state after the port
+
+            # 6. todo: get post decoding hook of full solution - similar to main decoding
+            dict_out, td, env = decode_strategy.post_decoder_hook(td, env)
+
+            raise NotImplementedError("project_per_port not implemented yet")
         else:
-            # Main decoding: loop until all sequences are done
-            step = 0
-            while not td["done"].all():
-                logits, mask = self.decoder(td, hidden, num_starts)
-                td = decode_strategy.step(
-                    logits,
-                    mask,
-                    td,
-                    action=actions[:, step,] if actions is not None else None,
-                )
-                td = env.step(td)["next"]
-                step += 1
-                if step > max_steps:
-                    log.error(
-                        f"Exceeded maximum number of steps ({max_steps}) during decoding"
-                    )
-                    break
+            # Perform main decoding to construct the solution
+            lp_input, demand_input = self.construct_solution(
+                td, env, actions=actions, hidden=hidden, num_starts=num_starts, decode_strategy=decode_strategy,
+                max_steps=max_steps, use_lp_solver=use_lp_solver,)
 
-        # Post-decoding hook: used for the final step(s) of the decoding strategy
-        dict_out, td, env = decode_strategy.post_decoder_hook(td, env)
+            # Post-decoding hook: used for the final step(s) of the decoding strategy
+            dict_out, td, env = decode_strategy.post_decoder_hook(td, env)
+
+            # Perform projections
+            if use_lp_solver:
+                for i in range(batch_size):
+                    util_lp, _, _, _ = polwise_lp(lp_input[i], demand_input[i], env, verbose=False)
+                    lp_output.append(util_lp)
 
         # Output dictionary construction
         if calc_reward:
@@ -321,3 +307,56 @@ class ConstructivePolicy(nn.Module):
         if use_lp_solver:
             outdict["lp_actions"] = np.array(lp_output)
         return outdict
+
+    def construct_solution(self, td: TensorDict, env: RL4COEnvBase, actions=None, hidden: Any = None, num_starts: int = 0,
+                           decode_strategy: DecodingStrategy = None, max_steps=1_000_000, use_lp_solver=False,
+                           **decoding_kwargs):
+        # Main decoding: loop until all sequences are done
+        lp_input = np.zeros((td.batch_size[0], env.B, env.D, env.K, env.T,))
+        demand_input = np.zeros((td.batch_size[0], env.K, env.T,))
+        step = 0
+        while not td["done"].all():
+            logits, mask = self.decoder(td, hidden, num_starts)
+            td = decode_strategy.step(
+                logits,
+                mask,
+                td,
+                action=actions[:, step, ] if actions is not None else None,
+            )
+            td = env.step(td)["next"]
+
+            if use_lp_solver:
+                # Get actions and demand
+                _, _, k, tau, _ = env._extract_cargo_parameters_for_step(step)
+                lp_input[:, :, :, k, tau] = td["action"].detach().cpu().numpy().reshape(td.batch_size[0], env.B, env.D,)
+                demand_input[:, k, tau] = td["state"]["current_demand"].detach().cpu().numpy()
+
+            step += 1
+            if step > max_steps:
+                log.error(
+                    f"Exceeded maximum number of steps ({max_steps}) during decoding"
+                )
+                break
+
+        return lp_input, demand_input
+
+    def construct_solution_port(self, td: TensorDict, env: RL4COEnvBase, actions=None, hidden: Any = None,
+                               num_starts: int = 0, decode_strategy: DecodingStrategy = None, max_steps=1_000_000,
+                               **decoding_kwargs):
+        step = 0
+        while not self.next_port_mask[td["episodic_step"]].all():
+            logits, mask = self.decoder(td, hidden, num_starts)
+            td = decode_strategy.step(
+                logits,
+                mask,
+                td,
+                action=actions[:, step, ] if actions is not None else None,
+            )
+            td = env.step(td)["next"]
+
+            step += 1
+            if step > max_steps:
+                log.error(
+                    f"Exceeded maximum number of steps ({max_steps}) during decoding"
+                )
+                break
