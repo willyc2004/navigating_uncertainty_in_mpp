@@ -234,12 +234,11 @@ class MasterPlanningEnv(RL4COEnvBase):
         total_revenue += revenue
         total_cost += cost
         # Normalize revenue \in [0,1]:
-        # revenue_norm = rev_t / max(rev_t) * min(q_t, sum(a_t)) / min(q_t, sum_t(rc_t))
-        normalize_revenue = self.revenues.max() * th.minimum(residual_capacity.sum(dim=(-2,-1)), current_demand)
+        # revenue_norm = rev_t / max(rev_t) * min(q_t, sum(a_t)) / q_t
+        normalize_revenue = self.revenues.max() * current_demand
         # Normalize accumulated cost \in [0, t_cost], where t_cost is the time at which we evaluate cost:
-        # cost_norm = cost_{t_cost} / E[min(q_t, sum_t(rc_t))]
-        normalize_cost = th.minimum(total_rc.sum(dim=(-2,-1)) / t[0],
-                                    realized_demand.view(*batch_size, -1)[:,:t[0]].sum(dim=-1) / t[0])
+        # cost_norm = cost_{t_cost} / E[q_t]
+        normalize_cost = realized_demand.view(*batch_size, -1)[:,:t[0]].sum(dim=-1) / t[0]
         # Normalize reward: r_t = revenue_norm - cost_norm
         # We have spikes over delayed costs at specific time steps.
         reward = (revenue.clone() / normalize_revenue) - (cost.clone() / normalize_cost)
