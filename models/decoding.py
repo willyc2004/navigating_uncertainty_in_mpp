@@ -12,7 +12,7 @@ from rl4co.utils.ops import batchify
 from rl4co.utils.pylogger import get_pylogger
 from models.projection import ProjectionFactory
 from models.clipped_gaussian import ClippedGaussian
-from models.projection_n_step_ppo import recursive_check_for_nans
+from models.projection_n_step_ppo import recursive_check_for_nans, check_for_nans
 
 log = get_pylogger(__name__)
 
@@ -461,18 +461,12 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 discrete=False,
             )
 
-            # Raise error if nan or inf in mean_logits or std_logits
-            torch.set_printoptions(profile="full")
-            if torch.isnan(mean_logits).any():
-                raise ValueError("Nan in e_x")
-            elif torch.isinf(mean_logits).any():
-                raise ValueError("Inf in e_x")
-
-            if torch.isnan(std_logits).any():
-                raise ValueError("Nan in std_x")
-            elif torch.isinf(std_logits).any():
-                raise ValueError("Inf in std_x")
-            elif (std_logits == 0).any():
+            # Raise error if nan or inf in td, mean_logits or std_logits
+            recursive_check_for_nans(td)
+            check_for_nans(mean_logits, "mean_logits")
+            check_for_nans(std_logits, "std_logits")
+            # Raise error if std_x is zero
+            if (std_logits == 0).any():
                 raise ValueError("std_x is zero")
 
             # Project mean logits
@@ -480,10 +474,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             # proj_mean_logits = mean_logits
 
             # Raise error if nan or inf in proj_mean_logits
-            if torch.isnan(proj_mean_logits).any():
-                raise ValueError("Nan in proj(e_x)")
-            elif torch.isinf(proj_mean_logits).any():
-                raise ValueError("Inf in proj(e_x)")
+            check_for_nans(proj_mean_logits, "proj_mean_logits")
 
             # Get logprobs and actions from policy
             logprobs, selected_action, _ = self._step(
