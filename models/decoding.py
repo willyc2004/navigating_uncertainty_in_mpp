@@ -461,40 +461,29 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 discrete=False,
             )
 
-            # if nan, inf, or 0 in e_x, std_x; print full tensor (all values shown)
+            # Raise error if nan or inf in mean_logits or std_logits
             torch.set_printoptions(profile="full")
-            if torch.isnan(mean_logits).any() or torch.isinf(mean_logits).any():
-                print("e_x", mean_logits)
-                # get batch_idx of nan, inf, or 0
-                batch_idx = torch.where(torch.isnan(mean_logits))
-                # only extract the first batch_idx
-                batch_idx = batch_idx[0][0]
+            if torch.isnan(mean_logits).any():
+                raise ValueError("Nan in e_x")
+            elif torch.isinf(mean_logits).any():
+                raise ValueError("Inf in e_x")
 
-                # print the full tensor dict for the first batch_idx
-                for key, value in td[batch_idx].items():
-                    print(key, value)
-                    if isinstance(value, TensorDict):
-                        for key2, value2 in value.items():
-                            print(key2, value2)
-                            if isinstance(value2, TensorDict):
-                                for key3, value3 in value2.items():
-                                    print(key3, value3)
-
-                raise ValueError("Nan, or inf in e_x")
-            if torch.isnan(std_logits).any() or torch.isinf(std_logits).any() or (std_logits == 0).any():
-                print("std_x", std_logits)
-                check_tensors_for_nans(td)
-                raise ValueError("Nan, inf, or 0 in std_x")
+            if torch.isnan(std_logits).any():
+                raise ValueError("Nan in std_x")
+            elif torch.isinf(std_logits).any():
+                raise ValueError("Inf in std_x")
+            elif (std_logits == 0).any():
+                raise ValueError("std_x is zero")
 
             # Project mean logits
-            proj_mean_logits = self.projection_layer(mean_logits, td["lhs_A"], td["rhs"],)
+            # proj_mean_logits = self.projection_layer(mean_logits, td["lhs_A"], td["rhs"],)
+            proj_mean_logits = mean_logits
 
-            # do check if projection causes nan, inf, or 0
-            # if mean_logits have no nan, inf, or 0, then proj_mean_logits should not have nan, inf, or 0
-            if torch.isnan(proj_mean_logits).any() or torch.isinf(proj_mean_logits).any():
-                print("proj_mean_logits", proj_mean_logits)
-                raise ValueError("Nan or inf in proj_mean_logits")
-            # proj_mean_logits = mean_logits
+            # Raise error if nan or inf in proj_mean_logits
+            if torch.isnan(proj_mean_logits).any():
+                raise ValueError("Nan in proj(e_x)")
+            elif torch.isinf(proj_mean_logits).any():
+                raise ValueError("Inf in proj(e_x)")
 
             # Get logprobs and actions from policy
             logprobs, selected_action, _ = self._step(
