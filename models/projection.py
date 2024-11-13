@@ -68,7 +68,7 @@ class LinearViolationAdaption(th.nn.Module):
     def __init__(self, **kwargs):
         super(LinearViolationAdaption, self).__init__()
 
-    def forward(self, x, A, b, alpha=0.01, delta=0.2, tolerance=0.2):
+    def forward(self, x, A, b, alpha=0.005, delta=0.05, tolerance=0.05):
         # alpha => 0.04 diverges,
         # validation settings: alpha=0.025, delta=0.05, tolerance=0.05
         # Determine the shape based on dimensionality of b
@@ -88,7 +88,7 @@ class LinearViolationAdaption(th.nn.Module):
         if th.isnan(x_).any():
             return x_
 
-        # count = 0
+        count = 0
         while th.any(active_mask):
             # Compute current violation for each batch and step
             violation_new = th.clamp(th.matmul(x_.unsqueeze(2), A.transpose(-2, -1)).squeeze(2) - b, min=0)
@@ -116,8 +116,8 @@ class LinearViolationAdaption(th.nn.Module):
 
             # Update violation_old for the next iteration
             violation_old = violation_new.clone()
-            # count += 1
-        # print("tot_count", count)
+            count += 1
+        print("tot_count", count)
         # Return the adjusted x_, reshaped to remove n_step dimension if it was initially 2D
         if n_step == 1:
             return x_.squeeze(1)
