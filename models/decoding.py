@@ -207,9 +207,10 @@ def process_logits(
             e_x = e_x * mask
             std_x = torch.clamp(std_x * mask, min=1e-6)
 
-        # # Apply linear scaling for constant_sum
+        # Scale `e_x` to match `constant_sum` if necessary
         if constant_sum is not None:
-            e_x = e_x / e_x.sum(dim=-1, keepdim=True) * constant_sum.unsqueeze(-1)
+            e_x_sum = e_x.sum(dim=-1, keepdim=True)
+            e_x = torch.where(e_x_sum > constant_sum.unsqueeze(-1), e_x / e_x_sum * constant_sum.unsqueeze(-1), e_x)
 
         # Apply clipping
         if clip_max is not None:
@@ -486,8 +487,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 raise ValueError("Nan, inf, or 0 in std_x")
 
             # Project mean logits
-            proj_mean_logits = self.projection_layer(mean_logits.detach().clone(), td["lhs_A"], td["rhs"],)
-            proj_mean_logits.requires_grad_(True)
+            proj_mean_logits = self.projection_layer(mean_logits, td["lhs_A"], td["rhs"],)
 
             # do check if projection causes nan, inf, or 0
             # if mean_logits have no nan, inf, or 0, then proj_mean_logits should not have nan, inf, or 0
