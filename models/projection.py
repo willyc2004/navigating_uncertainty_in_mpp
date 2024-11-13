@@ -69,7 +69,7 @@ class LinearViolationAdaption(th.nn.Module):
         super(LinearViolationAdaption, self).__init__()
 
     def forward(self, x, A, b, alpha=0.005, delta=0.05, tolerance=0.05):
-        # alpha => 0.04 diverges,
+        # alpha => 0.04 diverges, also 0.025 might cause nans.
         # validation settings: alpha=0.025, delta=0.05, tolerance=0.05
         # Determine the shape based on dimensionality of b
         x_ = x.clone()
