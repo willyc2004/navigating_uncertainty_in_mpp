@@ -218,19 +218,47 @@ def main(config=None):
     date_time_str = time.strftime("%Y/%m/%d/%H-%M-%S")
     print(f"Training started at {date_time_str}")
 
-    # Initialize callbacks
-    checkpoint_callback = ModelCheckpoint(
-        dirpath=f"checkpoints/{date_time_str}/",  # save to checkpoints/
-        filename=f"latest_policy",
-        every_n_train_steps=500,
-        save_top_k=1,  # save only the best model
-        save_last=True,  # save the last model
-        monitor="val/reward",  # monitor validation reward; episodic profit in this case
-        mode="max", # maximize validation reward
+    # Define metrics and their respective configurations
+    metrics = {
+        "val/val_return": {"filename": "best_val_reward", "mode": "max"},
+        "val/total_profit": {"filename": "best_total_profit", "mode": "max"},
+        "val/total_revenue": {"filename": "best_val_total_revenue", "mode": "max"},
+        "val/total_cost": {"filename": "best_val_total_cost", "mode": "min"},
+        "val/total_loaded": {"filename": "best_val_total_loaded", "mode": "max"},
+        "val/violation": {"filename": "best_val_violation", "mode": "min"},
+    }
+
+    # Create ModelCheckpoint instances for each metric
+    checkpoints = [
+        ModelCheckpoint(
+            dirpath=f"checkpoints/{date_time_str}/",
+            filename=config["filename"],
+            save_top_k=1,
+            monitor=metric,
+            mode=config["mode"]
+        )
+        for metric, config in metrics.items()
+    ]
+
+    # Add a checkpoint for saving the latest model
+    latest_checkpoint = ModelCheckpoint(
+        dirpath=f"checkpoints/{date_time_str}/",
+        filename="latest_policy",
+        save_last=True  # save the last model
     )
+
+    # Additional callbacks
     rich_model_summary = RichModelSummary(max_depth=3)
-    early_stopping = EarlyStopping(monitor="val/reward", patience=3, mode="max", verbose=False, check_finite=True)
-    callbacks = [checkpoint_callback, rich_model_summary, early_stopping]
+    early_stopping = EarlyStopping(
+        monitor="val/val_return",
+        patience=3,
+        mode="max",
+        verbose=False,
+        check_finite=True
+    )
+
+    # Combine all callbacks
+    callbacks = checkpoints + [latest_checkpoint, rich_model_summary, early_stopping]
     # callbacks = None # uncomment this line if you don't want callbacks
 
     # Initialize logger
