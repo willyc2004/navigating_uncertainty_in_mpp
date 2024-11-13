@@ -240,7 +240,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
             out = self.policy.generate(td, env=self.env, phase=phase, return_feasibility=True,
                                        projection_type=self.projection_type, projection_kwargs=self.projection_kwargs)
             # Log metrics
-            self.log("val/total_profit_and_feas", out["val_return"].mean(), on_epoch=True, prog_bar=True, logger=True)
+            self.log("val/total_profit_and_feas", out["total_profit_and_feas"].mean(), on_epoch=True, prog_bar=True, logger=True)
             self.log("val/total_revenue", out["total_revenue"].mean(), on_epoch=True, prog_bar=True, logger=True)
             self.log("val/total_cost", out["total_cost"].mean(), on_epoch=True, prog_bar=True, logger=True)
             self.log("val/total_loaded", out["total_loaded"].mean(), on_epoch=True, prog_bar=True, logger=True)
