@@ -486,7 +486,14 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 raise ValueError("Nan, inf, or 0 in std_x")
 
             # Project mean logits
-            proj_mean_logits = self.projection_layer(mean_logits, td["lhs_A"], td["rhs"],)
+            proj_mean_logits = self.projection_layer(mean_logits.detach().clone(), td["lhs_A"], td["rhs"],)
+            proj_mean_logits.requires_grad_(True)
+
+            # do check if projection causes nan, inf, or 0
+            # if mean_logits have no nan, inf, or 0, then proj_mean_logits should not have nan, inf, or 0
+            if torch.isnan(proj_mean_logits).any() or torch.isinf(proj_mean_logits).any():
+                print("proj_mean_logits", proj_mean_logits)
+                raise ValueError("Nan or inf in proj_mean_logits")
             # proj_mean_logits = mean_logits
 
             # Get logprobs and actions from policy
