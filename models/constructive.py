@@ -291,7 +291,7 @@ class ConstructivePolicy(nn.Module):
             td.set("val_return", env.get_reward(td, dict_out["utilization"]))
 
         outdict = {
-            "episodic_return": td["episodic_return"],
+            "val_return": td["val_return"],
             "log_likelihood": get_log_likelihood(
                 dict_out["logprobs"], dict_out["actions"],
                 mask=dict_out["action_masks"],
