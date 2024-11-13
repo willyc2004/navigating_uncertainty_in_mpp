@@ -12,7 +12,7 @@ from rl4co.utils.ops import batchify
 from rl4co.utils.pylogger import get_pylogger
 from models.projection import ProjectionFactory
 from models.clipped_gaussian import ClippedGaussian
-from models.projection_n_step_ppo import check_tensors_for_nans
+from models.projection_n_step_ppo import recursive_check_for_nans
 
 log = get_pylogger(__name__)
 

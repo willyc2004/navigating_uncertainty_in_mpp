@@ -258,6 +258,8 @@ class Projection_Nstep_PPO(RL4COLitModule):
             for i in range(self.ppo_cfg["n_step"]):
                 memory.tds.append(td.clone())
                 td = self.policy.act(memory.tds[i], self.env, phase=phase)
+                recursive_check_for_nans(td)
+                print("td", td)
                 memory.values[:, i] = self.critic(memory.tds[i]).view(-1, 1)
                 td = self.env.step(td.clone())["next"]
                 memory.actions[:, i] = td["action"]
@@ -397,14 +399,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
         """Aggregate metrics across PPO inner epochs and mini-batches."""
         return {k: torch.stack([dic[k] for dic in list_metrics], dim=0) for k in list_metrics[0]}
 
-def check_for_nans(tensor, name):
-    """Check for NaNs and Infs in a tensor and raise an error if found."""
-    if torch.isnan(tensor).any():
-        raise ValueError(f"NaN detected in {name}")
-    if torch.isinf(tensor).any():
-        raise ValueError(f"Inf detected in {name}")
-
-def check_tensors_for_nans(td, parent_key=""):
+def recursive_check_for_nans(td, parent_key=""):
     """Recursive check for NaNs and Infs in e.g. TensorDicts and raise an error if found."""
     for key, value in td.items():
         full_key = f"{parent_key}.{key}" if parent_key else key
@@ -412,4 +407,11 @@ def check_tensors_for_nans(td, parent_key=""):
             check_for_nans(value, full_key)
         elif isinstance(value, TensorDict):
             # Recursively check nested TensorDicts
-            check_tensors_for_nans(value, full_key)
+            recursive_check_for_nans(value, full_key)
+
+def check_for_nans(tensor, name):
+    """Check for NaNs and Infs in a tensor and raise an error if found."""
+    if torch.isnan(tensor).any():
+        raise ValueError(f"NaN detected in {name}")
+    if torch.isinf(tensor).any():
+        raise ValueError(f"Inf detected in {name}")
