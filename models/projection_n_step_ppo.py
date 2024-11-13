@@ -258,8 +258,6 @@ class Projection_Nstep_PPO(RL4COLitModule):
             for i in range(self.ppo_cfg["n_step"]):
                 memory.tds.append(td.clone())
                 td = self.policy.act(memory.tds[i], self.env, phase=phase)
-                recursive_check_for_nans(td)
-                print("td", td)
                 memory.values[:, i] = self.critic(memory.tds[i]).view(-1, 1)
                 td = self.env.step(td.clone())["next"]
                 memory.actions[:, i] = td["action"]
