@@ -288,16 +288,18 @@ class ConstructivePolicy(nn.Module):
 
         # Output dictionary construction
         if calc_reward:
-            td.set("reward", env.get_reward(td, dict_out["utilization"]))
+            td.set("episodic_return", env.get_reward(td, dict_out["utilization"]))
 
         outdict = {
-            "reward": td["reward"],
+            "episodic_return": td["episodic_return"],
             "log_likelihood": get_log_likelihood(
                 dict_out["logprobs"], dict_out["actions"],
                 mask=dict_out["action_masks"],
                 return_sum=return_sum_log_likelihood),
             "utilization": dict_out["utilization"],
             "total_loaded": td["state"].get("total_loaded", None),
+            "total_revenue": td["state"].get("total_revenue", None),
+            "total_cost": td["state"].get("total_cost", None),
         }
         if return_actions:
             outdict["actions"] = dict_out["actions"]
@@ -310,7 +312,7 @@ class ConstructivePolicy(nn.Module):
             outdict["rhs"] = dict_out["rhs"]
             lhs = (dict_out["lhs_A"] * dict_out["proj_mean_logits"].unsqueeze(-2)).sum(dim=-1)
             outdict["violation"] = torch.clamp(lhs - dict_out["rhs"], min=0) # shape [batch_size, seq, num_constraints]
-            outdict["reward"] -= outdict["violation"].sum(dim=(-1,-2)) / 10
+            outdict["episodic_return"] -= outdict["violation"].sum(dim=(-1,-2)) / 10
         if return_entropy:
             outdict["entropy"] = calculate_entropy(dict_out["logprobs"])
         if return_td:
