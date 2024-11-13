@@ -16,6 +16,7 @@ from rl4co.utils.ops import batchify, unbatchify
 from rl4co.models.nn.attention import PointerAttention, PointerAttnMoE
 from environment.embeddings import MPPInitEmbedding, StaticEmbedding, MPPContextEmbedding
 from torch.cuda.amp import autocast
+from models.projection_n_step_ppo import check_for_nans, recursive_check_for_nans
 
 @dataclass
 class PrecomputedCache:
@@ -76,10 +77,11 @@ class AttentionDecoderWithCache(nn.Module):
             hidden_dim = 4 * embed_dim  # Default hidden dimension is 4 times the embed_dim
 
         feed_forward_layers = []
+        ffn_activation = nn.LeakyReLU() # nn.GELU(), nn.ReLU(), nn.SiLU(), nn.LeakyReLU()
         for _ in range(num_hidden_layers):
             feed_forward_layers.append(nn.Linear(embed_dim, hidden_dim))
             # feed_forward_layers.append(nn.LayerNorm(hidden_dim))
-            feed_forward_layers.append(nn.ReLU())
+            feed_forward_layers.append(ffn_activation)
             feed_forward_layers.append(nn.Dropout(dropout_rate))
             feed_forward_layers.append(nn.Linear(hidden_dim, embed_dim))
             # feed_forward_layers.append(nn.LayerNorm(embed_dim))
@@ -110,14 +112,19 @@ class AttentionDecoderWithCache(nn.Module):
         glimpse_k, glimpse_v, logit_k = self._compute_kvl(cached, td)
         glimpse_q = self._compute_q(cached, td)
         glimpse_q = self.q_layer_norm(glimpse_q)
+        check_for_nans(glimpse_q, "glimpse_q")
 
         # Perform multi-head attention
         attn_output, _ = self.attention(glimpse_q, glimpse_k, glimpse_v)
+        check_for_nans(attn_output, "attn_output1")
         attn_output = self.attn_layer_norm(attn_output + glimpse_q)
+        check_for_nans(attn_output, "attn_output2")
 
         # # # Feedforward Network with Residual Connection
         ffn_output = self.feed_forward(attn_output)
+        check_for_nans(ffn_output, "ffn_output1")
         ffn_output = self.ffn_layer_norm(ffn_output + attn_output)
+        check_for_nans(ffn_output, "ffn_output2")
 
         # Pointer mechanism: compute pointer logits (scores) over the sequence
         # The pointer logits are used to select an index (action) from the input sequence
@@ -125,10 +132,12 @@ class AttentionDecoderWithCache(nn.Module):
         pointer_probs = F.softmax(pointer_logits, dim=-1)
         # Compute the context vector (weighted sum of values based on attention probabilities)
         pointer_output = torch.matmul(pointer_probs, glimpse_v)  # [batch_size, seq_len, hidden_dim]
+        check_for_nans(pointer_output, "pointer_output")
 
         # Combine pointer_output with ffn_output to feed into the output projection
         combined_output = torch.cat([ffn_output, pointer_output], dim=-1)
         combined_output = self.output_layer_norm(combined_output)
+        check_for_nans(combined_output, "combined_output")
 
         # Project logits to mean and log_std logits (use softplus)
         if td["done"].dim() == 2:
@@ -137,8 +146,11 @@ class AttentionDecoderWithCache(nn.Module):
             view_transform = lambda x: x.view(td.batch_size[0], -1, self.action_size, 2)
         else:
             raise ValueError("Invalid dimension for done tensor.")
+
         logits = view_transform(self.output_projection(combined_output))
+        check_for_nans(logits, "output_logits1")
         output_logits = F.softplus(logits)
+        check_for_nans(logits, "output_logits2")
         return output_logits, td["action_mask"]
 
     def pre_decoder_hook(self, td: TensorDict, env, embeddings: Tensor, num_starts: int = 0):
@@ -192,9 +204,10 @@ class MLPDecoderWithCache(nn.Module):
 
         # Create MLP layers with ReLU activation, add some layer parameter
         num_layers = num_hidden_layers
+        ffn_activation = nn.LeakyReLU() # nn.GELU(), nn.ReLU(), nn.SiLU(), nn.LeakyReLU()
         layers = [nn.Linear(embed_dim, embed_dim),
                   nn.Dropout(dropout_rate),
-                  nn.ReLU()] * num_layers
+                  ffn_activation] * num_layers
         self.mlp = nn.Sequential(*layers)
 
         # Output projection to action size
@@ -238,6 +251,9 @@ class MLPDecoderWithCache(nn.Module):
 
 class FP32LayerNorm(nn.LayerNorm):
     """LayerNorm using FP32 computation and FP16 storage."""
+    def __init__(self, normalized_shape, eps=1e-4):
+        super(FP32LayerNorm, self).__init__(normalized_shape, eps=eps)
+
     def forward(self, x):
         x_fp32 = x.to(torch.float32)
         normalized_output = super(FP32LayerNorm, self).forward(x_fp32)
