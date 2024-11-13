@@ -297,6 +297,7 @@ class ConstructivePolicy(nn.Module):
                 mask=dict_out["action_masks"],
                 return_sum=return_sum_log_likelihood),
             "utilization": dict_out["utilization"],
+            "total_profit": td["state"].get("total_profit", None),
             "total_loaded": td["state"].get("total_loaded", None),
             "total_revenue": td["state"].get("total_revenue", None),
             "total_cost": td["state"].get("total_cost", None),
