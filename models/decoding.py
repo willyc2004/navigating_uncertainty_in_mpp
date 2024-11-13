@@ -469,11 +469,8 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             if (std_logits == 0).any():
                 raise ValueError("std_x is zero")
 
-            # Project mean logits
-            proj_mean_logits = mean_logits
-            # proj_mean_logits = self.projection_layer(mean_logits, td["lhs_A"], td["rhs"],)
-
-            # Raise error if nan or inf in proj_mean_logits
+            proj_mean_logits = mean_logits.clone()
+            #  proj_mean_logits = self.projection_layer(mean_logits, td["lhs_A"], td["rhs"], )
             check_for_nans(proj_mean_logits, "proj_mean_logits")
 
             # Get logprobs and actions from policy
