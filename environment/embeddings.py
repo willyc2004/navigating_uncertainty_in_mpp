@@ -241,25 +241,3 @@ class SelfAttentionStateMapping(nn.Module):
             attention_weights = attention_weights.view(batch_size, n_step, seq_len, seq_len)
 
         return attention_output, attention_weights
-
-class MultiFeatureRunningNormalization:
-    def __init__(self, num_features, epsilon=1e-5):
-        self.num_features = num_features
-        self.count = 0
-        self.mean = torch.zeros(num_features, device='cuda')
-        self.var = torch.zeros(num_features, device='cuda')
-        self.epsilon = epsilon
-
-    def update(self, x):
-        batch_count = x.shape[0]
-        batch_mean = torch.mean(x, dim=0)
-        batch_var = torch.var(x, dim=0, unbiased=False)
-
-        delta = batch_mean - self.mean
-        self.count += batch_count
-        self.mean += delta * batch_count / self.count
-        self.var += batch_var * batch_count + delta ** 2 * (batch_count * (self.count - batch_count) / self.count)
-
-    def normalize(self, x):
-        running_var = self.var / (self.count - 1 + self.epsilon)
-        return (x - self.mean) / torch.sqrt(running_var + self.epsilon)
