@@ -117,7 +117,7 @@ class LinearViolationAdaption(th.nn.Module):
             # Update violation_old for the next iteration
             violation_old = violation_new.clone()
             count += 1
-        print("tot_count", count)
+        # print("tot_count", count)
         # Return the adjusted x_, reshaped to remove n_step dimension if it was initially 2D
         if n_step == 1:
             return x_.squeeze(1)
