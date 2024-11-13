@@ -242,12 +242,12 @@ class ConstructivePolicy(nn.Module):
                 # Get arrival condition td at port
                 arrival_condition_td = td.copy()
 
-                # 1. todo: perform decoder prediction based on td for xx steps
+                # 1. todo: perform decoder prediction based on td for all steps in port
                 # 2. todo: decode actions from predictions
                 # 3. todo: project actions to feasible region
-                # proj_actions = [] # todo: ensure correct shape
 
                 # 4. #todo: Construct solution with projected actions
+                # proj_actions = [] # todo: ensure correct shape of proj_actions
                 self.construct_solution_port(arrival_condition_td, env, actions=proj_actions, hidden=hidden, num_starts=num_starts,
                                              decode_strategy=decode_strategy, max_steps=max_steps, use_lp_solver=use_lp_solver)
 
