@@ -319,7 +319,6 @@ class Projection_Nstep_PPO(RL4COLitModule):
                         gradient_clip_algorithm="norm",
                     )
                 opt.step()
-                print("metrics", metrics)
                 list_metrics.append(metrics)
 
         return self._aggregate_metrics(list_metrics)
@@ -396,7 +395,6 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
     def _aggregate_metrics(self, list_metrics):
         """Aggregate metrics across PPO inner epochs and mini-batches."""
-        print("list_metrics", list_metrics[0])
         return {k: torch.stack([dic[k] for dic in list_metrics], dim=0) for k in list_metrics[0]}
 
 def check_for_nans(tensor, name):
