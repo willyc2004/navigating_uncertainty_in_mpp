@@ -672,7 +672,7 @@ class MasterPlanningEnv(RL4COEnvBase):
 
     def create_rhs(self, utilization:Tensor, current_demand:Tensor, batch_size) -> Tensor:
         """Create rhs of compact constraints: A_t x_t <= b_t"""
-        # Get rhs = [current_demand, LM_ub, LM_lb, VM_ub, _VM_lb]
+        # Get rhs = [current_demand, LM_ub, LM_lb, VM_ub, VM_lb]
         # Stability constraints
         A = self.swap_signs_stability.view(-1, 1, 1,) * self.A.clone()
         rhs = utilization.view(*batch_size, -1) @ A.view(self.n_constraints, -1).T

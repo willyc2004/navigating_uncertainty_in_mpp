@@ -19,7 +19,6 @@ from models.decoding import (
     calculate_gaussian_entropy,
 )
 from models.projection import ProjectionFactory, LinearProgramLayer
-from models.lp_solver import polwise_lp
 
 log = get_pylogger(__name__)
 
@@ -215,7 +214,7 @@ class ConstructivePolicy(nn.Module):
 
         # Setup decoding strategy
         decode_strategy: DecodingStrategy = get_decoding_strategy(
-            "continuous_sampling",
+            decode_type,
             temperature=decoding_kwargs.pop("temperature", self.temperature),
             tanh_clipping=decoding_kwargs.pop("tanh_clipping", self.tanh_clipping),
             mask_logits=decoding_kwargs.pop("mask_logits", self.mask_logits),
@@ -246,46 +245,48 @@ class ConstructivePolicy(nn.Module):
             projection_layer = ProjectionFactory.create_class(decoding_kwargs.get("projection_type", {}),
                                                               kwargs=decoding_kwargs.get("projection_kwargs", {}))
             # Perform decoding per port to construct the solution
-            dicts = []
+            step = 0
+            # pred_violations = []
+            # proj_violations = []
             for port in range(env.P-1):
                 pred_actions = torch.zeros(batch_size, env.K * env.T, env.B * env.D, device=td.device)
                 steps_port = (env.P-(port+1))*env.K
                 ## Decode for each port based on td
                 port_td = td.copy() # Use copy to avoid changing the original td
-                for step in range(steps_port):
+                for t in range(steps_port):
                     logits, mask = self.decoder(port_td, hidden, num_starts)
                     port_td = decode_strategy_.step(logits, mask, port_td, action=None)
-                    pred_actions[:, step, ] = port_td["action"]
+                    pred_actions[:, step + t, ] = port_td["action"]
                     port_td = env.step(port_td)["next"]
+                    # pred_violations.append(port_td["violation"].mean(dim=(0,)))
 
                 ## Project actions to feasible region
-                if isinstance(projection_layer, LinearProgramLayer):
-                    # todo: definitely something wrong here!
-                    x = pred_actions.permute(0, 2, 1).reshape(batch_size, env.B, env.D, env.K, env.T)
-                    x_np = x.detach().cpu().numpy()
-                    demand = td["state"]["realized_demand"].detach().cpu().numpy()
-                    proj_actions = torch.zeros_like(pred_actions)
-                    for i in range(batch_size):
-                        proj_act, _, _, _, = polwise_lp(x_np[i], demand[i], env, False)
-                        proj_actions[i] = torch.tensor(proj_act).to(td.device).reshape(env.K * env.T, env.B * env.D)
-                else:
-                    A = env.A.permute(2, 0, 1).unsqueeze(0).expand(batch_size, -1, -1, -1)
-                    proj_actions = projection_layer(pred_actions, A, td["rhs"])
+                A = env.A.permute(2, 0, 1).unsqueeze(0).expand(batch_size, -1, -1, -1)
+                proj_actions = projection_layer(pred_actions, A, td["rhs"])
+                proj_actions = torch.where(pred_actions > 0, proj_actions, pred_actions)
 
                 # print difference between pred_actions and proj_actions
-                print("pred_actions", pred_actions.sum(dim=(-1,-2)).mean())
-                print("proj_actions", proj_actions.sum(dim=(-1,-2)).mean())
-                print("reduction", (pred_actions.sum(dim=(-1,-2)) - proj_actions.sum(dim=(-1,-2))).mean())
-                print("reduction %", (pred_actions.sum(dim=(-1,-2)) - proj_actions.sum(dim=(-1,-2))).mean()
-                      / pred_actions.sum(dim=(-1,-2)).mean())
+                # print("pred_actions", pred_actions.sum(dim=(-1,-2)).mean())
+                # print("proj_actions", proj_actions.sum(dim=(-1,-2)).mean())
+                # print("reduction", (pred_actions.sum(dim=(-1,-2)) - proj_actions.sum(dim=(-1,-2))).mean())
+                # print("reduction %", (pred_actions.sum(dim=(-1,-2)) - proj_actions.sum(dim=(-1,-2))).mean()
+                #       / pred_actions.sum(dim=(-1,-2)).mean())
 
                 ## Decode with projected actions
-                for step in range(steps_port):
+                for _ in range(steps_port):
                     logits, mask = self.decoder(td, hidden, num_starts)
                     td = decode_strategy.step(logits, mask, td, action=proj_actions[:, step, ])
                     td = env.step(td)["next"]
+                    # proj_violations.append(td["violation"].mean(dim=(0,)))
+                    step += 1
 
             dict_out, td, env = decode_strategy.post_decoder_hook(td, env)
+            # # Analyze the difference between pred_violations and proj_violations
+            # pred_violations = torch.stack(pred_violations)
+            # proj_violations = torch.stack(proj_violations)
+            # print("pred_violations", pred_violations.sum(dim=0))
+            # print("proj_violations", proj_violations.sum(dim=0))
+            # breakpoint()
         else:
             # Perform main decoding to construct the solution
             self.construct_solution(td, env, actions=actions, hidden=hidden, num_starts=num_starts,
