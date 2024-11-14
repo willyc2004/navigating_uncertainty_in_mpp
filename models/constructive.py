@@ -18,9 +18,10 @@ from models.decoding import (
     get_log_likelihood,
     calculate_gaussian_entropy,
 )
+from models.projection import ProjectionFactory
+from models.lp_solver import polwise_lp
 
 log = get_pylogger(__name__)
-from models.lp_solver import polwise_lp
 
 
 class ConstructiveEncoder(nn.Module, metaclass=abc.ABCMeta):
@@ -213,9 +214,17 @@ class ConstructivePolicy(nn.Module):
                 decode_type = getattr(self, f"{phase}_decode_type")
 
         # Setup decoding strategy
-        # we pop arguments that are not part of the decoding strategy
         decode_strategy: DecodingStrategy = get_decoding_strategy(
             decode_type,
+            temperature=decoding_kwargs.pop("temperature", self.temperature),
+            tanh_clipping=decoding_kwargs.pop("tanh_clipping", self.tanh_clipping),
+            mask_logits=decoding_kwargs.pop("mask_logits", self.mask_logits),
+            store_all_logp=decoding_kwargs.pop("store_all_logp", return_entropy),
+            env=env,
+            **decoding_kwargs,
+        )
+        decode_strategy_: DecodingStrategy = get_decoding_strategy(
+            "continuous_sampling",
             temperature=decoding_kwargs.pop("temperature", self.temperature),
             tanh_clipping=decoding_kwargs.pop("tanh_clipping", self.tanh_clipping),
             mask_logits=decoding_kwargs.pop("mask_logits", self.mask_logits),
@@ -229,34 +238,45 @@ class ConstructivePolicy(nn.Module):
         # Additionally call a decoder hook if needed before main decoding
         td, env, hidden = self.decoder.pre_decoder_hook(td, env, hidden, num_starts)
 
-        # Initialize lp_solver flag
+        # Initialize
         batch_size = td.batch_size[0]
-        use_lp_solver = decoding_kwargs.get("projection_kwargs", {}).get("project_per_port", False)
+        use_lp_solver = decoding_kwargs.get("projection_kwargs", {}).get("use_lp_solver", False)
         project_per_port = decoding_kwargs.get("projection_kwargs", {}).get("project_per_port", False)
-        lp_output = []
-
         if project_per_port:
-            # todo: implement project_per_port
+            # Setup projection layer
+            projection_layer = ProjectionFactory.create_class(decoding_kwargs.get("projection_type", {}),
+                                                              kwargs=decoding_kwargs.get("projection_kwargs", {}))
             # Perform decoding per port to construct the solution
+            dicts = []
             for port in range(env.P-1):
-                # Get arrival condition td at port
-                arrival_condition_td = td.copy()
+                pred_actions = torch.zeros(batch_size, env.K * env.T, env.B * env.D, device=td.device)
+                steps_port = (env.P-(port+1))*env.K
+                ## Decode for each port based on td
+                port_td = td.copy() # Use copy to avoid changing the original td
+                for step in range(steps_port):
+                    logits, mask = self.decoder(port_td, hidden, num_starts)
+                    port_td = decode_strategy_.step(logits, mask, port_td, action=None)
+                    pred_actions[:, step, ] = port_td["action"]
+                    port_td = env.step(port_td)["next"]
 
-                # 1. todo: perform decoder prediction based on td for all steps in port
-                # 2. todo: decode actions from predictions
-                # 3. todo: project actions to feasible region
+                ## Project actions to feasible region
+                A = env.A.permute(2, 0, 1).unsqueeze(0).expand(batch_size, -1, -1, -1)
+                proj_actions = projection_layer(pred_actions, A, td["rhs"])
 
-                # 4. #todo: Construct solution with projected actions
-                # proj_actions = [] # todo: ensure correct shape of proj_actions
-                self.construct_solution_port(arrival_condition_td, env, actions=proj_actions, hidden=hidden, num_starts=num_starts,
-                                             decode_strategy=decode_strategy, max_steps=max_steps, use_lp_solver=use_lp_solver)
+                # # print difference between pred_actions and proj_actions
+                # print("pred_actions", pred_actions.sum(dim=(-1,-2)).mean())
+                # print("proj_actions", proj_actions.sum(dim=(-1,-2)).mean())
+                # print("reduction", (pred_actions.sum(dim=(-1,-2)) - proj_actions.sum(dim=(-1,-2))).mean())
+                # print("reduction %", (pred_actions.sum(dim=(-1,-2)) - proj_actions.sum(dim=(-1,-2))).mean()
+                #       / pred_actions.sum(dim=(-1,-2)).mean())
 
-                # 5. todo: update td with the new state after the port
+                ## Decode with projected actions
+                for step in range(steps_port):
+                    logits, mask = self.decoder(td, hidden, num_starts)
+                    td = decode_strategy.step(logits, mask, td, action=proj_actions[:, step, ])
+                    td = env.step(td)["next"]
 
-            # 6. todo: get post decoding hook of full solution - similar to main decoding
             dict_out, td, env = decode_strategy.post_decoder_hook(td, env)
-
-            raise NotImplementedError("project_per_port not implemented yet")
         else:
             # Perform main decoding to construct the solution
             lp_input, demand_input = self.construct_solution(
@@ -268,6 +288,7 @@ class ConstructivePolicy(nn.Module):
 
             # Perform projections
             if use_lp_solver:
+                lp_output = []
                 for i in range(batch_size):
                     util_lp, _, _, _ = polwise_lp(lp_input[i], demand_input[i], env, verbose=False)
                     lp_output.append(util_lp)
@@ -340,23 +361,13 @@ class ConstructivePolicy(nn.Module):
 
         return lp_input, demand_input
 
-    def construct_solution_port(self, td: TensorDict, env: RL4COEnvBase, actions=None, hidden: Any = None,
-                               num_starts: int = 0, decode_strategy: DecodingStrategy = None, max_steps=1_000_000,
-                               **decoding_kwargs):
-        step = 0
-        while not self.next_port_mask[td["episodic_step"]].all():
-            logits, mask = self.decoder(td, hidden, num_starts)
-            td = decode_strategy.step(
-                logits,
-                mask,
-                td,
-                action=actions[:, step, ] if actions is not None else None,
-            )
-            td = env.step(td)["next"]
 
-            step += 1
-            if step > max_steps:
-                log.error(
-                    f"Exceeded maximum number of steps ({max_steps}) during decoding"
-                )
-                break
+
+def stack_dicts_on_dim(dicts, dim=1):
+    """Stack a list of dictionaries on the first dimension of the tensors"""
+    stacked_dict = {}
+    for key in dicts[0].keys():
+        tensors_to_stack = [d[key] for d in dicts]
+        stacked_tensor = torch.cat(tensors_to_stack, dim=dim)
+        stacked_dict[key] = stacked_tensor
+    return stacked_dict
