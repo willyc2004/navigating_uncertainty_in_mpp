@@ -18,7 +18,7 @@ from models.decoding import (
     get_log_likelihood,
     calculate_gaussian_entropy,
 )
-from models.projection import ProjectionFactory
+from models.projection import ProjectionFactory, LinearProgramLayer
 from models.lp_solver import polwise_lp
 
 log = get_pylogger(__name__)
@@ -215,7 +215,7 @@ class ConstructivePolicy(nn.Module):
 
         # Setup decoding strategy
         decode_strategy: DecodingStrategy = get_decoding_strategy(
-            decode_type,
+            "continuous_sampling",
             temperature=decoding_kwargs.pop("temperature", self.temperature),
             tanh_clipping=decoding_kwargs.pop("tanh_clipping", self.tanh_clipping),
             mask_logits=decoding_kwargs.pop("mask_logits", self.mask_logits),
@@ -240,7 +240,6 @@ class ConstructivePolicy(nn.Module):
 
         # Initialize
         batch_size = td.batch_size[0]
-        use_lp_solver = decoding_kwargs.get("projection_kwargs", {}).get("use_lp_solver", False)
         project_per_port = decoding_kwargs.get("projection_kwargs", {}).get("project_per_port", False)
         if project_per_port:
             # Setup projection layer
@@ -260,15 +259,25 @@ class ConstructivePolicy(nn.Module):
                     port_td = env.step(port_td)["next"]
 
                 ## Project actions to feasible region
-                A = env.A.permute(2, 0, 1).unsqueeze(0).expand(batch_size, -1, -1, -1)
-                proj_actions = projection_layer(pred_actions, A, td["rhs"])
+                if isinstance(projection_layer, LinearProgramLayer):
+                    # todo: definitely something wrong here!
+                    x = pred_actions.permute(0, 2, 1).reshape(batch_size, env.B, env.D, env.K, env.T)
+                    x_np = x.detach().cpu().numpy()
+                    demand = td["state"]["realized_demand"].detach().cpu().numpy()
+                    proj_actions = torch.zeros_like(pred_actions)
+                    for i in range(batch_size):
+                        proj_act, _, _, _, = polwise_lp(x_np[i], demand[i], env, False)
+                        proj_actions[i] = torch.tensor(proj_act).to(td.device).reshape(env.K * env.T, env.B * env.D)
+                else:
+                    A = env.A.permute(2, 0, 1).unsqueeze(0).expand(batch_size, -1, -1, -1)
+                    proj_actions = projection_layer(pred_actions, A, td["rhs"])
 
-                # # print difference between pred_actions and proj_actions
-                # print("pred_actions", pred_actions.sum(dim=(-1,-2)).mean())
-                # print("proj_actions", proj_actions.sum(dim=(-1,-2)).mean())
-                # print("reduction", (pred_actions.sum(dim=(-1,-2)) - proj_actions.sum(dim=(-1,-2))).mean())
-                # print("reduction %", (pred_actions.sum(dim=(-1,-2)) - proj_actions.sum(dim=(-1,-2))).mean()
-                #       / pred_actions.sum(dim=(-1,-2)).mean())
+                # print difference between pred_actions and proj_actions
+                print("pred_actions", pred_actions.sum(dim=(-1,-2)).mean())
+                print("proj_actions", proj_actions.sum(dim=(-1,-2)).mean())
+                print("reduction", (pred_actions.sum(dim=(-1,-2)) - proj_actions.sum(dim=(-1,-2))).mean())
+                print("reduction %", (pred_actions.sum(dim=(-1,-2)) - proj_actions.sum(dim=(-1,-2))).mean()
+                      / pred_actions.sum(dim=(-1,-2)).mean())
 
                 ## Decode with projected actions
                 for step in range(steps_port):
@@ -279,19 +288,11 @@ class ConstructivePolicy(nn.Module):
             dict_out, td, env = decode_strategy.post_decoder_hook(td, env)
         else:
             # Perform main decoding to construct the solution
-            lp_input, demand_input = self.construct_solution(
-                td, env, actions=actions, hidden=hidden, num_starts=num_starts, decode_strategy=decode_strategy,
-                max_steps=max_steps, use_lp_solver=use_lp_solver,)
+            self.construct_solution(td, env, actions=actions, hidden=hidden, num_starts=num_starts,
+                                    decode_strategy=decode_strategy, max_steps=max_steps,)
 
             # Post-decoding hook: used for the final step(s) of the decoding strategy
             dict_out, td, env = decode_strategy.post_decoder_hook(td, env)
-
-            # Perform projections
-            if use_lp_solver:
-                lp_output = []
-                for i in range(batch_size):
-                    util_lp, _, _, _ = polwise_lp(lp_input[i], demand_input[i], env, verbose=False)
-                    lp_output.append(util_lp)
 
         # Output dictionary construction
         if calc_reward:
@@ -325,16 +326,12 @@ class ConstructivePolicy(nn.Module):
             outdict["entropy"] = calculate_entropy(dict_out["logprobs"])
         if return_td:
             outdict["td"] = td
-        if use_lp_solver:
-            outdict["lp_actions"] = np.array(lp_output)
         return outdict
 
     def construct_solution(self, td: TensorDict, env: RL4COEnvBase, actions=None, hidden: Any = None, num_starts: int = 0,
                            decode_strategy: DecodingStrategy = None, max_steps=1_000_000, use_lp_solver=False,
                            **decoding_kwargs):
         # Main decoding: loop until all sequences are done
-        lp_input = np.zeros((td.batch_size[0], env.B, env.D, env.K, env.T,))
-        demand_input = np.zeros((td.batch_size[0], env.K, env.T,))
         step = 0
         while not td["done"].all():
             logits, mask = self.decoder(td, hidden, num_starts)
@@ -346,22 +343,12 @@ class ConstructivePolicy(nn.Module):
             )
             td = env.step(td)["next"]
 
-            if use_lp_solver:
-                # Get actions and demand
-                _, _, k, tau, _ = env._extract_cargo_parameters_for_step(step)
-                lp_input[:, :, :, k, tau] = td["action"].detach().cpu().numpy().reshape(td.batch_size[0], env.B, env.D,)
-                demand_input[:, k, tau] = td["state"]["current_demand"].detach().cpu().numpy()
-
             step += 1
             if step > max_steps:
                 log.error(
                     f"Exceeded maximum number of steps ({max_steps}) during decoding"
                 )
                 break
-
-        return lp_input, demand_input
-
-
 
 def stack_dicts_on_dim(dicts, dim=1):
     """Stack a list of dictionaries on the first dimension of the tensors"""
