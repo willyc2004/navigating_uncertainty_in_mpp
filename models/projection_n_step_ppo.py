@@ -8,6 +8,8 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchrl.objectives.value.functional import generalized_advantage_estimate
 from torch.utils.data import BatchSampler, SubsetRandomSampler
+from rl4co.utils.ops import gather_by_index
+
 import os
 
 # Enable CUDA_LAUNCH_BLOCKING for debugging CUDA errors
@@ -124,7 +126,9 @@ class Projection_Nstep_PPO(RL4COLitModule):
             "train": [
                 # loss logging
                 "loss", "surrogate_loss", "value_loss", "entropy", "feasibility_loss", "projection_loss",
-                "return", "ratios", "clipped_ratios", "adv", "value_pred", "violations",
+                "return", "ratios", "clipped_ratios", "adv", "value_pred",
+                # violation logging
+                "demand_violation", "lcg_ub_violation", "lcg_lb_violation", "vcg_ub_violation", "vcg_lb_violation",
                 # performance metrics
                 "total_loaded", "total_profit", "total_revenue", "total_cost",
             ]
@@ -244,7 +248,15 @@ class Projection_Nstep_PPO(RL4COLitModule):
             self.log("val/total_revenue", out["total_revenue"].mean(), on_epoch=True, prog_bar=True, logger=True)
             self.log("val/total_cost", out["total_cost"].mean(), on_epoch=True, prog_bar=True, logger=True)
             self.log("val/total_loaded", out["total_loaded"].mean(), on_epoch=True, prog_bar=True, logger=True)
-            self.log("val/violation", out["violation"].sum(dim=(-2,-1)).mean(), on_epoch=True, prog_bar=True, logger=True)
+
+            # Log violations at relevant time steps
+            relevant_violation = out["violation"][:, self.env.next_port_mask]
+            self.log("val/demand_violation", relevant_violation[...,0].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
+            self.log("val/lcg_ub_violation", relevant_violation[...,1].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
+            self.log("val/lcg_lb_violation", relevant_violation[...,2].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
+            self.log("val/vcg_ub_violation", relevant_violation[...,3].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
+            self.log("val/vcg_lb_violation", relevant_violation[...,4].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
+            self.log("val/violation", relevant_violation.sum(dim=(-2,-1)).mean(), on_epoch=True, prog_bar=True, logger=True)
         else:
             memory = Memory(batch.batch_size, self.ppo_cfg["n_step"],self.env)
             td = self.env.reset(batch)
@@ -390,7 +402,11 @@ class Projection_Nstep_PPO(RL4COLitModule):
             "clipped_ratios": clipped_ratios.mean(),
             "adv": adv,
             "value_pred": value_preds,
-            "violations": violation.mean(dim=0).sum(),  # total violation during n-steps
+            "demand_violation": violation[:, 0].mean(),
+            "lcg_ub_violation": violation[:, 1].mean(),
+            "lcg_lb_violation": violation[:, 2].mean(),
+            "vcg_ub_violation": violation[:, 3].mean(),
+            "vcg_lb_violation": violation[:, 4].mean(),
             # performance metrics
             "total_loaded": td["state"]["total_loaded"].mean(),
             "total_profit":  td["state"]["total_revenue"].mean() - td["state"]["total_cost"].mean(),
