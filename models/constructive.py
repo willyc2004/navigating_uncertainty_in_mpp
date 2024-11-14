@@ -213,6 +213,11 @@ class ConstructivePolicy(nn.Module):
             else:
                 decode_type = getattr(self, f"{phase}_decode_type")
 
+        project_per_port = decoding_kwargs.get("projection_kwargs", {}).get("project_per_port", False)
+        if project_per_port:
+            # necessary to prevent double projection
+            decode_type = "continuous_sampling"
+
         # Setup decoding strategy
         decode_strategy: DecodingStrategy = get_decoding_strategy(
             decode_type,
@@ -224,7 +229,7 @@ class ConstructivePolicy(nn.Module):
             **decoding_kwargs,
         )
         decode_strategy_: DecodingStrategy = get_decoding_strategy(
-            "continuous_sampling",
+            decode_type,
             temperature=decoding_kwargs.pop("temperature", self.temperature),
             tanh_clipping=decoding_kwargs.pop("tanh_clipping", self.tanh_clipping),
             mask_logits=decoding_kwargs.pop("mask_logits", self.mask_logits),
@@ -240,7 +245,6 @@ class ConstructivePolicy(nn.Module):
 
         # Initialize
         batch_size = td.batch_size[0]
-        project_per_port = decoding_kwargs.get("projection_kwargs", {}).get("project_per_port", False)
         if project_per_port:
             # Setup projection layer
             projection_layer = ProjectionFactory.create_class(decoding_kwargs.get("projection_type", {}),
