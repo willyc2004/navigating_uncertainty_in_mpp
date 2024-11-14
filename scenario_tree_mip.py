@@ -354,13 +354,26 @@ def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, det
                 VM_[stage, node_id] = VM[stage, node_id].solution_value
                 TW_[stage, node_id] = TW[stage, node_id].solution_value
 
+        # Get metrics from the solution
+        mean_load_per_port = np.sum(x_, axis=(2, 3, 4, 5, 6)).mean(axis=1) # Shape (stages,)
+        mean_load_per_location = np.sum(x_, axis=(4, 5, 6)).mean(axis=(1)) # Shape (stages, B, D)
+        mean_hatch_overstowage = np.sum(HO_, axis=(2)).mean(axis=1) # Shape (stages,)
+        mean_ci = CI_.mean(axis=1) # Shape (stages,)
+
         results = {
+            # Input parameters
             "seed":seed,
             "ports":P,
             "scenarios":scenarios_per_stage,
+            # Solver results
             "obj":solution.objective_value,
             "time":mdl.solve_details.time,
             "gap":mdl.solve_details.mip_relative_gap,
+            # Solution metrics
+            "mean_load_per_port":mean_load_per_port.tolist(),
+            "mean_load_per_location":mean_load_per_location.tolist(),
+            "mean_hatch_overstowage":mean_hatch_overstowage.tolist(),
+            "mean_ci":mean_ci.tolist(),
         }
         vars = {
             "seed": seed,
@@ -397,11 +410,12 @@ if __name__ == "__main__":
         config = adapt_env_kwargs(config)
 
     # Run main for different seeds and number of scenarios
-    perfect_information = True
+    perfect_information = False
     deterministic = False
+    debug = True
 
-    num_seed = 20
-    for scen in [4,8,12,16,20,24,28,32]:
+    num_seed = 1
+    for scen in [4,]: #$8,12,16,20,24,28,32]:
         results = []
         vars = []
         for x in range(num_seed):
@@ -411,8 +425,12 @@ if __name__ == "__main__":
             results.append(result)
             vars.append(var)
 
-        # Save results to a JSON file
-        with open(f"/results/scenario_tree/results_scenario_tree_s{scen}_pi{perfect_information}.json", "w") as json_file:
-            json.dump(results, json_file, indent=4)
-        with open(f"/results/scenario_tree/variables_scenario_tree_s{scen}_pi{perfect_information}.json", "w") as json_file:
-            json.dump(results, json_file, indent=4)
+        if debug:
+            with open(f"./test_results/scenario_tree/results_scenario_tree_debug.json", "w") as json_file:
+                json.dump(results, json_file, indent=4)
+        else:
+            # Save results to a JSON file
+            with open(f"./test_results/scenario_tree/results_scenario_tree_s{scen}_pi{perfect_information}.json", "w") as json_file:
+                json.dump(results, json_file, indent=4)
+            with open(f"./test_results/scenario_tree/variables_scenario_tree_s{scen}_pi{perfect_information}.json", "w") as json_file:
+                json.dump(results, json_file, indent=4)
