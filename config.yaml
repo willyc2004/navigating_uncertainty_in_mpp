@@ -59,8 +59,8 @@ ppo:
   vf_lambda: 0.5
   entropy_lambda: 0.01
   feasibility_lambda: 0.7
-  demand_lambda: 0.2
-  stability_lambda: 0.1
+  demand_lambda: 1.0 #0.2
+  stability_lambda: 1.0 # 0.1
   projection_lambda: 0.01
   adaptive_feasibility_lambda: False
   n_step: 72
