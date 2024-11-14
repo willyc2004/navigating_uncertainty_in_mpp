@@ -171,7 +171,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Check done, update utilization, and compute violation
         done = self._check_done(t)
         utilization = self._update_state_loading(action, utilization, k, tau,)
-        violation = compute_violation(lhs_A, rhs, action, batch_size)
+        violation = compute_violation(lhs_A, rhs, action.view(*batch_size, 1, -1))
 
         # Compute overstowage
         pol_locations, pod_locations = self._compute_pol_pod_locations(utilization)

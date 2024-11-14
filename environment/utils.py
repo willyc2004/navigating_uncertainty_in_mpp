@@ -95,9 +95,9 @@ def get_transport_from_pol_pod(pol, pod, transport_idx):
 
     return output
 
-def compute_violation(lhs_A, rhs, action, batch_size) -> th.Tensor:
+def compute_violation(lhs_A, rhs, action,) -> th.Tensor:
     """Compute violations and loss of compact form"""
-    lhs = (lhs_A * action.view(*batch_size, 1, -1)).sum(dim=(-1))
+    lhs = (lhs_A * action).sum(dim=(-1))
     output = th.clamp(lhs-rhs, min=0)
     return output
 

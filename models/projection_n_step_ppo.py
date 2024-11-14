@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 from torchrl.objectives.value.functional import generalized_advantage_estimate
 from torch.utils.data import BatchSampler, SubsetRandomSampler
 from rl4co.utils.ops import gather_by_index
+from environment.utils import compute_violation
 
 import os
 
@@ -368,9 +369,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
         value_loss = F.huber_loss(value_preds.detach(), returns, reduction="mean")
 
         # Feasibility and projection losses
-        lhs = (lhs_A * proj_mean_logits.unsqueeze(-2)).sum(dim=-1)
-        violation = torch.clamp(lhs - rhs, min=0)
-        violation = self._get_relevant_violations(violation, self.env)
+        violation = compute_violation(lhs_A, rhs, proj_mean_logits.unsqueeze(-2))
         if self.ppo_cfg["adaptive_feasibility_lambda"]:
             lambda_values = torch.where(
                 violation > tolerance,
@@ -390,6 +389,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
         ).mean()
 
         # Collect metrics for logging
+        relevant_violation = self._get_relevant_violations(violation, self.env)
         metrics = {
             # loss logging
             "loss": total_loss,
@@ -404,12 +404,12 @@ class Projection_Nstep_PPO(RL4COLitModule):
             "adv": adv,
             "value_pred": value_preds,
             # violation logging
-            "violation": violation.sum(dim=(1,2)).mean(),
-            "demand_violation": violation[..., 0].sum(dim=1).mean(),
-            "lcg_ub_violation": violation[..., 1].sum(dim=1).mean(),
-            "lcg_lb_violation": violation[..., 2].sum(dim=1).mean(),
-            "vcg_ub_violation": violation[..., 3].sum(dim=1).mean(),
-            "vcg_lb_violation": violation[..., 4].sum(dim=1).mean(),
+            "violation": relevant_violation.sum(dim=(1,2)).mean(),
+            "demand_violation": relevant_violation[..., 0].sum(dim=1).mean(),
+            "lcg_ub_violation": relevant_violation[..., 1].sum(dim=1).mean(),
+            "lcg_lb_violation": relevant_violation[..., 2].sum(dim=1).mean(),
+            "vcg_ub_violation": relevant_violation[..., 3].sum(dim=1).mean(),
+            "vcg_lb_violation": relevant_violation[..., 4].sum(dim=1).mean(),
             # performance metrics
             "total_loaded": td["state"]["total_loaded"].mean(),
             "total_profit":  td["state"]["total_revenue"].mean() - td["state"]["total_cost"].mean(),
