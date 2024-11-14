@@ -19,6 +19,7 @@ from models.decoding import (
     calculate_gaussian_entropy,
 )
 from models.projection import ProjectionFactory, LinearProgramLayer
+from environment.utils import compute_violation
 
 log = get_pylogger(__name__)
 
@@ -319,9 +320,7 @@ class ConstructivePolicy(nn.Module):
         if return_feasibility:
             outdict["lhs_A"] = dict_out["lhs_A"]
             outdict["rhs"] = dict_out["rhs"]
-            # Calculate violation of actions!
-            lhs = (dict_out["lhs_A"] * dict_out["actions"].unsqueeze(-2)).sum(dim=-1)
-            outdict["violation"] = torch.clamp(lhs - dict_out["rhs"], min=0) # shape [batch_size, seq, num_constraints]
+            outdict["violation"] = compute_violation(dict_out["lhs_A"], dict_out["rhs"], dict_out["actions"].unsqueeze(-2))
             outdict["total_profit_and_feas"] -= outdict["violation"].sum(dim=(-1,-2)) / 10
         if return_entropy:
             outdict["entropy"] = calculate_entropy(dict_out["logprobs"])
