@@ -137,12 +137,14 @@ def polwise_lp(util, demand, env, verbose=True,):
 
     # Utilization
     s = {} # Slack variable
+    x = {} # Utilization variable
     for pol in range(P):
         for b in range(B):
             for d in range(D):
                 for tau in range(T):
                     for k in range(env.K):
                         s[b, d, k, tau] = mdl.continuous_var(name=f's_{pol}_{b}_{d}_{k}_{tau}')
+                        x[b, d, k, tau] = mdl.continuous_var(name=f'x_{pol}_{b}_{d}_{k}_{tau}')
 
     # Add constraints to the model
     for pol in range(P):
@@ -152,56 +154,63 @@ def polwise_lp(util, demand, env, verbose=True,):
 
         for tau in on_board:
             for k in range(env.K):
+                for b in range(B):
+                    for d in range(D):
+                        # Define utilization x
+                        mdl.add_constraint(
+                            x[b, d, k, tau] == util[b, d, k, tau] - s[b, d, k, tau]
+                        )
+
                 # Demand satisfaction
                 mdl.add_constraint(
-                    mdl.sum(util[b, d, k, tau] - s[b, d, k, tau] for b in range(B) for d in range(D)) <= demand[k, tau]
+                    mdl.sum(x[b, d, k, tau] for b in range(B) for d in range(D)) <= demand[k, tau]
                 )
 
         # Stability
         mdl.add_constraint(
-            TW[pol] == mdl.sum(weights[k] * mdl.sum(util[b, d, k, tau] - s[b, d, k, tau]
+            TW[pol] == mdl.sum(weights[k] * mdl.sum(x[b, d, k, tau]
                                                for tau in on_board for d in range(D))
                           for k in range(K) for b in range(B))
         )
 
         # LCG
         mdl.add_constraint(
-            LM[pol] == mdl.sum(longitudinal_position[b] * mdl.sum(weights[k] * mdl.sum(util[b, d, k, tau] - s[b, d, k, tau]
+            LM[pol] == mdl.sum(longitudinal_position[b] * mdl.sum(weights[k] * mdl.sum(x[b, d, k, tau]
                                                                                   for tau in on_board for d in range(D))
                                                              for k in range(K)) for b in range(B)))
         mdl.add_constraint(
             stab_delta * mdl.sum(
-                weights[k] * mdl.sum(util[b, d, k, tau] - s[b, d, k, tau] for tau in on_board for d in range(D))
+                weights[k] * mdl.sum(x[b, d, k, tau] for tau in on_board for d in range(D))
                 for k in range(K) for b in range(B)) >= mdl.sum(longitudinal_position[b] * mdl.sum(
-                weights[k] * mdl.sum(util[b, d, k, tau] - s[b, d, k, tau] for tau in on_board for d in range(D)) for
+                weights[k] * mdl.sum(x[b, d, k, tau] for tau in on_board for d in range(D)) for
                 k in range(K)) for b in range(B)) - LCG_target * mdl.sum(
-                weights[k] * mdl.sum(util[b, d, k, tau] - s[b, d, k, tau] for tau in on_board for d in range(D)) for
+                weights[k] * mdl.sum(x[b, d, k, tau] for tau in on_board for d in range(D)) for
                 k in range(K) for b in range(B)))
         mdl.add_constraint(stab_delta * mdl.sum(
-            weights[k] * mdl.sum(util[b, d, k, tau] - s[b, d, k, tau] for tau in on_board for d in range(D)) for k in
+            weights[k] * mdl.sum(x[b, d, k, tau] for tau in on_board for d in range(D)) for k in
             range(K) for b in range(B)) >= - mdl.sum(longitudinal_position[b] * mdl.sum(
-            weights[k] * mdl.sum(util[b, d, k, tau] - s[b, d, k, tau] for tau in on_board for d in range(D)) for k in
+            weights[k] * mdl.sum(x[b, d, k, tau] for tau in on_board for d in range(D)) for k in
             range(K)) for b in range(B)) + LCG_target * mdl.sum(
-            weights[k] * mdl.sum(util[b, d, k, tau] - s[b, d, k, tau] for tau in on_board for d in range(D)) for k in
+            weights[k] * mdl.sum(x[b, d, k, tau] for tau in on_board for d in range(D)) for k in
             range(K) for b in range(B)))
 
         # VCG
         mdl.add_constraint(VM[pol] == mdl.sum(vertical_position[d] * mdl.sum(
-            weights[k] * mdl.sum(util[b, d, k, tau] - s[b, d, k, tau] for tau in on_board for b in range(B)) for k in
+            weights[k] * mdl.sum(x[b, d, k, tau] for tau in on_board for b in range(B)) for k in
             range(K)) for d in range(D)))
         mdl.add_constraint(stab_delta * mdl.sum(
-            weights[k] * mdl.sum(util[b, d, k, tau] - s[b, d, k, tau] for tau in on_board for b in range(B)) for k in
+            weights[k] * mdl.sum(x[b, d, k, tau] for tau in on_board for b in range(B)) for k in
             range(K) for d in range(D)) >= mdl.sum(vertical_position[d] * mdl.sum(
-            weights[k] * mdl.sum(util[b, d, k, tau] - s[b, d, k, tau] for tau in on_board for b in range(B)) for k in
+            weights[k] * mdl.sum(x[b, d, k, tau] for tau in on_board for b in range(B)) for k in
             range(K)) for d in range(D)) - VCG_target * mdl.sum(
-            weights[k] * mdl.sum(util[b, d, k, tau] - s[b, d, k, tau] for tau in on_board for b in range(B)) for k in
+            weights[k] * mdl.sum(x[b, d, k, tau] for tau in on_board for b in range(B)) for k in
             range(K) for d in range(D)))
         mdl.add_constraint(stab_delta * mdl.sum(
-            weights[k] * mdl.sum(util[b, d, k, tau] - s[b, d, k, tau] for tau in on_board for b in range(B)) for k in
+            weights[k] * mdl.sum(x[b, d, k, tau] for tau in on_board for b in range(B)) for k in
             range(K) for d in range(D)) >= - mdl.sum(vertical_position[d] * mdl.sum(
-            weights[k] * mdl.sum(util[b, d, k, tau] - s[b, d, k, tau] for tau in on_board for b in range(B)) for k in
+            weights[k] * mdl.sum(x[b, d, k, tau] for tau in on_board for b in range(B)) for k in
             range(K)) for d in range(D)) + VCG_target * mdl.sum(
-            weights[k] * mdl.sum(util[b, d, k, tau] - s[b, d, k, tau] for tau in on_board for b in range(B)) for k in
+            weights[k] * mdl.sum(x[b, d, k, tau] for tau in on_board for b in range(B)) for k in
             range(K) for d in range(D)))
 
     # Set the objective function
@@ -215,6 +224,7 @@ def polwise_lp(util, demand, env, verbose=True,):
 
     # Extract solution, objective value, optimality gap and time
     s_sol = np.zeros((B, D, K, T))
+    x_sol = np.zeros((B, D, K, T))
     try:
         # Extract solution
         for b in range(B):
@@ -223,16 +233,12 @@ def polwise_lp(util, demand, env, verbose=True,):
                     for k in range(K):
                         for pol in range(P):
                             s_sol[b, d, k, tau] = s[b, d, k, tau].solution_value
+                            x_sol[b, d, k, tau] = x[b, d, k, tau].solution_value
+
         # Compute objective value, optimality gap and time
         obj = solution.get_objective_value()
         opt_gap = mdl.solve_details.mip_relative_gap
         time = mdl.solve_details.time
-
-        # Get utilization
-        util_output = util - s_sol
-        # print("util_output, original (%)", util.sum(), util.sum()/util.sum())
-        # print("s_sol, original (%)", s_sol.sum(), s_sol.sum()/util.sum())
-        # print("util, original (%)", util_output.sum(), util_output.sum()/util.sum())
 
     except:
         obj = np.nan
@@ -254,4 +260,4 @@ def polwise_lp(util, demand, env, verbose=True,):
         print("VCG_target", VCG_target)
         breakpoint()
 
-    return util_output, obj, opt_gap, time
+    return x_sol, obj, opt_gap, time
