@@ -10,11 +10,15 @@ obj = []
 time = []
 total_load = []
 total_demand = []
+total_revenue = []
+total_cost = []
 for x in data:
     obj.append(x["obj"])
     time.append(x["time"])
     total_load.append(np.sum(x["mean_load_per_port"], axis=-1))
     total_demand.append(np.sum(x["mean_demand"], axis=-1))
+    total_revenue.append(np.sum(x["mean_revenue"], axis=-1))
+    total_cost.append(np.sum(x["mean_cost"], axis=-1))
 
 # Helper function to print statistics
 def print_stats(data, name=""):
@@ -28,3 +32,5 @@ print_stats(obj, "Objective")
 print_stats(time, "Time")
 print_stats(total_load, "Load")
 print_stats(total_demand, "Demand")
+print_stats(total_revenue, "Revenue")
+print_stats(total_cost, "Cost")

@@ -432,10 +432,10 @@ if __name__ == "__main__":
     # Run main for different seeds and number of scenarios
     perfect_information = False
     deterministic = False
-    debug = True
+    debug = False
 
     num_seed = 20
-    for scen in [4,]: #$8,12,16,20,24,28,32]:
+    for scen in [4, 8,12,16,20,24,28,32]:
         results = []
         vars = []
         for x in range(num_seed):
