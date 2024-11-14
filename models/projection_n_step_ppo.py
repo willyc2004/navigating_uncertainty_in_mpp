@@ -128,7 +128,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 "loss", "surrogate_loss", "value_loss", "entropy", "feasibility_loss", "projection_loss",
                 "return", "ratios", "clipped_ratios", "adv", "value_pred",
                 # violation logging
-                "demand_violation", "lcg_ub_violation", "lcg_lb_violation", "vcg_ub_violation", "vcg_lb_violation",
+                "violation", "demand_violation", "lcg_ub_violation", "lcg_lb_violation", "vcg_ub_violation", "vcg_lb_violation",
                 # performance metrics
                 "total_loaded", "total_profit", "total_revenue", "total_cost",
             ]
@@ -249,14 +249,14 @@ class Projection_Nstep_PPO(RL4COLitModule):
             self.log("val/total_cost", out["total_cost"].mean(), on_epoch=True, prog_bar=True, logger=True)
             self.log("val/total_loaded", out["total_loaded"].mean(), on_epoch=True, prog_bar=True, logger=True)
 
-            # Log violations at relevant time steps
-            relevant_violation = out["violation"][:, self.env.next_port_mask]
+            # Log relevant violations
+            relevant_violation = self._get_relevant_violations(out["violation"], self.env)
             self.log("val/demand_violation", relevant_violation[...,0].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
             self.log("val/lcg_ub_violation", relevant_violation[...,1].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
             self.log("val/lcg_lb_violation", relevant_violation[...,2].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
             self.log("val/vcg_ub_violation", relevant_violation[...,3].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
             self.log("val/vcg_lb_violation", relevant_violation[...,4].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
-            self.log("val/violation", relevant_violation.sum(dim=(-2,-1)).mean(), on_epoch=True, prog_bar=True, logger=True)
+            self.log("val/violation", relevant_violation.sum(dim=(1,2)).mean(), on_epoch=True, prog_bar=True, logger=True)
         else:
             memory = Memory(batch.batch_size, self.ppo_cfg["n_step"],self.env)
             td = self.env.reset(batch)
@@ -370,6 +370,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
         # Feasibility and projection losses
         lhs = (lhs_A * proj_mean_logits.unsqueeze(-2)).sum(dim=-1)
         violation = torch.clamp(lhs - rhs, min=0)
+        violation = self._get_relevant_violations(violation, self.env)
         if self.ppo_cfg["adaptive_feasibility_lambda"]:
             lambda_values = torch.where(
                 violation > tolerance,
@@ -402,11 +403,13 @@ class Projection_Nstep_PPO(RL4COLitModule):
             "clipped_ratios": clipped_ratios.mean(),
             "adv": adv,
             "value_pred": value_preds,
-            "demand_violation": violation[:, 0].mean(),
-            "lcg_ub_violation": violation[:, 1].mean(),
-            "lcg_lb_violation": violation[:, 2].mean(),
-            "vcg_ub_violation": violation[:, 3].mean(),
-            "vcg_lb_violation": violation[:, 4].mean(),
+            # violation logging
+            "violation": violation.sum(dim=(1,2)).mean(),
+            "demand_violation": violation[..., 0].sum(dim=1).mean(),
+            "lcg_ub_violation": violation[..., 1].sum(dim=1).mean(),
+            "lcg_lb_violation": violation[..., 2].sum(dim=1).mean(),
+            "vcg_ub_violation": violation[..., 3].sum(dim=1).mean(),
+            "vcg_lb_violation": violation[..., 4].sum(dim=1).mean(),
             # performance metrics
             "total_loaded": td["state"]["total_loaded"].mean(),
             "total_profit":  td["state"]["total_revenue"].mean() - td["state"]["total_cost"].mean(),
@@ -418,6 +421,11 @@ class Projection_Nstep_PPO(RL4COLitModule):
     def _aggregate_metrics(self, list_metrics):
         """Aggregate metrics across PPO inner epochs and mini-batches."""
         return {k: torch.stack([dic[k] for dic in list_metrics], dim=0) for k in list_metrics[0]}
+
+    def _get_relevant_violations(self, violation, env):
+        relevant_violation = torch.where(env.next_port_mask.view(1, -1, 1) == 1, violation, torch.zeros_like(violation))
+        relevant_violation[..., 0] = violation[..., 0]
+        return relevant_violation
 
 def recursive_check_for_nans(td, parent_key=""):
     """Recursive check for NaNs and Infs in e.g. TensorDicts and raise an error if found."""
