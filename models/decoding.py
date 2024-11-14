@@ -27,7 +27,6 @@ def get_decoding_strategy(decoding_strategy, **config):
         "evaluate": Evaluate,
 
         # Continuous action space
-        "continuous_greedy": ContinuousGreedy,
         "continuous_sampling": ContinuousSampling,
         "continuous_projection": ContinuousProjection,
         "continuous_evaluate": ContinuousEvaluate,
@@ -551,7 +550,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
         return logits  # Greedy action
 
     @staticmethod
-    def continuous_sampling(mean_logits: torch.Tensor, std_logits: torch.Tensor,
+    def continuous_sampling(mean_logits: torch.Tensor, std_logits: torch.Tensor, selected: torch.Tensor = None,
                             mask: torch.Tensor = None, clip_min: torch.Tensor = None, clip_max: torch.Tensor = None):
         """Sample from Normal distribution given by mean and std logits.
         Get logprobs based on sampled action."""
@@ -559,7 +558,8 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             dist = ClippedGaussian(mean_logits, std_logits, clip_min, clip_max)
         else:
             dist = Normal(mean_logits, std_logits)
-        selected = dist.sample()
+        if selected is None:
+            selected = dist.sample()
         logprobs = dist.log_prob(selected)
         if mask is not None:
             logprobs = logprobs.masked_fill(~mask, 0)
@@ -742,35 +742,20 @@ class BeamSearch(DecodingStrategy):
         return selected, batch_beam_idx
 
 ## Continuous action Decoding strategies
-# todo: continue to work on continuous beam search + epsilon greedy
-class ContinuousGreedy(DecodingStrategy):
-    name = "continuous_greedy"
-
-    def _step(
-        self,  mean_logits: torch.Tensor, std_logits: torch.Tensor,
-            mask: torch.Tensor, td: TensorDict, **kwargs
-    ) -> Tuple[torch.Tensor, torch.Tensor, TensorDict]:
-        """Return the logit with (1-eps) probability, and random logit with eps probability."""
-        raise NotImplementedError("Continuous greedy decoding is not implemented properly yet.")
-        # Get logits, projection
-        logits = td["logits"]
-
-        # Select action
-        selected = self.continuous_eps_greedy(logits, mask)
-        return logprobs, selected, td
+# todo: create continuous beam search + epsilon greedy
 
 class ContinuousSampling(DecodingStrategy):
     name = "continuous_sampling"
 
     def _step(
-        self, mean_logits: torch.Tensor, std_logits: torch.Tensor,
+        self, mean_logits: torch.Tensor, std_logits: torch.Tensor, action: torch.Tensor,
             mask: torch.Tensor, td: TensorDict, **kwargs
     ) -> Tuple[torch.Tensor, torch.Tensor, TensorDict]:
         """Sample an action with a multinomial distribution given by the log probabilities.
         Get logprobs based on sampled action."""
         clip_min = kwargs.get("clip_min", None)
         clip_max = kwargs.get("clip_max", None)
-        selected, logprobs = self.continuous_sampling(mean_logits, std_logits, mask, clip_min, clip_max)
+        selected, logprobs = self.continuous_sampling(mean_logits, std_logits, action, mask, clip_min, clip_max)
         return logprobs, selected, td
 
 class ContinuousProjection(DecodingStrategy):
@@ -788,7 +773,7 @@ class ContinuousProjection(DecodingStrategy):
         """Project logits to feasible space using projection layer."""
         clip_min = kwargs.get("clip_min", None)
         clip_max = kwargs.get("clip_max", None)
-        selected, logprobs = self.continuous_sampling(mean_logits, std_logits, mask, clip_min, clip_max)
+        selected, logprobs = self.continuous_sampling(mean_logits, std_logits, action, mask, clip_min, clip_max)
         selected = self.projection_layer(selected, td["lhs_A"], td["rhs"], )
         return logprobs, selected, td
 
@@ -807,18 +792,5 @@ class ContinuousEvaluate(DecodingStrategy):
         """Get logprobs based on action provided externally."""
         clip_min = kwargs.get("clip_min", None)
         clip_max = kwargs.get("clip_max", None)
-        _, logprobs = self.continuous_sampling(mean_logits, std_logits, mask, clip_min, clip_max)
-        selected = action
+        selected, logprobs = self.continuous_sampling(mean_logits, std_logits, action, mask, clip_min, clip_max)
         return logprobs, selected, td
-
-class ContinuousBeamSearch(DecodingStrategy):
-    name = "continuous_beam_search"
-
-    def __init__(self, beam_width=None, select_best=True, **kwargs) -> None:
-        super().__init__(**kwargs)
-        self.beam_width = beam_width
-        self.select_best = select_best
-        self.parent_beam_logdensities = None
-        self.beam_path = []
-    # todo: implement continuous beam search
-    # check: https://chatgpt.com/c/672a1aa4-5424-8008-b4ad-dbe2e3d55d19
