@@ -68,19 +68,23 @@ class LinearViolationAdaption(th.nn.Module):
     def __init__(self, **kwargs):
         super(LinearViolationAdaption, self).__init__()
 
-    def forward(self, x, A, b, alpha=0.005, delta=0.05, tolerance=0.05, max_iter=100):
+    def forward(self, x, A, b, alpha=0.005, delta=0.05, tolerance=0.05, max_iter=100, port_projection=True):
         # alpha => 0.04 diverges, also 0.025 might cause nans.
         # validation settings: alpha=0.025, delta=0.05, tolerance=0.05
         # Determine the shape based on dimensionality of b
         x_ = x.clone()
-        if b.dim() == 2:
+        if b.dim() == 2 and A.dim() == 3:
             batch_size, m = b.shape
             n_step = 1
             A = A.unsqueeze(1)  # Expand to [batch_size, 1, m, F] for consistency
             b = b.unsqueeze(1)  # Expand to [batch_size, 1, m] for consistency
             x_ = x_.unsqueeze(1)  # Expand to [batch_size, 1, F] for consistency
-        elif b.dim() == 3:
+        elif b.dim() == 3 and A.dim() == 4:
             batch_size, n_step, m = b.shape
+        elif b.dim() == 2 and A.dim() == 4:
+            batch_size, m = b.shape
+            n_step = 1
+            b = b.unsqueeze(1)  # Expand to [batch_size, 1, m] for consistency
         else:
             raise ValueError("Invalid shape of 'b'. Expected dimensions 2 or 3.")
         violation_old = th.zeros(batch_size, n_step, m, dtype=x.dtype, device=x.device)
