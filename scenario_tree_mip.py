@@ -124,7 +124,6 @@ def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, det
     all_load_moves = []
     transport_indices = [(i, j) for i in range(P) for j in range(P) if i < j]
 
-
     # Function to compute relevant sets for each stage
     def onboard_groups(ports:int, pol:int, transport_indices:list) -> np.array:
         load_index = np.array([transport_indices.index((pol, i)) for i in range(ports) if i > pol])  # List of cargo groups to load
@@ -290,6 +289,14 @@ def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, det
     build_tree(stages, demand)
 
     # Define the objective function
+    # Reshape revenues to match the shape of x
+    revenues_ = np.zeros((stages, K, P, ))
+    for stage in range(stages):
+        for pod in range(stage + 1, P):
+            for cargo_class in range(K):
+                t = cargo_class + transport_indices.index((stage, pod)) * K
+                revenues_[stage, cargo_class, pod,] = revenues[t]
+
     # Objective: Maximize the total expected revenue over all scenarios
     probabilities = {}
     for (stage, node_id) in node_list:
@@ -298,7 +305,7 @@ def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, det
     objective = mdl.sum(
         probabilities[stage, node_id] * (
             mdl.sum(
-                revenues[transport_indices.index((stage, j))] * x[stage, node_id, b, d, k, stage, j]
+                revenues_[stage, k, j] * x[stage, node_id, b, d, k, stage, j]
                 for j in range(stage + 1, P) # Loop over discharge ports
                 for b in range(B)  # Loop over bays
                 for d in range(D)  # Loop over decks
@@ -333,7 +340,7 @@ def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, det
         LM_ = np.zeros((stages, max_paths,))
         VM_ = np.zeros((stages, max_paths,))
         TW_ = np.zeros((stages, max_paths,))
-
+        demand_ = np.zeros((stages, max_paths, K, P))
         for stage in range(stages):
             for node_id in range(num_nodes_per_stage[stage]):
                 for bay in range(B):
@@ -342,6 +349,7 @@ def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, det
                             for pol in range(stage + 1):
                                 for pod in range(pol + 1, P):
                                     x_[stage, node_id, bay, deck, cargo_class, pol, pod] = x[stage, node_id, bay, deck, cargo_class, pol, pod].solution_value
+                                    demand_[stage, node_id, cargo_class, pod] = demand[stage, node_id][cargo_class, pod]
 
                     HO_[stage, node_id, bay] = HO[stage, node_id, bay].solution_value
                     HM_[stage, node_id, bay] = HM[stage, node_id, bay].solution_value
@@ -355,10 +363,18 @@ def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, det
                 TW_[stage, node_id] = TW[stage, node_id].solution_value
 
         # Get metrics from the solution
-        mean_load_per_port = np.sum(x_, axis=(2, 3, 4, 5, 6)).mean(axis=1) # Shape (stages,)
-        mean_load_per_location = np.sum(x_, axis=(4, 5, 6)).mean(axis=(1)) # Shape (stages, B, D)
-        mean_hatch_overstowage = np.sum(HO_, axis=(2)).mean(axis=1) # Shape (stages,)
-        mean_ci = CI_.mean(axis=1) # Shape (stages,)
+        num_nodes_per_stage = np.array(num_nodes_per_stage)
+        mean_load_per_port = np.sum(x_, axis=(2, 3, 4, 5, 6)).sum(axis=1) / num_nodes_per_stage # Shape (stages,)
+        mean_load_per_location = np.sum(x_, axis=(4, 5, 6)).sum(axis=(1)) / num_nodes_per_stage.reshape(-1, 1, 1) # Shape (stages, B, D)
+        mean_hatch_overstowage = np.sum(HO_, axis=(2)).sum(axis=1) / num_nodes_per_stage # Shape (stages,)
+        mean_ci = CI_.sum(axis=1) / num_nodes_per_stage # Shape (stages,)
+        # Auxiliary metrics
+        mean_demand = np.sum(demand_, axis=(2, 3)).sum(axis=1) / num_nodes_per_stage # Shape (stages,)
+        print(revenues_.shape, x_.shape)
+        breakpoint()
+
+        mean_revenue = np.sum((revenues_ * x_), axis=(2, 3, 4, 5, 6)).sum(axis=1) / num_nodes_per_stage
+
 
         results = {
             # Input parameters
@@ -374,6 +390,7 @@ def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, det
             "mean_load_per_location":mean_load_per_location.tolist(),
             "mean_hatch_overstowage":mean_hatch_overstowage.tolist(),
             "mean_ci":mean_ci.tolist(),
+            "mean_demand":mean_demand.tolist(),
         }
         vars = {
             "seed": seed,
@@ -414,7 +431,7 @@ if __name__ == "__main__":
     deterministic = False
     debug = True
 
-    num_seed = 1
+    num_seed = 20
     for scen in [4,]: #$8,12,16,20,24,28,32]:
         results = []
         vars = []
