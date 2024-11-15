@@ -24,6 +24,7 @@ import yaml
 from dotmap import DotMap
 import time
 import wandb
+import copy
 from tensordict import TensorDict
 
 # PyTorch, Lightning
@@ -193,7 +194,8 @@ def main(config=None):
     projection_kwargs.update({"n_actions": env.action_spec.shape[0], "n_constraints": env.n_constraints})
     policy = AttentionModelPolicy4PPO(**model_params) # AttentionModelPolicy(**model_params),
     policy.apply(init_he_weights)
-    critic = CriticNetwork(encoder, embed_dim=embed_dim, hidden_dim=hidden_dim,num_layers = decoder_layers, context_embedding=context_embed)
+    critic = CriticNetwork(encoder=copy.deepcopy(encoder), embed_dim=embed_dim,
+                           hidden_dim=hidden_dim,num_layers = decoder_layers, context_embedding=context_embed)
     critic.apply(init_he_weights)
 
     am_ppo_params = {
