@@ -129,7 +129,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 "loss", "surrogate_loss", "value_loss", "entropy", "feasibility_loss", "projection_loss",
                 "return", "ratios", "clipped_ratios", "adv", "value_pred",
                 # violation logging
-                "violation", "demand_violation", "lcg_ub_violation", "lcg_lb_violation", "vcg_ub_violation", "vcg_lb_violation",
+                "violation", "violation_demand", "violation_lcg_ub", "violation_lcg_lb", "violation_vcg_ub", "violation_vcg_lb",
                 # performance metrics
                 "total_loaded", "total_profit", "total_revenue", "total_cost",
             ]
@@ -252,11 +252,11 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
             # Log relevant violations
             relevant_violation = self._get_relevant_violations(out["violation"], self.env)
-            self.log("val/demand_violation", relevant_violation[...,0].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
-            self.log("val/lcg_ub_violation", relevant_violation[...,1].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
-            self.log("val/lcg_lb_violation", relevant_violation[...,2].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
-            self.log("val/vcg_ub_violation", relevant_violation[...,3].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
-            self.log("val/vcg_lb_violation", relevant_violation[...,4].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
+            self.log("val/violation_demand", relevant_violation[...,0].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
+            self.log("val/violation_lcg_ub", relevant_violation[...,1].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
+            self.log("val/violation_lcg_lb", relevant_violation[...,2].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
+            self.log("val/violation_vcg_ub", relevant_violation[...,3].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
+            self.log("val/violation_vcg_lb", relevant_violation[...,4].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
             self.log("val/violation", relevant_violation.sum(dim=(1,2)).mean(), on_epoch=True, prog_bar=True, logger=True)
         else:
             memory = Memory(batch.batch_size, self.ppo_cfg["n_step"],self.env)
@@ -272,12 +272,14 @@ class Projection_Nstep_PPO(RL4COLitModule):
         list_metrics = []
 
         # Gather n_steps in memory
-        with torch.no_grad():
-            memory.clear_memory()
-            for i in range(self.ppo_cfg["n_step"]):
+        memory.clear_memory()
+
+        for i in range(self.ppo_cfg["n_step"]):
+            memory.values[:, i] = self.critic(td.clone().detach()).view(-1, 1)
+
+            with torch.no_grad():
                 memory.tds.append(td.clone())
                 td = self.policy.act(memory.tds[i], self.env, phase=phase)
-                memory.values[:, i] = self.critic(memory.tds[i]).view(-1, 1)
                 td = self.env.step(td.clone())["next"]
                 memory.actions[:, i] = td["action"]
                 memory.logprobs[:, i] = td["logprobs"]
@@ -304,33 +306,36 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 )
 
                 # Store values directly in the memory object
-                value_preds = self.critic(mini_batch_tds)
-                dones = out["done"]
+                out["value_preds"] = self.critic(mini_batch_tds)
+                assert out["value_preds"].requires_grad, "Value predictions must require gradients"
 
                 # Compute advantages and returns
-                old_values = memory.values[mini_batch_indices]
+                old_values = memory.values[mini_batch_indices].detach()
                 rewards = memory.rewards[mini_batch_indices]
                 adv, returns = generalized_advantage_estimate(
                     gamma=self.ppo_cfg["gamma"],
                     lmbda=self.ppo_cfg["gae_lambda"],
                     state_value=old_values,
-                    next_state_value=value_preds,
+                    next_state_value=out["value_preds"],
                     reward=rewards,
-                    done=dones.bool(),
+                    done=out["done"].bool(),
                 )
 
                 # Normalize advantages and returns if enabled
                 adv = self._normalize_if_enabled(adv, self.ppo_cfg["normalize_adv"])
                 returns = self._normalize_if_enabled(returns, self.ppo_cfg["normalize_return"])
+                out["adv"] = adv
+                out["returns"] = returns
 
                 # Compute losses and metrics
                 loss, metrics = self._compute_losses(
-                    adv, returns, out, memory, td, mini_batch_indices, self.lambda_violations, tolerance, alpha)
+                    out, memory, td, mini_batch_indices, self.lambda_violations, tolerance, alpha)
 
                 # Perform the backward pass and optimization
                 opt = self.optimizers()
                 opt.zero_grad()
-                self.manual_backward(loss)
+                # todo: remove retain_graph=True
+                self.manual_backward(loss, retain_graph=True)
                 if self.ppo_cfg["max_grad_norm"] is not None:
                     self.clip_gradients(
                         opt,
@@ -346,18 +351,18 @@ class Projection_Nstep_PPO(RL4COLitModule):
         """Normalize tensors if enabled in configuration"""
         return (tensor - tensor.mean()) / (tensor.std() + 1e-8) if enabled else tensor
 
-    def _compute_losses(self, adv, returns, out, memory, td,
+    def _compute_losses(self,out, memory, td,
                         mini_batch_indices, lambda_values, tolerance, alpha):
         """Compute the PPO loss, value loss, entropy loss, feasibility loss, and projection loss."""
         # Extract from memory/out
         old_ll = memory.logprobs[mini_batch_indices]
-        value_preds = memory.values[mini_batch_indices]
+        value_preds = out["value_preds"]
         ll = out["logprobs"]
         entropy = out["entropy"]
         mean_logits = out["mean_logits"]
         proj_mean_logits = out["proj_mean_logits"]
-        lhs_A = out["lhs_A"]
-        rhs = out["rhs"]
+        adv = out["adv"]
+        returns = out["returns"]
 
         # Compute the ratios for PPO clipping
         log_ratios = ll - old_ll.detach()
@@ -366,18 +371,18 @@ class Projection_Nstep_PPO(RL4COLitModule):
         surrogate_loss = -torch.min(ratios * adv, clipped_ratios * adv).mean()
 
         # Compute the value and entropy loss
-        value_loss = F.huber_loss(value_preds.detach(), returns, reduction="mean")
+        value_loss = F.huber_loss(value_preds, returns.detach(), reduction="mean")
 
-        # Feasibility and projection losses
-        violation = compute_violation(lhs_A, rhs, proj_mean_logits.unsqueeze(-2))
+        # # Feasibility and projection losses
+        violation = compute_violation(out["lhs_A"], out["rhs"], proj_mean_logits.unsqueeze(-2))
         if self.ppo_cfg["adaptive_feasibility_lambda"]:
             lambda_values = torch.where(
                 violation > tolerance,
                 lambda_values * (1 + alpha * violation),
                 lambda_values,
             )
-        feasibility_loss = F.mse_loss(lambda_values * violation, torch.zeros_like(violation), reduction="mean")
-        projection_loss = F.mse_loss(mean_logits, proj_mean_logits,reduction="mean")
+        feasibility_loss = F.mse_loss(lambda_values * violation, torch.zeros_like(violation).detach(), reduction="mean")
+        projection_loss = F.mse_loss(mean_logits, proj_mean_logits.detach(), reduction="mean")
 
         # Total loss
         total_loss = (
@@ -405,11 +410,11 @@ class Projection_Nstep_PPO(RL4COLitModule):
             "value_pred": value_preds,
             # violation logging
             "violation": relevant_violation.sum(dim=(1,2)).mean(),
-            "demand_violation": relevant_violation[..., 0].sum(dim=1).mean(),
-            "lcg_ub_violation": relevant_violation[..., 1].sum(dim=1).mean(),
-            "lcg_lb_violation": relevant_violation[..., 2].sum(dim=1).mean(),
-            "vcg_ub_violation": relevant_violation[..., 3].sum(dim=1).mean(),
-            "vcg_lb_violation": relevant_violation[..., 4].sum(dim=1).mean(),
+            "violation_demand": relevant_violation[..., 0].sum(dim=1).mean(),
+            "violation_lcg_ub": relevant_violation[..., 1].sum(dim=1).mean(),
+            "violation_lcg_lb": relevant_violation[..., 2].sum(dim=1).mean(),
+            "violation_vcg_ub": relevant_violation[..., 3].sum(dim=1).mean(),
+            "violation_vcg_lb": relevant_violation[..., 4].sum(dim=1).mean(),
             # performance metrics
             "total_loaded": td["state"]["total_loaded"].mean(),
             "total_profit":  td["state"]["total_revenue"].mean() - td["state"]["total_cost"].mean(),
