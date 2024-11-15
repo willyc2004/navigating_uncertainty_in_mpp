@@ -67,9 +67,10 @@ class MPPInitEmbedding(nn.Module):
             self.destination_emb_cache.expand(batch_size, -1, -1),
             self.class_embed_cache.expand(batch_size, -1, -1),
             self.weight_emb_cache.expand(batch_size, -1, -1),
-            self.teu_embd_cache.expand(batch_size,-1, -1),
+            self.teu_embd_cache.expand(batch_size, -1, -1),
             self.revenue_emb_cache.expand(batch_size, -1, -1),
         ], dim=-1)
+
         # Final projection
         positional_emb = self.positional_encoding(combined_emb)
         initial_embedding = self.fc(positional_emb)
