@@ -286,55 +286,51 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 memory.rewards[:, i] = td["reward"].view(-1, 1)
                 memory.profit[:, i] = td["profit"].view(-1, 1)
 
-        # Run PPO inner epochs with minibatching
         for k in range(self.ppo_cfg["ppo_epochs"]):
             indices = torch.arange(td.batch_size[0])
-
-            # Split indices into mini-batches for efficient batch processing
             for mini_batch_indices in BatchSampler(SubsetRandomSampler(indices), mini_batch_size, drop_last=True):
                 mini_batch_indices = torch.tensor(mini_batch_indices, device=td.device)
+
+                # Prepare mini-batch data
                 mini_batch_tds = torch.stack(memory.tds, dim=-1)[mini_batch_indices]
                 mini_batch_actions = memory.actions[mini_batch_indices]
 
-                # Perform a single forward pass for the n-step batch
+                # Forward pass
                 out = self.policy.evaluate(
-                    mini_batch_tds,
+                    mini_batch_tds.clone(),
                     action=mini_batch_actions,
                     env=self.env,
                     phase=phase,
                     return_actions=False,
                 )
 
-                # Store values directly in the memory object
-                out["value_preds"] = self.critic(mini_batch_tds)
+                value_preds = self.critic(mini_batch_tds.clone())
+                out["value_preds"] = value_preds
                 assert out["value_preds"].requires_grad, "Value predictions must require gradients"
 
-                # Compute advantages and returns
-                old_values = memory.values[mini_batch_indices].detach()
-                rewards = memory.rewards[mini_batch_indices]
-                adv, returns = generalized_advantage_estimate(
-                    gamma=self.ppo_cfg["gamma"],
-                    lmbda=self.ppo_cfg["gae_lambda"],
-                    state_value=old_values,
-                    next_state_value=out["value_preds"],
-                    reward=rewards,
-                    done=out["done"].bool(),
+                # Advantage and return computation
+                with torch.no_grad():
+                    old_values = memory.values[mini_batch_indices]
+                    rewards = memory.rewards[mini_batch_indices]
+                    adv, returns = generalized_advantage_estimate(
+                        gamma=self.ppo_cfg["gamma"],
+                        lmbda=self.ppo_cfg["gae_lambda"],
+                        state_value=old_values,
+                        next_state_value=value_preds.detach(),
+                        reward=rewards,
+                        done=out["done"].bool(),
+                    )
+                out["adv"] = self._normalize_if_enabled(adv, self.ppo_cfg["normalize_adv"])
+                out["returns"] = self._normalize_if_enabled(returns, self.ppo_cfg["normalize_return"])
+
+                # Loss computation
+                loss, metrics = self._compute_losses(
+                    out, memory, td, mini_batch_indices, self.lambda_violations, tolerance, alpha
                 )
 
-                # Normalize advantages and returns if enabled
-                adv = self._normalize_if_enabled(adv, self.ppo_cfg["normalize_adv"])
-                returns = self._normalize_if_enabled(returns, self.ppo_cfg["normalize_return"])
-                out["adv"] = adv
-                out["returns"] = returns
-
-                # Compute losses and metrics
-                loss, metrics = self._compute_losses(
-                    out, memory, td, mini_batch_indices, self.lambda_violations, tolerance, alpha)
-
-                # Perform the backward pass and optimization
+                # Backward pass
                 opt = self.optimizers()
                 opt.zero_grad()
-                # todo: remove retain_graph=True
                 self.manual_backward(loss, retain_graph=True)
                 if self.ppo_cfg["max_grad_norm"] is not None:
                     self.clip_gradients(
@@ -351,75 +347,81 @@ class Projection_Nstep_PPO(RL4COLitModule):
         """Normalize tensors if enabled in configuration"""
         return (tensor - tensor.mean()) / (tensor.std() + 1e-8) if enabled else tensor
 
-    def _compute_losses(self,out, memory, td,
-                        mini_batch_indices, lambda_values, tolerance, alpha):
+    def _compute_losses(self, out, memory, td, mini_batch_indices, lambda_values, tolerance, alpha):
         """Compute the PPO loss, value loss, entropy loss, feasibility loss, and projection loss."""
         # Extract from memory/out
-        old_ll = memory.logprobs[mini_batch_indices]
-        value_preds = out["value_preds"]
-        ll = out["logprobs"]
-        entropy = out["entropy"]
-        mean_logits = out["mean_logits"]
-        proj_mean_logits = out["proj_mean_logits"]
-        adv = out["adv"]
-        returns = out["returns"]
+        old_ll = memory.logprobs[mini_batch_indices]  # Old log probabilities
+        value_preds = out["value_preds"]  # Current value predictions
+        ll = out["logprobs"]  # Current log probabilities
+        entropy = out["entropy"]  # Policy entropy
+        mean_logits = out["mean_logits"]  # Current logits
+        proj_mean_logits = out["proj_mean_logits"]  # Projected logits
+        adv = out["adv"]  # Advantages
+        returns = out["returns"]  # Returns
 
         # Compute the ratios for PPO clipping
-        log_ratios = ll - old_ll.detach()
-        ratios = torch.exp(log_ratios)
+        log_ratios = ll - old_ll.detach()  # Detach old log-likelihoods to avoid retaining graph
+        ratios = torch.exp(log_ratios)  # Calculate importance sampling ratios
         clipped_ratios = torch.clamp(ratios, 1 - self.ppo_cfg["clip_range"], 1 + self.ppo_cfg["clip_range"])
-        surrogate_loss = -torch.min(ratios * adv, clipped_ratios * adv).mean()
+        surrogate_loss = -torch.min(ratios * adv, clipped_ratios * adv).mean()  # Surrogate loss
 
-        # Compute the value and entropy loss
-        value_loss = F.huber_loss(value_preds, returns.detach(), reduction="mean")
+        # Compute the value loss using Huber loss
+        value_loss = F.huber_loss(value_preds, returns.detach(), reduction="mean")  # Detach returns
 
-        # # Feasibility and projection losses
-        violation = compute_violation(out["lhs_A"], out["rhs"], proj_mean_logits.unsqueeze(-2))
+        # Compute feasibility and projection losses
+        violation = compute_violation(out["lhs_A"], out["rhs"], proj_mean_logits.unsqueeze(-2))  # Feasibility violation
         if self.ppo_cfg["adaptive_feasibility_lambda"]:
+            # Adapt lambda values for feasibility constraints
             lambda_values = torch.where(
                 violation > tolerance,
                 lambda_values * (1 + alpha * violation),
                 lambda_values,
             )
-        feasibility_loss = F.mse_loss(lambda_values * violation, torch.zeros_like(violation).detach(), reduction="mean")
-        projection_loss = F.mse_loss(mean_logits, proj_mean_logits.detach(), reduction="mean")
+        feasibility_loss = F.mse_loss(lambda_values * violation,
+                                      torch.zeros_like(violation).detach(), reduction="mean")  # Feasibility loss
+        projection_loss = F.mse_loss(mean_logits, proj_mean_logits.detach(), reduction="mean")  # Projection loss
 
-        # Total loss
+        # Combine losses into the total loss
         total_loss = (
-                surrogate_loss
+                # surrogate_loss
                 + self.ppo_cfg["vf_lambda"] * value_loss
-                - self.ppo_cfg["entropy_lambda"] * entropy.mean()
-                + self.ppo_cfg["feasibility_lambda"] * feasibility_loss
-                + self.ppo_cfg["projection_lambda"] * projection_loss
+                # - self.ppo_cfg["entropy_lambda"] * entropy.mean()
+                # + self.ppo_cfg["feasibility_lambda"] * feasibility_loss
+                # + self.ppo_cfg["projection_lambda"] * projection_loss
         ).mean()
 
+        # Compute relevant violations for metrics
+        relevant_violation = self._get_relevant_violations(violation.detach(), self.env)
+
         # Collect metrics for logging
-        relevant_violation = self._get_relevant_violations(violation, self.env)
         metrics = {
-            # loss logging
-            "loss": total_loss,
-            "surrogate_loss": surrogate_loss,
-            "value_loss": self.ppo_cfg["vf_lambda"] * value_loss,
-            "entropy": -self.ppo_cfg["entropy_lambda"] * entropy.mean(),
-            "feasibility_loss": self.ppo_cfg["feasibility_lambda"] * feasibility_loss,
-            "projection_loss": self.ppo_cfg["projection_lambda"] * projection_loss,
-            "return": returns.mean(),
-            "ratios": ratios.mean(),
-            "clipped_ratios": clipped_ratios.mean(),
-            "adv": adv,
-            "value_pred": value_preds,
-            # violation logging
-            "violation": relevant_violation.sum(dim=(1,2)).mean(),
-            "violation_demand": relevant_violation[..., 0].sum(dim=1).mean(),
-            "violation_lcg_ub": relevant_violation[..., 1].sum(dim=1).mean(),
-            "violation_lcg_lb": relevant_violation[..., 2].sum(dim=1).mean(),
-            "violation_vcg_ub": relevant_violation[..., 3].sum(dim=1).mean(),
-            "violation_vcg_lb": relevant_violation[..., 4].sum(dim=1).mean(),
-            # performance metrics
-            "total_loaded": td["state"]["total_loaded"].mean(),
-            "total_profit":  td["state"]["total_revenue"].mean() - td["state"]["total_cost"].mean(),
-            "total_revenue": td["state"]["total_revenue"].mean(),
-            "total_cost": td["state"]["total_cost"].mean(),
+            # Losses
+            "loss": total_loss.detach(),
+            "surrogate_loss": surrogate_loss.detach(),
+            "value_loss": (self.ppo_cfg["vf_lambda"] * value_loss).detach(),
+            "entropy": (-self.ppo_cfg["entropy_lambda"] * entropy.mean()).detach(),
+            "feasibility_loss": (self.ppo_cfg["feasibility_lambda"] * feasibility_loss).detach(),
+            "projection_loss": (self.ppo_cfg["projection_lambda"] * projection_loss).detach(),
+            # Performance metrics
+            "return": returns.mean().detach(),
+            "ratios": ratios.mean().detach(),
+            "clipped_ratios": clipped_ratios.mean().detach(),
+            "adv": adv.detach(),
+            "value_pred": value_preds.detach(),
+            # Violation metrics
+            "violation": relevant_violation.sum(dim=(1, 2)).mean().detach(),
+            "violation_demand": relevant_violation[..., 0].sum(dim=1).mean().detach(),
+            "violation_lcg_ub": relevant_violation[..., 1].sum(dim=1).mean().detach(),
+            "violation_lcg_lb": relevant_violation[..., 2].sum(dim=1).mean().detach(),
+            "violation_vcg_ub": relevant_violation[..., 3].sum(dim=1).mean().detach(),
+            "violation_vcg_lb": relevant_violation[..., 4].sum(dim=1).mean().detach(),
+            # Additional metrics for debugging or logging
+            "total_loaded": td["state"]["total_loaded"].mean().detach(),
+            "total_profit": (
+                    td["state"]["total_revenue"].mean() - td["state"]["total_cost"].mean()
+            ).detach(),
+            "total_revenue": td["state"]["total_revenue"].mean().detach(),
+            "total_cost": td["state"]["total_cost"].mean().detach(),
         }
         return total_loss, metrics
 

@@ -57,7 +57,7 @@ class CriticNetwork(nn.Module):
                     for _ in range(num_layers - 1)
                 ],
                 nn.LayerNorm(hidden_dim),  # Apply LayerNorm at the end of the hidden layers
-                nn.Linear(hidden_dim, 1),  # Output layer doesn't need LayerNorm
+                nn.Linear(hidden_dim, 1),  # Output layer
             )
         self.value_head = value_head
 
@@ -78,7 +78,7 @@ class CriticNetwork(nn.Module):
             h = self.context_embedding(h, x)
 
         # Step 3: Compute value using value_head
-        output = self.value_head(h) #.mean(dim=-1)  # [batch_size, N] -> [batch_size]
+        output = self.value_head(h) # [batch_size, N]
         return output
 
 
