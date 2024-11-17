@@ -452,7 +452,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 # mask=mask, # Change to None to avoid masking logits
                 clip_min=clip_min,
                 clip_max=clip_max,
-                constant_sum=td["state"].get("current_demand", None),
+                constant_sum=None, #td["state"].get("current_demand", None),
                 temperature=self.temperature,
                 top_p=self.top_p,
                 top_k=self.top_k,
@@ -469,7 +469,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 raise ValueError("std_x is zero")
 
             proj_mean_logits = mean_logits.clone()
-            #  proj_mean_logits = self.projection_layer(mean_logits, td["lhs_A"], td["rhs"], )
+            # proj_mean_logits = self.projection_layer(mean_logits, td["lhs_A"], td["rhs"], )
             check_for_nans(proj_mean_logits, "proj_mean_logits")
 
             # Get logprobs and actions from policy
