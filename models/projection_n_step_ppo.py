@@ -446,11 +446,11 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
         # Combine losses into the total loss
         total_loss = (
-                # surrogate_loss
+                surrogate_loss
                 + self.ppo_cfg["vf_lambda"] * value_loss
-                # - self.ppo_cfg["entropy_lambda"] * entropy.mean()
-                # + self.ppo_cfg["feasibility_lambda"] * feasibility_loss
-                # + self.ppo_cfg["projection_lambda"] * projection_loss
+                - self.ppo_cfg["entropy_lambda"] * entropy.mean()
+                + self.ppo_cfg["feasibility_lambda"] * feasibility_loss
+                + self.ppo_cfg["projection_lambda"] * projection_loss
         ).mean()
 
         # Compute relevant violations for metrics
