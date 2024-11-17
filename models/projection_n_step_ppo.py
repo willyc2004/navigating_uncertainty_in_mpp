@@ -30,6 +30,8 @@ from rl4co.utils.pylogger import get_pylogger
 
 log = get_pylogger(__name__)
 
+from torch.utils.data import Dataset, DataLoader
+
 class Memory:
     def __init__(self, batch_size, max_steps, env, device="cuda"):
         self.tds = []
@@ -92,6 +94,74 @@ class ObservationNormalizer(nn.Module):
             # Update running statistics with momentum for stability
             self.mean[key].data = self.momentum * batch_mean + (1 - self.momentum) * self.mean[key].data
             self.std[key].data = self.momentum * batch_std + (1 - self.momentum) * self.std[key].data
+
+class BatchDataset(Dataset):
+    def __init__(self, td, memory):
+        """
+        Custom dataset for PPO mini-batch sampling.
+        Args:
+            td (TensorDict): Training data containing the current state, actions, etc.
+            memory (object): Memory object holding tensors for actions, logprobs, rewards, etc.
+        """
+        self.td = td
+        self.memory = memory
+
+    def __len__(self):
+        """Return the batch size (number of samples)."""
+        return self.td.shape[0]
+
+    def __getitem__(self, index):
+        """Return data for a single index."""
+        return {
+            "actions": self.memory.actions[index],
+            "values": self.memory.values[index],
+            "logprobs": self.memory.logprobs[index],
+            "rewards": self.memory.rewards[index],
+            "profit": self.memory.profit[index],
+            "tds": torch.stack(self.memory.tds, dim=-1)[index],
+        }
+
+
+from torch.utils.data.dataloader import default_collate
+
+from tensordict import TensorDict
+
+def recursive_tensordict_collate(batch):
+    """
+    Recursively collates a batch of TensorDicts, including nested TensorDicts.
+    """
+    if isinstance(batch[0], TensorDict):
+        # Handle nested TensorDicts
+        keys = batch[0].keys()
+        collated_data = {}
+        for key in keys:
+            # Collect the data for this key across all TensorDicts
+            key_batch = [td[key] for td in batch]
+            # Recursively collate the data for this key
+            collated_data[key] = recursive_tensordict_collate(key_batch)
+        # Return a stacked TensorDict
+        return TensorDict(collated_data, batch_size=[len(batch)])
+
+    elif isinstance(batch[0], (list, tuple)):
+        # If the items are lists or tuples, collate each element recursively
+        return type(batch[0])(recursive_tensordict_collate(items) for items in zip(*batch))
+
+    elif isinstance(batch[0], dict):
+        # If the items are dictionaries, collate each key recursively
+        return {key: recursive_tensordict_collate([d[key] for d in batch]) for key in batch[0]}
+
+    else:
+        # For standard tensors or values, use default stacking (e.g., for torch.Tensor)
+        return default_collate(batch)
+
+def tensordict_collate_fn(batch):
+    """
+    Collate function for a batch of TensorDicts, including support for nested TensorDicts.
+    """
+    if not isinstance(batch, list):
+        raise TypeError("Batch should be a list of TensorDicts.")
+    return recursive_tensordict_collate(batch)
+
 
 class Projection_Nstep_PPO(RL4COLitModule):
     """
@@ -273,11 +343,9 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
         # Gather n_steps in memory
         memory.clear_memory()
-
         for i in range(self.ppo_cfg["n_step"]):
-            memory.values[:, i] = self.critic(td.clone().detach()).view(-1, 1)
-
             with torch.no_grad():
+                memory.values[:, i] = self.critic(td.clone().detach()).view(-1, 1)
                 memory.tds.append(td.clone())
                 td = self.policy.act(memory.tds[i], self.env, phase=phase)
                 td = self.env.step(td.clone())["next"]
@@ -286,52 +354,47 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 memory.rewards[:, i] = td["reward"].view(-1, 1)
                 memory.profit[:, i] = td["profit"].view(-1, 1)
 
+        # Create DataLoader for mini-batch sampling
+        dataset = BatchDataset(td, memory)
+        dataloader = DataLoader(dataset, batch_size=mini_batch_size, shuffle=True,
+                                drop_last=True, collate_fn=tensordict_collate_fn)
+
         for k in range(self.ppo_cfg["ppo_epochs"]):
-            indices = torch.arange(td.batch_size[0])
-            for mini_batch_indices in BatchSampler(SubsetRandomSampler(indices), mini_batch_size, drop_last=True):
-                mini_batch_indices = torch.tensor(mini_batch_indices, device=td.device)
-
-                # Prepare mini-batch data
-                mini_batch_tds = torch.stack(memory.tds, dim=-1)[mini_batch_indices]
-                mini_batch_actions = memory.actions[mini_batch_indices]
-
+            for batch in dataloader:
                 # Forward pass
                 out = self.policy.evaluate(
-                    mini_batch_tds.clone(),
-                    action=mini_batch_actions,
+                    batch["tds"].detach(),
+                    action=batch["actions"].detach(),
                     env=self.env,
                     phase=phase,
                     return_actions=False,
                 )
-
-                value_preds = self.critic(mini_batch_tds.clone())
+                value_preds = self.critic(batch["tds"].detach())
                 out["value_preds"] = value_preds
                 assert out["value_preds"].requires_grad, "Value predictions must require gradients"
 
                 # Advantage and return computation
                 with torch.no_grad():
-                    old_values = memory.values[mini_batch_indices]
-                    rewards = memory.rewards[mini_batch_indices]
                     adv, returns = generalized_advantage_estimate(
                         gamma=self.ppo_cfg["gamma"],
                         lmbda=self.ppo_cfg["gae_lambda"],
-                        state_value=old_values,
+                        state_value=batch["values"],
                         next_state_value=value_preds.detach(),
-                        reward=rewards,
+                        reward=batch["rewards"],
                         done=out["done"].bool(),
                     )
                 out["adv"] = self._normalize_if_enabled(adv, self.ppo_cfg["normalize_adv"])
                 out["returns"] = self._normalize_if_enabled(returns, self.ppo_cfg["normalize_return"])
 
-                # Loss computation
+                # Compute losses
                 loss, metrics = self._compute_losses(
-                    out, memory, td, mini_batch_indices, self.lambda_violations, tolerance, alpha
+                    out, batch, td, self.lambda_violations, tolerance, alpha
                 )
 
                 # Backward pass
                 opt = self.optimizers()
                 opt.zero_grad()
-                self.manual_backward(loss, retain_graph=True)
+                self.manual_backward(loss, retain_graph=False)
                 if self.ppo_cfg["max_grad_norm"] is not None:
                     self.clip_gradients(
                         opt,
@@ -347,10 +410,10 @@ class Projection_Nstep_PPO(RL4COLitModule):
         """Normalize tensors if enabled in configuration"""
         return (tensor - tensor.mean()) / (tensor.std() + 1e-8) if enabled else tensor
 
-    def _compute_losses(self, out, memory, td, mini_batch_indices, lambda_values, tolerance, alpha):
+    def _compute_losses(self, out, batch, td, lambda_values, tolerance, alpha):
         """Compute the PPO loss, value loss, entropy loss, feasibility loss, and projection loss."""
         # Extract from memory/out
-        old_ll = memory.logprobs[mini_batch_indices]  # Old log probabilities
+        old_ll = batch["logprobs"] # Old log probabilities
         value_preds = out["value_preds"]  # Current value predictions
         ll = out["logprobs"]  # Current log probabilities
         entropy = out["entropy"]  # Policy entropy
