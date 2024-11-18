@@ -287,6 +287,10 @@ class MasterPlanningEnv(RL4COEnvBase):
 
     def _reset(self,  td: Optional[TensorDict] = None,  batch_size=None) -> TensorDict:
         """Reset the environment to the initial state."""
+        # Shape
+        td["realized_demand"] = td["realized_demand"].view(*batch_size, self.K, self.T)
+        td["observed_demand"] = td["observed_demand"].view(*batch_size, self.K, self.T)
+
         # Initialize
         # Parameters
         device = td.device

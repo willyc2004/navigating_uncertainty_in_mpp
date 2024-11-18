@@ -105,7 +105,7 @@ class MPP_Generator(Generator):
             e_x_init_demand, _ = self._initial_contract_demand(batch_size)
             batch_updates = th.zeros(batch_size, device=self.device)
         else:
-            e_x_init_demand = td["init_expected_demand"]
+            e_x_init_demand = td["init_expected_demand"].view(-1, self.K, self.T)
             batch_updates = td["batch_updates"].clone()
 
         # Get moments, dist and non-negative sample from Geometric Brownian Motion process
@@ -124,11 +124,11 @@ class MPP_Generator(Generator):
         else:
             observed_demand = demand
         # Return demand matrix
-        return TensorDict({"realized_demand": demand,
-                           "observed_demand": observed_demand,
-                           "expected_demand": e_x,
-                           "std_demand":std_x,
-                           "init_expected_demand": e_x_init_demand,
+        return TensorDict({"realized_demand": demand.view(batch_size[0], self.K*self.T),
+                           "observed_demand": observed_demand.view(batch_size[0], self.K*self.T),
+                           "expected_demand": e_x.view(batch_size[0], self.K*self.T),
+                           "std_demand":std_x.view(batch_size[0], self.K*self.T),
+                           "init_expected_demand": e_x_init_demand.view(batch_size[0], self.K*self.T),
                            "batch_updates":batch_updates + 1,
                            },
                           batch_size=batch_size, device=self.device,)
