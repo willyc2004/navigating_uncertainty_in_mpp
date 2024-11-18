@@ -232,7 +232,7 @@ class MasterPlanningEnv(RL4COEnvBase):
             cost += cost_
 
         # Track metrics
-        total_rc += residual_capacity
+        total_rc += residual_capacity.view(*batch_size, -1)
         total_revenue += revenue
         total_cost += cost
         # Normalize revenue \in [0,1]:
@@ -293,7 +293,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         t = th.zeros(*batch_size, dtype=th.int64)
         # Action mask and clipping
         clip_max = (self.norm_capacity / self.teus[t[0]]).unsqueeze(0).repeat(*batch_size, 1, 1)
-        action_mask = th.ones((*batch_size, self.B, self.D), dtype=th.bool, device=device)
+        action_mask = th.ones((*batch_size, self.B*self.D), dtype=th.bool, device=device)
         # Vessel state
         target_long_crane = self._compute_target_long_crane(td["realized_demand"], self.moves_idx[t[0]])
         utilization = th.zeros((*batch_size, self.B, self.D, self.K, self.T), device=device, dtype=self.float_type)
