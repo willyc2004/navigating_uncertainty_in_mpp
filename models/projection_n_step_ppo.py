@@ -5,15 +5,13 @@ from tensordict import TensorDict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data.dataloader import default_collate
+from torch.utils.data import Dataset, DataLoader
 from torchrl.objectives.value.functional import generalized_advantage_estimate
 from torch.utils.data import BatchSampler, SubsetRandomSampler
-from rl4co.utils.ops import gather_by_index
-from environment.utils import compute_violation
-
-import os
 
 # Enable CUDA_LAUNCH_BLOCKING for debugging CUDA errors
+import os
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
 from torchrl.data.replay_buffers import (
@@ -27,14 +25,16 @@ from rl4co.envs.common.base import RL4COEnvBase
 from rl4co.models.rl.common.base import RL4COLitModule
 from rl4co.models.rl.common.critic import CriticNetwork, create_critic_from_actor
 from rl4co.utils.pylogger import get_pylogger
-
+from rl4co.utils.ops import gather_by_index
 log = get_pylogger(__name__)
 
-from torch.utils.data import Dataset, DataLoader
+# Custom imports
+from environment.utils import compute_violation
 
 class Memory:
-    def __init__(self, batch_size, max_steps, env, device="cuda"):
-        self.tds = []
+    def __init__(self, td, max_steps, env, device="cuda"):
+        batch_size = td.batch_size
+        self.tds_obs = []
         self.actions = torch.zeros((*batch_size, max_steps, env.D * env.B), device=device)
         self.logprobs = torch.zeros((*batch_size, max_steps, env.D * env.B), device=device)
         self.rewards = torch.zeros((*batch_size, max_steps, 1), device=device)
@@ -42,7 +42,7 @@ class Memory:
         self.profit = torch.zeros((*batch_size, max_steps, 1), device=device)
 
     def clear_memory(self):
-        del self.tds[:]
+        del self.tds_obs[:]
         self.actions = self.actions.new_zeros(self.actions.size())
         self.logprobs = self.logprobs.new_zeros(self.logprobs.size())
         self.rewards = self.rewards.new_zeros(self.rewards.size())
@@ -112,19 +112,16 @@ class BatchDataset(Dataset):
 
     def __getitem__(self, index):
         """Return data for a single index."""
+        # run through all shapes of self.memory.tds_obs
+        stacked_obs = torch.stack(self.memory.tds_obs, dim=0).permute(1,0)
         return {
             "actions": self.memory.actions[index],
             "values": self.memory.values[index],
             "logprobs": self.memory.logprobs[index],
             "rewards": self.memory.rewards[index],
             "profit": self.memory.profit[index],
-            "tds": torch.stack(self.memory.tds, dim=-1)[index],
+            "tds": stacked_obs[index],
         }
-
-
-from torch.utils.data.dataloader import default_collate
-
-from tensordict import TensorDict
 
 def recursive_tensordict_collate(batch):
     """
@@ -329,8 +326,8 @@ class Projection_Nstep_PPO(RL4COLitModule):
             self.log("val/violation_vcg_lb", relevant_violation[...,4].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
             self.log("val/violation", relevant_violation.sum(dim=(1,2)).mean(), on_epoch=True, prog_bar=True, logger=True)
         else:
-            memory = Memory(batch.batch_size, self.ppo_cfg["n_step"],self.env)
             td = self.env.reset(batch)
+            memory = Memory(batch, self.ppo_cfg["n_step"], self.env)
             out = self.update(td, memory, phase, mini_batch_size=self.mini_batch_size)
         metrics = self.log_metrics(out, phase, dataloader_idx=dataloader_idx)
         return {"loss": out.get("loss", None), **metrics}
@@ -346,8 +343,8 @@ class Projection_Nstep_PPO(RL4COLitModule):
         for i in range(self.ppo_cfg["n_step"]):
             with torch.no_grad():
                 memory.values[:, i] = self.critic(td.clone().detach()).view(-1, 1)
-                memory.tds.append(td.clone())
-                td = self.policy.act(memory.tds[i], self.env, phase=phase)
+                memory.tds_obs.append(td["obs"].clone())
+                td = self.policy.act(td.clone(), self.env, phase=phase)
                 td = self.env.step(td.clone())["next"]
                 memory.actions[:, i] = td["action"]
                 memory.logprobs[:, i] = td["logprobs"]
