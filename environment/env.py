@@ -240,7 +240,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         normalize_revenue = self.revenues.max() * current_demand
         # Normalize accumulated cost \in [0, t_cost], where t_cost is the time at which we evaluate cost:
         # cost_norm = cost_{t_cost} / E[q_t]
-        normalize_cost = realized_demand.view(*batch_size, -1)[:,:t[0]].sum(dim=-1) / t[0]
+        normalize_cost = realized_demand.view(*batch_size, -1)[:,:t[0]].sum(dim=-1, keepdims=True) / t[0]
         # Normalize reward: r_t = revenue_norm - cost_norm
         # We have spikes over delayed costs at specific time steps.
         reward = (revenue.clone() / normalize_revenue) - (cost.clone() / normalize_cost)
@@ -265,8 +265,8 @@ class MasterPlanningEnv(RL4COEnvBase):
                 "expected_demand": next_state_dict["expected_demand"].view(*batch_size, self.K * self.T),
                 "std_demand": next_state_dict["std_demand"].view(*batch_size, self.K * self.T),
                 "residual_capacity": residual_capacity.view(*batch_size, self.B * self.D),
-                "agg_pol_location": agg_pol_location,
-                "agg_pod_location": agg_pod_location,
+                "agg_pol_location": agg_pol_location.view(*batch_size, self.B * self.D),
+                "agg_pod_location": agg_pod_location.view(*batch_size, self.B * self.D),
             },
 
             # Feasibility and constraints
@@ -600,7 +600,7 @@ class MasterPlanningEnv(RL4COEnvBase):
 
         # Get output
         return {
-            "current_demand": realized_demand[:, k, tau],
+            "current_demand": realized_demand[:, k, tau].view(-1, 1),
             "observed_demand": observed_demand,
             "expected_demand": expected_demand,
             "std_demand":std_demand,
