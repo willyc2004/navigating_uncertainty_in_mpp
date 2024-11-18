@@ -342,8 +342,14 @@ class Projection_Nstep_PPO(RL4COLitModule):
         memory.clear_memory()
         for i in range(self.ppo_cfg["n_step"]):
             with torch.no_grad():
-                memory.values[:, i] = self.critic(td.clone().detach()).view(-1, 1)
+                # Store observation in memory
+                td_obs = td["obs"].clone()
+                td_obs["done"] = td["done"].clone()
+                td_obs["episodic_step"] = td["episodic_step"].clone()
                 memory.tds_obs.append(td["obs"].clone())
+
+                # Perform step in environment and store results
+                memory.values[:, i] = self.critic(td.clone().detach()).view(-1, 1)
                 td = self.policy.act(td.clone(), self.env, phase=phase)
                 td = self.env.step(td.clone())["next"]
                 memory.actions[:, i] = td["action"]

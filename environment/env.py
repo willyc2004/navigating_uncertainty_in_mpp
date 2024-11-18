@@ -308,7 +308,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         lhs_A = self.create_lhs_A(th.zeros((*batch_size, self.n_constraints, self.B * self.D),  device=device, dtype=self.float_type), t)
         rhs = self.create_rhs(utilization, current_demand, batch_size)
 
-        # Init tds - state
+        # Init tds - state: internal state
         initial_state = TensorDict({
             # Vessel
             "utilization": utilization,
@@ -320,7 +320,7 @@ class MasterPlanningEnv(RL4COEnvBase):
             "total_rc": th.zeros_like(locations_utilization),
         }, batch_size=batch_size, device=device,)
 
-        # Init tds - obs
+        # Init tds - obs: observed by embeddings
         initial_obs = TensorDict({
             # Demand
             "current_demand": current_demand,
