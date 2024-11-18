@@ -1,8 +1,8 @@
-method: bayes  # Bayesian optimization
+method: bayes
 metric:
-  name: val/reward  # The metric to optimize
-  goal: maximize  # We're maximizing the validation reward
-run_cap: 100  # The sweep will perform a maximum of 50 trials
+  name: val/total_profit_and_feas
+  goal: maximize
+run_cap: 100
 parameters:
   feedforward_hidden:
     values: [512, 1024,]
