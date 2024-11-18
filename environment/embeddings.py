@@ -45,14 +45,13 @@ class MPPInitEmbedding(nn.Module):
 
     def forward(self, td: TensorDict):
         # Get batch size and sequence length
-        if td["POL"].dim() == 2:
-            batch_size, seq_size = td["POL"].shape
-            expected_demand = self.ex_demand(td["expected_demand"].view(batch_size, seq_size, 1))
-            std_demand = self.stdx_demand(td["std_demand"].view(batch_size, seq_size, 1))
-        elif td["POL"].dim() == 3:
-            batch_size, n_step, seq_size = td["POL"].shape
-            expected_demand = self.ex_demand(td["expected_demand"][:,0].view(batch_size, seq_size, 1))
-            std_demand = self.stdx_demand(td["std_demand"][:,0].view(batch_size, seq_size, 1))
+        batch_size = td.batch_size
+        if td["obs"]["expected_demand"].dim() == 2:
+            expected_demand = self.ex_demand(td["obs"]["expected_demand"].view(*batch_size, -1, 1))
+            std_demand = self.stdx_demand(td["obs"]["std_demand"].view(*batch_size, -1, 1))
+        elif td["obs"]["expected_demand"].dim() == 3:
+            expected_demand = self.ex_demand(td["obs"]["expected_demand"][:,0].view(*batch_size, -1, 1))
+            std_demand = self.stdx_demand(td["obs"]["std_demand"][:,0].view(*batch_size, -1, 1))
         else:
             raise ValueError("Invalid shape for POL")
 
@@ -63,12 +62,12 @@ class MPPInitEmbedding(nn.Module):
         # Concatenate all embeddings (using cached values for fixed ones)
         combined_emb = torch.cat([
             expected_demand, std_demand,
-            self.origin_emb_cache.expand(batch_size, -1, -1),
-            self.destination_emb_cache.expand(batch_size, -1, -1),
-            self.class_embed_cache.expand(batch_size, -1, -1),
-            self.weight_emb_cache.expand(batch_size, -1, -1),
-            self.teu_embd_cache.expand(batch_size, -1, -1),
-            self.revenue_emb_cache.expand(batch_size, -1, -1),
+            self.origin_emb_cache.expand(*batch_size, -1, -1),
+            self.destination_emb_cache.expand(*batch_size, -1, -1),
+            self.class_embed_cache.expand(*batch_size, -1, -1),
+            self.weight_emb_cache.expand(*batch_size, -1, -1),
+            self.teu_embd_cache.expand(*batch_size, -1, -1),
+            self.revenue_emb_cache.expand(*batch_size, -1, -1),
         ], dim=-1)
 
         # Final projection
@@ -129,23 +128,23 @@ class MPPContextEmbedding(nn.Module):
         - todo: It does depend on vessel size now, but this could be changed.
         """
         # Determine the shape based on dimensionality of current_demand
-        if td["done"].dim() == 2:
-            batch_size, _ = td["done"].shape
+        if td["obs"]["expected_demand"].dim() == 2:
+            batch_size, _ = td["obs"]["expected_demand"].shape
             view_transform = lambda x: x.view(batch_size, -1)
-        elif td["done"].dim() == 3:
-            batch_size, n_step, _ = td["done"].shape
+        elif td["obs"]["expected_demand"].dim() == 3:
+            batch_size, n_step, _ = td["obs"]["expected_demand"].shape
             view_transform = lambda x: x.view(batch_size, n_step, -1)
         else:
             raise ValueError("Invalid shape of done in td")
 
         # Process demand embeddings based on demand aggregation type
         def process_demand_embedding(embedding_func, view_transform, demand_type, td, aggregation):
-            demand = view_transform(td["obs"][demand_type])
+            demand = view_transform(td[demand_type])
             if aggregation == "sum":
                 return embedding_func(torch.sum(demand, dim=-1, keepdim=True))
             elif aggregation == "self_attn":
                 demand, _ = embedding_func(demand.unsqueeze(-1))
-                if td["done"].dim() == 3:
+                if td["expected_demand"].dim() == 3:
                     return demand.view(batch_size, n_step, self.seq_size, -1)
                 return demand
             raise ValueError(f"Invalid demand aggregation: {aggregation}")
@@ -157,11 +156,11 @@ class MPPContextEmbedding(nn.Module):
 
         # Compute demand embeddings
         current_demand = self.current_demand(view_transform(td["obs"]["current_demand"]))
-        expected_demand_t = process_demand_embedding(self.expected_demand, view_transform, "expected_demand", td,
+        expected_demand_t = process_demand_embedding(self.expected_demand, view_transform, "expected_demand", td["obs"],
                                                      self.demand_aggregation)
-        std_demand_t = process_demand_embedding(self.std_demand, view_transform, "std_demand", td,
+        std_demand_t = process_demand_embedding(self.std_demand, view_transform, "std_demand", td["obs"],
                                                 self.demand_aggregation)
-        observed_demand_t = process_demand_embedding(self.observed_demand, view_transform, "observed_demand", td,
+        observed_demand_t = process_demand_embedding(self.observed_demand, view_transform, "observed_demand", td["obs"],
                                                      self.demand_aggregation)
 
         if self.demand_aggregation == "self_attn":
@@ -171,8 +170,8 @@ class MPPContextEmbedding(nn.Module):
 
         # Compute vessel and location embeddings
         residual_capacity = self.residual_capacity(view_transform(td["obs"]["residual_capacity"]))
-        origin_embed = self.origin_location(view_transform(td["state"]["agg_pol_location"]))
-        destination_embed = self.destination_location(view_transform(td["state"]["agg_pod_location"]))
+        origin_embed = self.origin_location(view_transform(td["obs"]["agg_pol_location"]))
+        destination_embed = self.destination_location(view_transform(td["obs"]["agg_pod_location"]))
 
         # Concatenate all embeddings
         state_embed = torch.cat([

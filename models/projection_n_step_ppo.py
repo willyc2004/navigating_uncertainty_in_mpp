@@ -266,6 +266,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
         self.lambda_violations = torch.tensor([demand_lambda] + [stability_lambda] * env.n_stability,
                                               device='cuda', dtype=torch.float32)
+        self.select_obs_td = ["obs", "done", "episodic_step", "action_mask", "lhs_A", "rhs", ("state", "utilization")]
         # todo: normalization of observation
 
     def configure_optimizers(self):
@@ -332,7 +333,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
         metrics = self.log_metrics(out, phase, dataloader_idx=dataloader_idx)
         return {"loss": out.get("loss", None), **metrics}
 
-    def update(self, td, memory, phase, tolerance=1e-4, alpha=0.5, mini_batch_size=256):
+    def update(self, td, memory, phase, tolerance=1e-4, alpha=0.5, mini_batch_size=256,):
         assert (
                 self.ppo_cfg["T_train"] % self.ppo_cfg["n_step"] == 0
         ), "T_train should be divided by n_step with no remainder"
@@ -343,13 +344,11 @@ class Projection_Nstep_PPO(RL4COLitModule):
         for i in range(self.ppo_cfg["n_step"]):
             with torch.no_grad():
                 # Store observation in memory
-                td_obs = td["obs"].clone()
-                td_obs["done"] = td["done"].clone()
-                td_obs["episodic_step"] = td["episodic_step"].clone()
-                memory.tds_obs.append(td["obs"].clone())
+                td_obs = td.select(*self.select_obs_td).clone()
+                memory.tds_obs.append(td_obs.clone())
 
                 # Perform step in environment and store results
-                memory.values[:, i] = self.critic(td.clone().detach()).view(-1, 1)
+                memory.values[:, i] = self.critic(td_obs.detach()).view(-1, 1)
                 td = self.policy.act(td.clone(), self.env, phase=phase)
                 td = self.env.step(td.clone())["next"]
                 memory.actions[:, i] = td["action"]
