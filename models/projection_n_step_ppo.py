@@ -362,7 +362,6 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
         for k in range(self.ppo_cfg["ppo_epochs"]):
             for batch in dataloader:
-                print("\nbatch")
                 # Forward pass
                 out = self.policy.evaluate(
                     batch["tds"],
@@ -371,22 +370,21 @@ class Projection_Nstep_PPO(RL4COLitModule):
                     phase=phase,
                     return_actions=False,
                 )
-                out["value_preds"] = self.critic(batch["tds"])
+                out["value_preds"] = self.critic(batch["tds"]).clone()
 
                 # Advantage and return computation
-                assert out["value_preds"].requires_grad, "Value predictions should not require gradients"
-                assert not batch["rewards"].requires_grad, "Rewards should require gradients"
-                assert not batch["values"].requires_grad, "Values should require gradients"
                 adv, returns = generalized_advantage_estimate(
                     gamma=self.ppo_cfg["gamma"],
                     lmbda=self.ppo_cfg["gae_lambda"],
                     state_value=batch["values"],
-                    next_state_value=out["value_preds"].clone(),
+                    next_state_value=out["value_preds"].detach(),
                     reward=batch["rewards"],
                     done=out["done"].bool(),
                 )
-                out["adv"] = self._normalize_if_enabled(adv, self.ppo_cfg["normalize_adv"]).detach()
-                out["returns"] = self._normalize_if_enabled(returns, self.ppo_cfg["normalize_return"]).detach()
+                out["adv"] = self._normalize_if_enabled(adv, self.ppo_cfg["normalize_adv"])
+                out["returns"] = self._normalize_if_enabled(returns, self.ppo_cfg["normalize_return"])
+                assert not out["adv"].requires_grad, "Advantage should not require gradients"
+                assert not out["returns"].requires_grad, "Returns should not require gradients"
 
                 with torch.autograd.set_detect_anomaly(True):
                     # Compute losses
@@ -394,7 +392,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
                     # Backward pass
                     opt = self.optimizers()
                     opt.zero_grad()
-                    self.manual_backward(loss, retain_graph=False)
+                    self.manual_backward(loss, retain_graph=True)
                     if self.ppo_cfg["max_grad_norm"] is not None:
                         self.clip_gradients(
                             opt,
@@ -402,12 +400,12 @@ class Projection_Nstep_PPO(RL4COLitModule):
                             gradient_clip_algorithm="norm",
                         )
 
-                    for name, param in self.policy.named_parameters():
-                        if param.grad is not None:
-                            if torch.isnan(param.grad).any():
-                                print(f"NaN in parameter: {name}")
-                            if torch.isinf(param.grad).any():
-                                print(f"Inf in parameter: {name}")
+                    # for name, param in self.policy.named_parameters():
+                    #     if param.grad is not None:
+                    #         if torch.isnan(param.grad).any():
+                    #             print(f"NaN in parameter: {name}")
+                    #         if torch.isinf(param.grad).any():
+                    #             print(f"Inf in parameter: {name}")
 
                     opt.step()
                 list_metrics.append(metrics)
@@ -430,43 +428,14 @@ class Projection_Nstep_PPO(RL4COLitModule):
         adv = out["adv"]  # Advantages
         returns = out["returns"]  # Returns
 
-        # Assert not tracking gradients
-        assert not old_ll.requires_grad, "Old log probabilities should not require gradients"
-        assert not adv.requires_grad, "Advantages should require gradients"
-        assert not returns.requires_grad, "Returns should require gradients"
-        assert not out["lhs_A"].requires_grad, "LHS A should not require gradients"
-        assert not out["rhs"].requires_grad, "RHS should not require gradients"
-        assert not out["action"].requires_grad, "Actions should not require gradients"
-        # Assert gradients
-        assert ll.requires_grad, "Log probabilities should require gradients"
-        assert value_preds.requires_grad, "Value predictions should require gradients"
-        assert entropy.requires_grad, "Entropy should require gradients"
-        assert mean_logits.requires_grad, "Mean logits should require gradients"
-        assert proj_mean_logits.requires_grad, "Projected mean logits should require gradients"
-
         # Compute the ratios for PPO clipping
         log_ratios = ll - old_ll.detach()  # Detach old log-likelihoods to avoid retaining graph
         ratios = torch.exp(log_ratios)  # Calculate importance sampling ratios
         clipped_ratios = torch.clamp(ratios, 1 - self.ppo_cfg["clip_range"], 1 + self.ppo_cfg["clip_range"])
         surrogate_loss = -torch.min(ratios * adv, clipped_ratios * adv).mean()  # Surrogate loss
-        assert ratios.requires_grad, "Ratios should require gradients"
-        assert clipped_ratios.requires_grad, "Clipped ratios should require gradients"
-
-        # check for zeros in clipped ratios
-        if torch.isclose(clipped_ratios, torch.zeros_like(clipped_ratios)).any():
-            print("Warning: Zeros detected in clipped_ratios")
-            zero_indices = torch.where(torch.isclose(clipped_ratios, torch.zeros_like(clipped_ratios)))
-            print("action: ", out["action"][zero_indices])
-            print("ll: ", ll[zero_indices])
-            print("old_ll: ", old_ll[zero_indices])
-            print("ratios: ", ratios[zero_indices])
 
         # Compute the value loss using Huber loss
         value_loss = F.huber_loss(value_preds, returns.detach(), reduction="mean")
-        assert value_loss.requires_grad, "value_loss should require gradients"
-        if value_loss.grad_fn is not None:
-            print("Value loss has grad_fn:", value_loss.grad_fn)
-
 
         # Compute feasibility and projection losses
         violation = compute_violation(out["lhs_A"], out["rhs"], proj_mean_logits.unsqueeze(-2))  # Feasibility violation
