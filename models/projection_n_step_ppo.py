@@ -383,31 +383,29 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 )
                 out["adv"] = self._normalize_if_enabled(adv, self.ppo_cfg["normalize_adv"])
                 out["returns"] = self._normalize_if_enabled(returns, self.ppo_cfg["normalize_return"])
-                assert not out["adv"].requires_grad, "Advantage should not require gradients"
-                assert not out["returns"].requires_grad, "Returns should not require gradients"
 
-                with torch.autograd.set_detect_anomaly(True):
-                    # Compute losses
-                    loss, metrics = self._compute_losses(out, batch, td, self.lambda_violations, )
-                    # Backward pass
-                    opt = self.optimizers()
-                    opt.zero_grad()
-                    self.manual_backward(loss, retain_graph=True)
-                    if self.ppo_cfg["max_grad_norm"] is not None:
-                        self.clip_gradients(
-                            opt,
-                            gradient_clip_val=self.ppo_cfg["max_grad_norm"],
-                            gradient_clip_algorithm="norm",
-                        )
+                # with torch.autograd.set_detect_anomaly(True):
+                # Compute losses
+                loss, metrics = self._compute_losses(out, batch, td, self.lambda_violations, )
+                # Backward pass
+                opt = self.optimizers()
+                opt.zero_grad()
+                self.manual_backward(loss, retain_graph=True)
+                if self.ppo_cfg["max_grad_norm"] is not None:
+                    self.clip_gradients(
+                        opt,
+                        gradient_clip_val=self.ppo_cfg["max_grad_norm"],
+                        gradient_clip_algorithm="norm",
+                    )
 
-                    # for name, param in self.policy.named_parameters():
-                    #     if param.grad is not None:
-                    #         if torch.isnan(param.grad).any():
-                    #             print(f"NaN in parameter: {name}")
-                    #         if torch.isinf(param.grad).any():
-                    #             print(f"Inf in parameter: {name}")
+                # for name, param in self.policy.named_parameters():
+                #     if param.grad is not None:
+                #         if torch.isnan(param.grad).any():
+                #             print(f"NaN in parameter: {name}")
+                #         if torch.isinf(param.grad).any():
+                #             print(f"Inf in parameter: {name}")
 
-                    opt.step()
+                opt.step()
                 list_metrics.append(metrics)
 
         return self._aggregate_metrics(list_metrics)
