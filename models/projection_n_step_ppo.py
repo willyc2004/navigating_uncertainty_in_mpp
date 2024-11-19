@@ -329,11 +329,11 @@ class Projection_Nstep_PPO(RL4COLitModule):
         else:
             td = self.env.reset(batch)
             memory = Memory(batch, self.ppo_cfg["n_step"], self.env)
-            out = self.update(td, memory, phase, mini_batch_size=self.mini_batch_size)
+            out = self.update(td, memory, phase)
         metrics = self.log_metrics(out, phase, dataloader_idx=dataloader_idx)
         return {"loss": out.get("loss", None), **metrics}
 
-    def update(self, td, memory, phase, tolerance=1e-4, alpha=0.5, mini_batch_size=256,):
+    def update(self, td, memory, phase,):
         assert (
                 self.ppo_cfg["T_train"] % self.ppo_cfg["n_step"] == 0
         ), "T_train should be divided by n_step with no remainder"
@@ -358,7 +358,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
         # Create DataLoader for mini-batch sampling
         dataset = BatchDataset(td, memory)
-        dataloader = DataLoader(dataset, batch_size=mini_batch_size, shuffle=True,
+        dataloader = DataLoader(dataset, batch_size=self.mini_batch_size, shuffle=True,
                                 drop_last=True, collate_fn=tensordict_collate_fn)
 
         for k in range(self.ppo_cfg["ppo_epochs"]):
@@ -390,7 +390,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
                 # Compute losses
                 loss, metrics = self._compute_losses(
-                    out, batch, td, self.lambda_violations, tolerance, alpha
+                    out, batch, td, self.lambda_violations,
                 )
 
                 # Backward pass
@@ -412,7 +412,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
         """Normalize tensors if enabled in configuration"""
         return (tensor - tensor.mean()) / (tensor.std() + 1e-8) if enabled else tensor
 
-    def _compute_losses(self, out, batch, td, lambda_values, tolerance, alpha):
+    def _compute_losses(self, out, batch, td, lambda_values, tolerance=1e-4, alpha=0.5,):
         """Compute the PPO loss, value loss, entropy loss, feasibility loss, and projection loss."""
         # Extract from memory/out
         old_ll = batch["logprobs"] # Old log probabilities
