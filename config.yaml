@@ -25,7 +25,7 @@ env:
 # Model settings
 model:
   lr_end_factor: 0.5
-  batch_size: 32
+  batch_size: 256
   init_dim: 8
   embed_dim: 128
   feedforward_hidden: 512
@@ -47,7 +47,7 @@ model:
 
 # PPO parameters
 ppo:
-  clip_range: 0.3 # 0.2
+  clip_range: 0.2 # 0.2
   ppo_epochs: 5 # 2, 3, 5, 7, 10
   mini_batch_size: 0.5
   normalize_adv: False
@@ -67,7 +67,7 @@ ppo:
 
 # AM PPO parameters
 am_ppo:
-  lr: 0.0001
+  lr: 0.001
   projection_type: "linear_violation" #None, convex_program, worst_case_violation, linear_violation, linear_program
   projection_kwargs:
     iters: 5
