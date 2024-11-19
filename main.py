@@ -214,8 +214,6 @@ def main(config=None):
     }
     AMPPO.__bases__ = (Projection_Nstep_PPO,) # Adapt base class
     model = AMPPO(**am_ppo_params).to(device)
-    # print(model)
-    # breakpoint()
 
     ## Training configuration
     date_time_str = time.strftime("%Y/%m/%d/%H-%M-%S")
