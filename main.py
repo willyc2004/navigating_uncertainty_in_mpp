@@ -206,6 +206,7 @@ def main(config=None):
         "lr_scheduler_kwargs": {"end_factor": config.model.lr_end_factor,},
         "projection_kwargs": projection_kwargs,
         "decoder_type": config.model.decoder_type,
+        "batch_size": batch_size,
         "env_kwargs": env_kwargs,
         "model_kwargs": model_params,
         **config.ppo,

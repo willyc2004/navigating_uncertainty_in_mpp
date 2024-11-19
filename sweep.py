@@ -27,7 +27,7 @@ if __name__ == "__main__":
             config['model']['num_encoder_layers'] = sweep_config.num_encoder_layers
             config['model']['num_decoder_layers'] = sweep_config.num_decoder_layers
             config['model']['num_heads'] = sweep_config.num_heads
-            config['model']['batch_size'] = [sweep_config.batch_size]
+            config['model']['batch_size'] = sweep_config.batch_size
             # config['model']['embed_dim'] = sweep_config.embed_dim
             # config['model']['dropout_rate'] = sweep_config.dropout_rate
             # config['model']['lr_end_factor'] = sweep_config.lr_end_factor
