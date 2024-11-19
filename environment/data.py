@@ -18,7 +18,7 @@ class StateDependentDataset(IterableDataset):
         self.td = td
         self.total_samples = total_samples
         self.batch_size = batch_size
-        self.num_batches = self.total_samples // self.batch_size[0]  # Total number of batches
+        self.num_batches = self.total_samples // self.batch_size  # Total number of batches
         self.device = device  # Set the device (GPU or CPU)
 
     def __len__(self):
