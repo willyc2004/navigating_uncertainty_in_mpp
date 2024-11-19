@@ -38,16 +38,12 @@ from torchrl.envs import TransformedEnv
 from torchrl.envs.transforms import ObservationNorm
 
 # RL4CO
-from rl4co.envs.common.base import RL4COEnvBase
 from rl4co.utils.trainer import RL4COTrainer
 from rl4co.models.zoo import AMPPO
 # Customized RL4CO modules
-from models.projection_ppo import Projection_SinglePPO
-from models.projection_stepwise_ppo import Projection_StepwisePPO
 from models.projection_n_step_ppo import Projection_Nstep_PPO
 from models.constructive import ConstructivePolicy
 from rl4co.models.zoo.am.encoder import AttentionModelEncoder
-from rl4co.models.zoo.am.policy import AttentionModelPolicy
 from rl4co.models.common.constructive.autoregressive import AutoregressivePolicy
 AutoregressivePolicy.__bases__ = (ConstructivePolicy,) # Adapt base class
 
@@ -263,7 +259,7 @@ def main(config=None):
 
     # Initialize logger
     if config.model.logger == "wandb":
-        logger = WandbLogger(project="mpp", name="mpp_under_uncertainty", log_model=True, config=config)
+        logger = WandbLogger(project="mpp_ppo", entity="stowage_planning_research", log_model=True, config=config)
     else:
         logger = None
 

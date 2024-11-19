@@ -47,7 +47,7 @@ model:
 
 # PPO parameters
 ppo:
-  clip_range: 0.2 # 0.2
+  clip_range: 0.2
   ppo_epochs: 5 # 2, 3, 5, 7, 10
   mini_batch_size: 0.5
   normalize_adv: False
@@ -68,11 +68,14 @@ ppo:
 # AM PPO parameters
 am_ppo:
   lr: 0.001
-  projection_type: "linear_violation" #None, convex_program, worst_case_violation, linear_violation, linear_program
+  projection_type: "linear_violation"
+  #None, convex_program, worst_case_violation, linear_violation, linear_program
   projection_kwargs:
     iters: 5
     project_per_port: True
-  optimizer: "Adam" #AdamW, Adam
-  train_data_size: 1000000 #5000000 # 3000000
+  optimizer: "Adam"
+  #AdamW, Adam
+  train_data_size: 1000000
+  #5000000 # 3000000
   val_data_size: 50000
   test_data_size: 50000
