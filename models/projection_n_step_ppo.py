@@ -389,9 +389,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 out["returns"] = self._normalize_if_enabled(returns, self.ppo_cfg["normalize_return"])
 
                 # Compute losses
-                loss, metrics = self._compute_losses(
-                    out, batch, td, self.lambda_violations,
-                )
+                loss, metrics = self._compute_losses(out, batch, td, self.lambda_violations,)
 
                 # Backward pass
                 opt = self.optimizers()
