@@ -5,7 +5,7 @@ metric:
 run_cap: 100
 parameters:
   feedforward_hidden:
-    values: [512, 1024,]
+    values: [128, 256,]
   num_encoder_layers:
     values: [1, 2, 3,]
   num_decoder_layers:

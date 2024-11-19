@@ -25,10 +25,10 @@ env:
 # Model settings
 model:
   lr_end_factor: 0.5
-  batch_size: 256
+  batch_size: 64
   init_dim: 8
   embed_dim: 128
-  feedforward_hidden: 512
+  feedforward_hidden: 256
   num_encoder_layers: 2
   num_decoder_layers: 1
   num_heads: 8
@@ -41,24 +41,24 @@ model:
   val_decode_type: "continuous_projection"
   test_decode_type: "continuous_projection"
   phase: "train" # train, test
-  decoder_type: "attention" # mlp, attention
+  decoder_type: "mlp" # mlp, attention
   demand_aggregation: "self_attn" # sum, self_attn
-  logger: wandb
+  logger: "None" # None, wandb
 
 # PPO parameters
 ppo:
-  clip_range: 0.2
+  clip_range: 0.3
   ppo_epochs: 5 # 2, 3, 5, 7, 10
   mini_batch_size: 0.5
   normalize_adv: False
   normalize_return: False
-  max_grad_norm: 0.5
+  max_grad_norm: 1.0
   kl_threshold: None #0.01 - 0.1
   kl_penalty_lambda: None # 1.0
   gamma: 0.999
   gae_lambda: 0.95
   vf_lambda: 0.5
-  entropy_lambda: 0.01
+  entropy_lambda: 0.1
   feasibility_lambda: 0.7
   demand_lambda: 1.0 #0.2
   stability_lambda: 1.0 # 0.1
@@ -68,7 +68,7 @@ ppo:
 
 # AM PPO parameters
 am_ppo:
-  lr: 0.001
+  lr: 0.0001
   projection_type: "linear_violation"
   #None, convex_program, worst_case_violation, linear_violation, linear_program
   projection_kwargs:
