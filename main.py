@@ -189,10 +189,10 @@ def main(config=None):
     projection_kwargs = config.am_ppo.pop("projection_kwargs",)
     projection_kwargs.update({"n_actions": env.action_spec.shape[0], "n_constraints": env.n_constraints})
     policy = AttentionModelPolicy4PPO(**model_params) # AttentionModelPolicy(**model_params),
-    policy.apply(init_he_weights)
+    policy.apply(init_weights)
     critic = CriticNetwork(encoder=copy.deepcopy(encoder), embed_dim=embed_dim,
                            hidden_dim=hidden_dim,num_layers = decoder_layers, context_embedding=context_embed)
-    critic.apply(init_he_weights)
+    critic.apply(init_weights)
 
     am_ppo_params = {
         "env": env,
@@ -337,7 +337,7 @@ def main(config=None):
                         am_ppo_params["projection_type"], config["env"]["utilization_rate_initial_demand"], times)
     return model
 
-def init_he_weights(m):
+def init_weights(m):
     if isinstance(m, torch.nn.Linear):
         torch.nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')  # He initialization for ReLU
     if isinstance(m, torch.nn.MultiheadAttention):
