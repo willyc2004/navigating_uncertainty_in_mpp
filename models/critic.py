@@ -47,16 +47,17 @@ class CriticNetwork(nn.Module):
 
             # Create value head
             value_head = nn.Sequential(
+                # nn.LayerNorm(embed_dim),  # Apply LayerNorm at the end of the hidden layers
                 nn.Linear(embed_dim, hidden_dim),
                 nn.ReLU(),
                 *[
                     nn.Sequential(
+                        # nn.LayerNorm(hidden_dim),  # Apply LayerNorm at the end of the hidden layers
                         nn.Linear(hidden_dim, hidden_dim),
                         nn.ReLU()
                     )
                     for _ in range(num_layers - 1)
                 ],
-                nn.LayerNorm(hidden_dim),  # Apply LayerNorm at the end of the hidden layers
                 nn.Linear(hidden_dim, 1),  # Output layer
             )
         self.value_head = value_head
