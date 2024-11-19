@@ -50,8 +50,8 @@ ppo:
   clip_range: 0.2
   ppo_epochs: 5 # 2, 3, 5, 7, 10
   mini_batch_size: 0.5
-  normalize_adv: True
-  normalize_return: True
+  normalize_adv: False
+  normalize_return: False
   max_grad_norm: 0.5
   kl_threshold: None #0.01 - 0.1
   kl_penalty_lambda: None # 1.0
@@ -59,7 +59,7 @@ ppo:
   gae_lambda: 0.95
   vf_lambda: 0.5
   entropy_lambda: 0.1
-  feasibility_lambda: 0.0
+  feasibility_lambda: 0.7
   demand_lambda: 1.0 #0.2
   stability_lambda: 1.0 # 0.1
   projection_lambda: 0.01
@@ -73,7 +73,7 @@ am_ppo:
   #None, convex_program, worst_case_violation, linear_violation, linear_program
   projection_kwargs:
     iters: 5
-    project_per_port: False
+    project_per_port: True
   optimizer: "Adam"
   #AdamW, Adam
   train_data_size: 1000000
