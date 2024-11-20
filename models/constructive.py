@@ -324,7 +324,7 @@ class ConstructivePolicy(nn.Module):
         if return_feasibility:
             outdict["lhs_A"] = dict_out["lhs_A"]
             outdict["rhs"] = dict_out["rhs"]
-            outdict["violation"] = compute_violation(dict_out["lhs_A"], dict_out["rhs"], dict_out["actions"].unsqueeze(-2))
+            outdict["violation"] = compute_violation(dict_out["actions"].unsqueeze(-2), dict_out["lhs_A"], dict_out["rhs"])
             outdict["total_profit_and_feas"] -= outdict["violation"].sum(dim=(-1,-2)).view(batch_size, 1)
         if return_entropy:
             outdict["entropy"] = calculate_entropy(dict_out["logprobs"])
