@@ -68,9 +68,13 @@ class LinearViolationAdaption(th.nn.Module):
     def __init__(self, **kwargs):
         super(LinearViolationAdaption, self).__init__()
 
-    def forward(self, x, A, b, alpha=0.005, delta=0.05, tolerance=0.05, max_iter=100, port_projection=True):
-        # alpha => 0.04 diverges, also 0.025 might cause nans.
-        # validation settings: alpha=0.025, delta=0.05, tolerance=0.05
+    def forward(self, x, A, b, alpha=0.005, delta=0.01, tolerance=0.01, max_iter=100,):
+        """
+        - alpha => 0.04 diverges, 0.025 might also cause nans
+        - delta, tolerance = 0.05 causes overshooting demand
+
+        Good settings: alpha=0.005, delta=0.01, tolerance=0.01
+        """
         # Determine the shape based on dimensionality of b
         x_ = x.clone()
         if b.dim() == 2 and A.dim() == 3:
