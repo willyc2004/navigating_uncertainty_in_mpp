@@ -73,7 +73,7 @@ class LinearViolationAdaption(th.nn.Module):
         - alpha => 0.04 diverges, 0.025 might also cause nans
         - delta, tolerance = 0.05 causes overshooting demand
 
-        Good settings: alpha=0.005, delta=0.01, tolerance=0.01
+        Good settings (project per t): alpha=0.005, delta=0.01, tolerance=0.01
         """
         # Determine the shape based on dimensionality of b
         x_ = x.clone()
