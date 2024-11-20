@@ -47,12 +47,12 @@ class CriticNetwork(nn.Module):
 
             # Create value head
             value_head = nn.Sequential(
-                nn.LayerNorm(embed_dim),
+                # nn.LayerNorm(embed_dim),
                 nn.Linear(embed_dim, hidden_dim),
                 nn.ReLU(),
                 *[
                     nn.Sequential(
-                        nn.LayerNorm(hidden_dim),
+                        # nn.LayerNorm(hidden_dim),
                         nn.Linear(hidden_dim, hidden_dim),
                         nn.ReLU()
                     )
