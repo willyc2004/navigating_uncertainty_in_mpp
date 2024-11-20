@@ -115,7 +115,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         self.k, self.tau, self.pol, self.pod = self._add_padding(self.k, self.tau, self.pol, self.pod)
         self.teus = th.arange(1, self.K // (self.CC * self.W) + 1, device=self.generator.device, dtype=self.float_type) \
             .repeat_interleave(self.W).repeat(self.CC)
-        self.teus_episode = th.cat([self.teus.repeat(self.T), self.zero])
+        self.teus_episode = th.cat([self.teus.repeat(self.T)])
         self.weights = th.arange(1, self.W+1, device=self.generator.device, dtype=self.float_type).repeat(self.K//self.W)
 
         # Precomputes
@@ -225,13 +225,15 @@ class MasterPlanningEnv(RL4COEnvBase):
         next_state_dict = self._update_next_state(utilization, target_long_crane,
                                                   realized_demand, observed_demand, expected_demand, std_demand, t, )
         utilization_ = next_state_dict["utilization"]
-
-        # Update feasibility: lhs_A, rhs, clip_max based on next state
-        lhs_A = self.create_lhs_A(lhs_A, t)
-        rhs = self.create_rhs(utilization_, next_state_dict["current_demand"], batch_size)
-        # Express residual capacity in number of containers for next step
-        residual_capacity = th.clamp(self.norm_capacity - utilization_.sum(dim=-1) @ self.teus, min=self.zero) \
-                            / self.teus_episode[t].view(-1, 1, 1)
+        if not done.any():
+            # Update feasibility: lhs_A, rhs, clip_max based on next state
+            lhs_A = self.create_lhs_A(lhs_A, t)
+            rhs = self.create_rhs(utilization_, next_state_dict["current_demand"], batch_size)
+            # Express residual capacity in number of containers for next step
+            residual_capacity = th.clamp(self.norm_capacity - utilization_.sum(dim=-1) @ self.teus, min=self.zero) \
+                                / self.teus_episode[t].view(-1, 1, 1)
+        else:
+            residual_capacity = th.zeros_like(utilization_.sum(dim=-1) @ self.teus)
 
         # # Update action mask
         # # action_mask[t] = 0
@@ -253,8 +255,6 @@ class MasterPlanningEnv(RL4COEnvBase):
             profit -= cost_
             cost += cost_
 
-            # Residual capacity
-            residual_capacity = th.zeros_like(utilization_.sum(dim=-1) @ self.teus)
 
         # Track metrics
         total_rc += residual_capacity.view(*batch_size, -1)
@@ -637,7 +637,6 @@ class MasterPlanningEnv(RL4COEnvBase):
 
     def create_lhs_A(self, lhs_A:Tensor, t:Tensor) -> Tensor:
         """Create lhs A_t of compact constraints: A_t x_t <= b_t"""
-        if t[0] == self.K*self.T: t[0] = t[0]-1
         lhs_A[:] = self.A[:,:, t[0]].clone()
         return lhs_A
 
