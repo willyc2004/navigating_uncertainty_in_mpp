@@ -49,6 +49,7 @@ AutoregressivePolicy.__bases__ = (ConstructivePolicy,) # Adapt base class
 
 # Custom modules
 from environment.env import MasterPlanningEnv
+from environment.env_port import PortMasterPlanningEnv
 from environment.embeddings import MPPInitEmbedding, StaticEmbedding, MPPContextEmbedding
 from environment.data import StateDependentDataset, custom_collate_fn
 from environment.results import rollout_results
@@ -68,6 +69,7 @@ def adapt_env_kwargs(config):
 def make_env(env_kwargs, device):
     """Setup custom environment"""
     return MasterPlanningEnv(**env_kwargs).to(device).half()
+    # return PortMasterPlanningEnv(**env_kwargs).to(device).half()
 
 def check_env_specs(env):
     """Verifies that the environment's specifications (action and observation spaces) are valid."""
@@ -112,7 +114,8 @@ def main(config=None):
     # Run a trial of the environment
     batch_size = config.model.batch_size
     td = env.reset(batch_size=batch_size, )
-    # trial(env, td, device, num_rollouts=30, EDA=True) # uncomment to trial
+    trial(env, td, device, num_rollouts=30, EDA=False, profiling=False) # uncomment to trial
+    breakpoint()
 
     ## Model initialization
     # Embedding dimensions
@@ -353,7 +356,7 @@ if __name__ == "__main__":
 
     # Call your main() function
     try:
-        wandb.init()
+        # wandb.init()
         model = main(config)
     except Exception as e:
         # Log the error to WandB
