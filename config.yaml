@@ -43,7 +43,7 @@ model:
   phase: "train" # train, test
   decoder_type: "mlp" # mlp, attention
   demand_aggregation: "self_attn" # sum, self_attn
-  logger: "None" # None, wandb
+  logger: "wandb" # None, wandb
 
 # PPO parameters
 ppo:
