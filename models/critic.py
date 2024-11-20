@@ -47,9 +47,10 @@ class CriticNetwork(nn.Module):
 
             # Create value head
             ffn_activation = nn.LeakyReLU()  # nn.GELU(), nn.ReLU(), nn.SiLU(), nn.LeakyReLU()
+            norm = nn.LayerNorm(embed_dim)  # nn.LayerNorm(embed_dim), nn.LayerNorm(hidden_dim)
 
             value_head = nn.Sequential(
-                nn.LayerNorm(embed_dim),
+                # norm,
                 nn.Linear(embed_dim, hidden_dim),
                 ffn_activation,
                 *[

@@ -201,7 +201,7 @@ class MLPDecoderWithCache(nn.Module):
 
         # Compute step context
         step_context = self.context_embedding(init_embeds_cache, td)
-        step_context = self.q_layer_norm(step_context)
+        # step_context = self.q_layer_norm(step_context)
 
         # Compute mask and logits
         logits = self.mlp(step_context)
