@@ -194,22 +194,22 @@ class MasterPlanningEnv(RL4COEnvBase):
         done = self._check_done(t)
         utilization = self._update_state_loading(action, utilization, k, tau,)
         violation = compute_violation(action.view(*batch_size, 1, -1), lhs_A, rhs)
-
-        # Compute overstowage
+        # Compute od-pairs
         pol_locations, pod_locations = self._compute_pol_pod_locations(utilization)
         agg_pol_location, agg_pod_location = self._aggregate_pol_pod_location(pol_locations, pod_locations)
-        overstowage = self._compute_hatch_overstowage(utilization, pol)
-
-        # Compute total_loaded and aggregated long crane excess
+        # Compute total loaded
         sum_action = action.sum(dim=(-2, -1)).unsqueeze(-1)
         total_loaded = total_loaded + th.min(sum_action, current_demand)
-        long_crane_moves = self._compute_long_crane(utilization, pol)
-        excess_crane_moves = th.clamp(long_crane_moves - target_long_crane.view(-1, 1), min=0)
 
         ## Reward
         revenue = th.min(sum_action, current_demand) * self.revenues[t[0]]
         profit = revenue.clone()
         if self.next_port_mask[t].any():
+            # Compute aggregated: overstowage and long crane excess
+            overstowage = self._compute_hatch_overstowage(utilization, pol)
+            long_crane_moves = self._compute_long_crane(utilization, pol)
+            excess_crane_moves = th.clamp(long_crane_moves - target_long_crane.view(-1, 1), min=0)
+            # Compute costs
             ho_costs = overstowage.sum(dim=-1, keepdim=True) * self.ho_costs
             lc_costs = excess_crane_moves.sum(dim=-1, keepdim=True) * self.lc_costs
             cost = ho_costs + lc_costs
@@ -388,12 +388,12 @@ class MasterPlanningEnv(RL4COEnvBase):
         """Extract action, reward and step from the TensorDict."""
         # Must clone to avoid in-place operations!
         batch_size = td.batch_size
-        episodic_step = td["episodic_step"].clone()
-        action = td["action"].clone().view(*batch_size, self.B, self.D,)
-        # action_mask = td["action_mask"].clone()
-        realized_demand = td["realized_demand"].clone()
-        lhs_A = td["lhs_A"].clone()
-        rhs = td["rhs"].clone()
+        episodic_step = td["episodic_step"]#.clone()
+        action = td["action"].view(*batch_size, self.B, self.D,)#.clone()
+        # action_mask = td["action_mask"]#.clone()
+        realized_demand = td["realized_demand"]#.clone()
+        lhs_A = td["lhs_A"]#.clone()
+        rhs = td["rhs"]#.clone()
         return action, realized_demand, lhs_A, rhs, episodic_step, batch_size
 
     def _extract_cargo_parameters_for_step(self, t) -> Tuple:
@@ -408,22 +408,22 @@ class MasterPlanningEnv(RL4COEnvBase):
     def _extract_from_state(self, state) -> Tuple:
         """Extract and clone state variables from the state TensorDict."""
         # Vessel-related variables
-        utilization = state["utilization"].clone()
-        target_long_crane = state["target_long_crane"].clone()
+        utilization = state["utilization"]#.clone()
+        target_long_crane = state["target_long_crane"]#.clone()
         # # Additional variables
-        total_loaded = state["total_loaded"].clone()
-        total_revenue = state["total_revenue"].clone()
-        total_cost = state["total_cost"].clone()
-        total_rc = state["total_rc"].clone()
+        total_loaded = state["total_loaded"]#.clone()
+        total_revenue = state["total_revenue"]#.clone()
+        total_cost = state["total_cost"]#.clone()
+        total_rc = state["total_rc"]#.clone()
         # Return
         return utilization, target_long_crane, total_loaded, total_revenue, total_cost, total_rc
 
     def _extract_from_obs(self, obs, batch_size) -> Tuple:
         """Extract and clone state variables from the obs TensorDict."""
-        current_demand = obs["current_demand"].clone().view(*batch_size, 1)
-        observed_demand = obs["observed_demand"].clone().view(*batch_size, self.K, self.T)
-        expected_demand = obs["expected_demand"].clone().view(*batch_size, self.K, self.T)
-        std_demand = obs["std_demand"].clone().view(*batch_size, self.K, self.T)
+        current_demand = obs["current_demand"].view(*batch_size, 1)#.clone()
+        observed_demand = obs["observed_demand"].view(*batch_size, self.K, self.T)#.clone()
+        expected_demand = obs["expected_demand"].view(*batch_size, self.K, self.T)#.clone()
+        std_demand = obs["std_demand"].view(*batch_size, self.K, self.T)#.clone()
         return current_demand, observed_demand, expected_demand, std_demand
 
     # Reward/costs functions
@@ -577,7 +577,7 @@ class MasterPlanningEnv(RL4COEnvBase):
     def _update_state_loading(self, action: Tensor, utilization: Tensor,
                               k:Tensor, tau:Tensor) -> Tensor:
         """Transition to the next state based on the action."""
-        new_utilization = utilization.clone().view(-1, self.B, self.D, self.K, self.T)
+        new_utilization = utilization.view(-1, self.B, self.D, self.K, self.T).clone()
         new_utilization[:, :, :, k, tau] = action
         return new_utilization
 
