@@ -114,8 +114,8 @@ def main(config=None):
     # Run a trial of the environment
     batch_size = config.model.batch_size
     td = env.reset(batch_size=batch_size, )
-    trial(env, td, device, num_rollouts=30, EDA=False, profiling=False) # uncomment to trial
-    breakpoint()
+    # trial(env, td, device, num_rollouts=30, EDA=False, profiling=False) # uncomment to trial
+    # breakpoint()
 
     ## Model initialization
     # Embedding dimensions
@@ -345,6 +345,9 @@ def init_weights(m):
         torch.nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')  # He initialization for ReLU
     if isinstance(m, torch.nn.MultiheadAttention):
         torch.nn.init.normal_(m.in_proj_weight, mean=0.0, std=0.01)  # Small normal init for attention weights
+    if isinstance(m, torch.nn.LayerNorm):
+        torch.nn.init.constant_(m.weight, 1.0)
+        torch.nn.init.constant_(m.bias, 0.0)
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
@@ -356,7 +359,7 @@ if __name__ == "__main__":
 
     # Call your main() function
     try:
-        # wandb.init()
+        wandb.init()
         model = main(config)
     except Exception as e:
         # Log the error to WandB
