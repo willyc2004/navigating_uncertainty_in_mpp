@@ -1,5 +1,6 @@
 import time
 import torch
+from torch.profiler import profile, record_function, ProfilerActivity
 from collections import defaultdict
 import pandas as pd
 from models.decoding import rollout_mpp
@@ -115,32 +116,8 @@ def print_correlation_matrix_neatly(correlation_matrix, feature_names):
     print(corr_df.round(4))  # Round values for better readability
 
 
-def trial(env, td, device, num_rollouts=3, EDA=False):
+def trial(env, td, device, num_rollouts=3, EDA=False, profiling=False):
     """Run a trial of the environment"""
-
-    # Run profiling on the environment
-    # with torch.profiler.profile(
-    #         schedule=torch.profiler.schedule(wait=1, warmup=1, active=2, repeat=1),
-    #         on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/profiler'),
-    #         record_shapes=True,
-    #         profile_memory=True
-    # ) as prof:
-    #     for idx in range(num_rollouts):
-    #         td = env.reset(batch_size=td.batch_size, td=td)
-    #         done = td["done"][0]
-    #         while not done:
-    #             td = random_action_policy(td)
-    #             next_td = env.step(td)["next"]
-    #             prof.step()  # Update the profiler
-    #             td = next_td
-    #             done = td["done"][0]
-
-    # Test dataset
-    batch_size = [1024]
-    total_samples = 4_000_000
-    dataset = StateDependentDataset(env, td, total_samples, batch_size)
-    print(f"Number of batches: {len(dataset)}")
-
     # Test the environment
     def random_action_policy(td):
         """Helper function to select a random action from available actions"""
@@ -152,14 +129,31 @@ def trial(env, td, device, num_rollouts=3, EDA=False):
     # Rollout the environment with random actions
     run_results = {}
     runtimes_rollout = torch.zeros(num_rollouts, dtype=torch.float16, device=device)
-    for idx in range(num_rollouts):
-        with torch.cuda.amp.autocast():
+    if profiling:
+        with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                     on_trace_ready=torch.profiler.tensorboard_trace_handler("./profiler_logs"),
+                     record_shapes=True) as prof:
+            for idx in range(num_rollouts):
+                with record_function("Rollout Iteration"):
+                    start_time = time.time()
+                    reward, td, actions, results = rollout_mpp(
+                        env,
+                        env.reset(batch_size=td.batch_size, td=td),
+                        random_action_policy,
+                        EDA
+                    )
+                    runtime = time.time() - start_time
+                    runtimes_rollout[idx] = runtime
+                    run_results[idx] = results
+
+        print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=30))
+
+    else:
+        for idx in range(num_rollouts):
             start_time = time.time()
             reward, td, actions, results = rollout_mpp(env, env.reset(batch_size=td.batch_size, td=td), random_action_policy, EDA)
             runtime = time.time() - start_time
             runtimes_rollout[idx] = runtime
-
-            # Get
             run_results[idx] = results
 
     # Print statistics
