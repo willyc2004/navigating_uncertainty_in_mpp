@@ -436,7 +436,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
         value_loss = F.huber_loss(value_preds, returns.detach(), reduction="mean")
 
         # Compute feasibility and projection losses
-        violation = compute_violation(out["lhs_A"], out["rhs"], proj_mean_logits.unsqueeze(-2))  # Feasibility violation
+        violation = compute_violation(proj_mean_logits.unsqueeze(-2), out["lhs_A"], out["rhs"])  # Feasibility violation
         if self.ppo_cfg["adaptive_feasibility_lambda"]:
             # Adapt lambda values for feasibility constraints
             lambda_values = torch.where(
