@@ -457,6 +457,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 + self.ppo_cfg["feasibility_lambda"] * feasibility_loss
                 + self.ppo_cfg["projection_lambda"] * projection_loss
         ).mean()
+        check_for_nans(total_loss, "total_loss")
 
         # Compute relevant violations for metrics
         relevant_violation = self._get_relevant_violations(violation.detach(), self.env)
