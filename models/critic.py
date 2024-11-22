@@ -6,7 +6,7 @@ from rl4co.utils.pylogger import get_pylogger
 log = get_pylogger(__name__)
 
 # Custom imports
-from decoder import ResidualBlock
+from models.decoder import ResidualBlock
 
 class CriticNetwork(nn.Module):
     """Create a critic network with an encoder and a value head to transform the embeddings to a scalar value."""
