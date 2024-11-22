@@ -1,5 +1,5 @@
 # Import libraries and modules
-from typing import Tuple, Callable
+from typing import Tuple, Callable, Optional
 from dataclasses import dataclass
 import torch
 import torch.nn as nn
@@ -36,6 +36,7 @@ class AttentionDecoderWithCache(nn.Module):
                  dropout_rate: float = 0.1,
                  num_hidden_layers: int = 3,  # Number of hidden layers
                  hidden_dim: int = None,  # Dimension for hidden layers (defaults to 4 * embed_dim)
+                 normalization: Optional[str] = None,  # Type of normalization layer
                  init_embedding=None,
                  context_embedding=None,
                  dynamic_embedding=None,
@@ -61,10 +62,16 @@ class AttentionDecoderWithCache(nn.Module):
         self.attention = FP32Attention(embed_dim, num_heads, batch_first=True)
 
         # Layer Normalization
-        self.q_layer_norm = FP32LayerNorm(embed_dim)
-        self.attn_layer_norm = FP32LayerNorm(embed_dim)
-        self.ffn_layer_norm = FP32LayerNorm(embed_dim)
-        self.output_layer_norm = FP32LayerNorm(embed_dim*2)
+        norm_dict = {
+            'layer': FP32LayerNorm,
+            # 'batch': nn.BatchNorm1d,
+        }
+        assert normalization != 'batch', "BatchNorm1d is not supported in the critic network"
+        norm = norm_dict.get(normalization, nn.Identity)
+        self.q_layer_norm = norm(embed_dim)
+        self.attn_layer_norm = norm(embed_dim)
+        self.ffn_layer_norm = norm(embed_dim)
+        self.output_layer_norm = norm(embed_dim*2)
 
         # Configurable Feedforward Network with Variable Hidden Layers
         if hidden_dim is None:
@@ -162,6 +169,7 @@ class MLPDecoderWithCache(nn.Module):
                  dropout_rate: float = 0.1,
                  num_hidden_layers: int = 3,  # Number of hidden layers
                  hidden_dim: int = None,  # Dimension for hidden layers (defaults to 4 * embed_dim)
+                 normalization: Optional[str] = None,  # Type of normalization layer
                  init_embedding=None,
                  context_embedding=None,
                  dynamic_embedding=None,
@@ -181,30 +189,47 @@ class MLPDecoderWithCache(nn.Module):
         self.state_size = state_size
         self.action_size = action_size
 
-        # Layer Normalization
-        self.q_layer_norm = FP32LayerNorm(embed_dim)
 
-        # Create MLP layers with ReLU activation, add some layer parameter
-        num_layers = num_hidden_layers
-        ffn_activation = nn.LeakyReLU() # nn.GELU(), nn.ReLU(), nn.SiLU(), nn.LeakyReLU()
-        layers = [nn.Linear(embed_dim, embed_dim),
-                  nn.Dropout(dropout_rate),
-                  ffn_activation] * num_layers
-        self.mlp = nn.Sequential(*layers)
+        # self.q_layer_norm = norm(embed_dim)
 
-        # Output projection to action size
-        self.output_projection = nn.Linear(embed_dim, action_size*2)
+        # # Create MLP layers with ReLU activation, add some layer parameter
+        # num_layers = num_hidden_layers
+        # ffn_activation = nn.LeakyReLU() # nn.GELU(), nn.ReLU(), nn.SiLU(), nn.LeakyReLU()
+        # layers = [nn.Linear(embed_dim, embed_dim),
+        #           nn.Dropout(dropout_rate),
+        #           ffn_activation] * num_layers
+        # self.mlp = nn.Sequential(*layers)
+
+        # Create policy MLP
+        ffn_activation = nn.LeakyReLU()
+        norm_dict = {
+            'layer': nn.LayerNorm,
+        }
+        assert normalization != 'batch', "BatchNorm1d is not supported in the critic network"
+        norm_fn = norm_dict.get(normalization, nn.Identity)
+
+        # Build the layers
+        layers = [
+            norm_fn(embed_dim),
+            nn.Linear(embed_dim, hidden_dim),
+            ffn_activation,
+        ]
+
+        # Add residual blocks
+        for _ in range(num_hidden_layers - 1):
+            layers.append(ResidualBlock(hidden_dim, norm_fn, ffn_activation, dropout_rate))
+
+        # Output layer
+        layers.append(nn.Linear(hidden_dim, action_size*2))
+        self.policy_mlp = nn.Sequential(*layers)
 
     def forward(self, td: TensorDict, cached: PrecomputedCache, num_starts: int = 0, noise=1e-3) -> Tuple[Tensor,Tensor]:
         # Get precomputed (cached) embeddings
         init_embeds_cache, _ = cached.init_embeddings, cached.graph_context
-
         # Compute step context
         step_context = self.context_embedding(init_embeds_cache, td)
-        # step_context = self.q_layer_norm(step_context)
-
         # Compute mask and logits
-        logits = self.mlp(step_context)
+        logits = self.policy_mlp(step_context)
 
         # Project logits to mean and log_std logits (use softplus)
         if td["done"].dim() == 2:
@@ -213,8 +238,7 @@ class MLPDecoderWithCache(nn.Module):
             view_transform = lambda x: x.view(td.batch_size[0], -1, self.action_size, 2)
         else:
             raise ValueError("Invalid dimension for done tensor.")
-
-        logits = view_transform(self.output_projection(logits))
+        logits = view_transform(logits)
         output_logits = F.softplus(logits)
         return output_logits, td["action_mask"]
 
@@ -271,3 +295,20 @@ class FP32Attention(nn.MultiheadAttention):
         attn_output = attn_output_fp32.to(query.dtype)
         attn_weights = attn_weights_fp32.to(query.dtype)
         return attn_output, attn_weights
+
+class ResidualBlock(nn.Module):
+    def __init__(self, dim, norm_fn, activation, dropout_rate=None):
+        super().__init__()
+        self.norm = norm_fn(dim)
+        self.linear = nn.Linear(dim, dim)
+        self.activation = activation
+        self.dropout = nn.Dropout(dropout_rate) if dropout_rate else nn.Identity()
+
+    def forward(self, x):
+        # Residual connection: Norm -> Linear -> Activation -> Dropout -> Residual
+        residual = x
+        # x = self.norm(x)  # Normalize input
+        x = self.linear(x)  # First linear transformation
+        x = self.activation(x)  # Apply activation
+        x = self.dropout(x)  # Optional dropout
+        return x + residual  # Add residual connection
