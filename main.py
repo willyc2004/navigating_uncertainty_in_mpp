@@ -159,6 +159,7 @@ def main(config=None):
         "init_embedding": init_embed,
         "context_embedding": context_embed,
         "dynamic_embedding": dynamic_embed,
+        "normalization": config.model.normalization,
     }
     encoder_args = {
         "embed_dim": embed_dim,
@@ -194,7 +195,8 @@ def main(config=None):
     policy = AttentionModelPolicy4PPO(**model_params) # AttentionModelPolicy(**model_params),
     policy.apply(init_weights)
     critic = CriticNetwork(encoder=copy.deepcopy(encoder), embed_dim=embed_dim,
-                           hidden_dim=hidden_dim,num_layers = decoder_layers, context_embedding=context_embed)
+                           hidden_dim=hidden_dim,num_layers = decoder_layers, context_embedding=context_embed,
+                           normalization=config.model.normalization, dropout_rate=dropout_rate)
     critic.apply(init_weights)
 
     am_ppo_params = {
@@ -213,6 +215,8 @@ def main(config=None):
     }
     AMPPO.__bases__ = (Projection_Nstep_PPO,) # Adapt base class
     model = AMPPO(**am_ppo_params).to(device)
+    # print(model)
+    # breakpoint()
 
     ## Training configuration
     date_time_str = time.strftime("%Y/%m/%d/%H-%M-%S")
