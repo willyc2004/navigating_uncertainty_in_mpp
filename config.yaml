@@ -30,9 +30,9 @@ model:
   embed_dim: 128
   feedforward_hidden: 256
   num_encoder_layers: 2
-  num_decoder_layers: 1
+  num_decoder_layers: 2
   num_heads: 8
-  dropout_rate: 0.1
+  dropout_rate: 0.0
   normalization: "layer"
   out_bias_pointer_attn: False
   temperature: 1.0
@@ -68,7 +68,7 @@ ppo:
 
 # AM PPO parameters
 am_ppo:
-  lr: 0.0001
+  lr: 0.0003
   projection_type: "linear_violation"
   #None, convex_program, worst_case_violation, linear_violation, linear_program
   projection_kwargs:
