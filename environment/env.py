@@ -122,13 +122,13 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Revenue and costs
         self.revenues = self._precompute_revenues()
         self.revenues = th.cat([self.revenues, self.padding])
-        print(self.revenues)
-        breakpoint()
         self.ho_costs = kwargs.get("hatch_overstowage_costs") #* th.mean(self.revenues)
         self.lc_costs = kwargs.get("long_crane_costs") #* th.mean(self.revenues)
         self.ho_mask = kwargs.get("hatch_overstowage_mask")
         self.CI_target = kwargs.get("CI_target")
 
+        # Transport sets
+        self._precompute_transport_sets()
         # Step ordering: descending distance, longterm > spot; ascending TEU, ascending weight
         self.ordering = kwargs.get("episode_order")
         if self.ordering == "max_distance_then_priority":
@@ -142,9 +142,6 @@ class MasterPlanningEnv(RL4COEnvBase):
         self.k, self.tau = get_k_tau_pair(self.ordered_steps, self.K)
         self.pol, self.pod = get_pol_pod_pair(self.tau, self.P)
         self.k, self.tau, self.pol, self.pod = self._add_padding(self.k, self.tau, self.pol, self.pod)
-
-        # Transport sets
-        self._precompute_transport_sets()
         self._precompute_transport_sets_episode()
         self.next_port_mask = self._precompute_next_port_mask()
         self.transform_tau_to_pol = get_pols_from_transport(self.transport_idx, self.P, dtype=self.float_type)
@@ -687,12 +684,24 @@ class MasterPlanningEnv(RL4COEnvBase):
     def _precompute_order_greedy_revenue(self):
         """Get ordered steps with transports in descending order of revenue per capacity usage:
         - Revenue per capacity: revenue / (teus * weights * duration)"""
-        duration = self.pod - self.pol
-        relative_revenue = self.revenues[:-1].view(self.T, self.K).T / (self.teus * self.weights).unsqueeze(-1)
-        print(self.revenues[:-1].view(self.T, self.K).T)
-        print(relative_revenue)
-        breakpoint()
+        # Init
+        steps = th.zeros(self.K * self.T, dtype=self.float_type, device=self.generator.device)
+        cap_usage = torch.einsum("j,i->ij", self.duration, (self.teus*self.weights))
+        revenue_per_capacity = self.revenues[:-1].view(self.T, self.K).T / cap_usage
+        idx = 0
+        for pol in range(self.P - 1):
+            # Create a mask for `revenue_per_capacity` where `loads` is True
+            loads = self.load_transport[pol].expand(self.K, -1)
+            masked_revenues = torch.where(loads, revenue_per_capacity, float("-inf"))  # Use -inf to exclude non-loads
 
+            # Get argsort indices of the max values in descending order
+            sorted_indices = torch.argsort(masked_revenues.T.flatten(), descending=True)
+            # Filter out indices corresponding to -inf
+            valid_indices = sorted_indices[masked_revenues.T.flatten()[sorted_indices] > float("-inf")]
+            # Store the valid indices in the steps array
+            steps[idx:idx + len(valid_indices)] = valid_indices
+            idx += len(valid_indices)
+        return steps
 
     def _precompute_order_standard(self):
         """Get standard order of steps;
