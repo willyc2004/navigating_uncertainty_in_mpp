@@ -15,6 +15,9 @@ env:
   hatch_overstowage_costs: 0.333333
   hatch_overstowage_mask: False
   long_crane_costs: 0.5
+  episode_order: "greedy_revenue" # greedy_revenue, priority_then_greedy, max_distance_then_priority, standard
+
+  # Generator
   seed: 42
   utilization_rate_initial_demand: 1.1
   spot_percentage: 0.3
