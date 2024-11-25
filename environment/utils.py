@@ -41,7 +41,7 @@ def get_remain_on_board_transport(transport_idx, POL) -> Union[th.Tensor]:
     return mask
 
 def get_pols_from_transport(transport_idx, P, dtype) -> Union[th.Tensor]:
-    # Get transform array from transport to POD
+    # Get transform array from transport to POL:
     T = transport_idx.size(0)
     one_hot = th.zeros(T, P, device=transport_idx.device, dtype=dtype)
     one_hot[th.arange(T), transport_idx[:, 0].long()] = 1
