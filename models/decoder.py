@@ -189,28 +189,18 @@ class MLPDecoderWithCache(nn.Module):
         self.state_size = state_size
         self.action_size = action_size
 
-
-        # self.q_layer_norm = norm(embed_dim)
-
-        # # Create MLP layers with ReLU activation, add some layer parameter
-        # num_layers = num_hidden_layers
-        # ffn_activation = nn.LeakyReLU() # nn.GELU(), nn.ReLU(), nn.SiLU(), nn.LeakyReLU()
-        # layers = [nn.Linear(embed_dim, embed_dim),
-        #           nn.Dropout(dropout_rate),
-        #           ffn_activation] * num_layers
-        # self.mlp = nn.Sequential(*layers)
-
         # Create policy MLP
         ffn_activation = nn.LeakyReLU()
         norm_dict = {
-            'layer': nn.LayerNorm,
+            'layer': nn.LayerNorm(embed_dim),
+            'batch': nn.BatchNorm1d(embed_dim),
         }
         assert normalization != 'batch', "BatchNorm1d is not supported in the critic network"
         norm_fn = norm_dict.get(normalization, nn.Identity)
 
         # Build the layers
         layers = [
-            norm_fn(embed_dim),
+            # norm_fn,
             nn.Linear(embed_dim, hidden_dim),
             ffn_activation,
         ]
@@ -299,7 +289,7 @@ class FP32Attention(nn.MultiheadAttention):
 class ResidualBlock(nn.Module):
     def __init__(self, dim, norm_fn, activation, dropout_rate=None):
         super().__init__()
-        self.norm = norm_fn(dim)
+        self.norm = norm_fn
         self.linear = nn.Linear(dim, dim)
         self.activation = activation
         self.dropout = nn.Dropout(dropout_rate) if dropout_rate else nn.Identity()

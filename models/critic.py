@@ -38,14 +38,15 @@ class CriticNetwork(nn.Module):
             # Create value head with residual connections
             ffn_activation = nn.LeakyReLU()
             norm_dict = {
-                'layer': nn.LayerNorm,
+                'layer': nn.LayerNorm(embed_dim),
+                'batch': nn.BatchNorm1d(embed_dim),
             }
             assert normalization != 'batch', "BatchNorm1d is not supported in the critic network"
             norm_fn = norm_dict.get(normalization, nn.Identity)
 
             # Build the value head
             layers = [
-                norm_fn(embed_dim),
+                # norm_fn,
                 nn.Linear(embed_dim, hidden_dim),
                 ffn_activation,
             ]
@@ -64,7 +65,7 @@ class CriticNetwork(nn.Module):
     def forward(self, x: Union[Tensor, dict]) -> Tensor:
         """Forward pass of the critic network: encode the input and return the value."""
         # Step 1: Encode input using the encoder
-        h, _ = self.encoder(x)  # [batch_size, N, embed_dim] -> [batch_size, N]
+        h, _ = self.encoder(x)  # [batch_size, N, embed_dim]
 
         # Step 2: If context_embedding exists, compute and apply it
         if self.context_embedding is not None:
