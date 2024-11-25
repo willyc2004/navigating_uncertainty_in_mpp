@@ -685,7 +685,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         """Get ordered steps with transports in descending order of revenue per capacity usage:
         - Revenue per capacity: revenue / (teus * weights * duration)"""
         # Init
-        steps = th.zeros(self.K * self.T, dtype=self.float_type, device=self.generator.device)
+        steps = th.zeros(self.K * self.T, dtype=th.int64, device=self.generator.device)
         cap_usage = torch.einsum("j,i->ij", self.duration, (self.teus*self.weights))
         revenue_per_capacity = self.revenues[:-1].view(self.T, self.K).T / cap_usage
         idx = 0
