@@ -57,7 +57,6 @@ class CriticNetwork(nn.Module):
 
             # Output layer
             layers.append(nn.Linear(hidden_dim, 1))
-
             value_head = nn.Sequential(*layers)
 
         self.value_head = value_head
