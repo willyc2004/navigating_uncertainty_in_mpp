@@ -107,39 +107,48 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Transport and cargo characteristics
         self.ports = torch.arange(self.P, device=self.generator.device)
         self.transport_idx = get_transport_idx(self.P, device=self.generator.device)
-        self.transport_list = [(i,j) for i in range(self.P) for j in range(i+1, self.P)]
-        # Step ordering: descending distance, longterm > spot; ascending TEU, ascending weight
-        self.ordered_steps = self._precompute_step_ordering()
-        self.k, self.tau = get_k_tau_pair(self.ordered_steps, self.K)
-        self.pol, self.pod = get_pol_pod_pair(self.tau, self.P)
-        self.k, self.tau, self.pol, self.pod = self._add_padding(self.k, self.tau, self.pol, self.pod)
-        self.teus = th.arange(1, self.K // (self.CC * self.W) + 1, device=self.generator.device, dtype=self.float_type) \
-            .repeat_interleave(self.W).repeat(self.CC)
-        self.teus_episode = th.cat([self.teus.repeat(self.T)])
-        self.weights = th.arange(1, self.W+1, device=self.generator.device, dtype=self.float_type).repeat(self.K//self.W)
-
-        # Precomputes
-        self._precompute_transport_sets()
-        self._precompute_transport_sets_episode()
-        self.next_port_mask = self._precompute_next_port_mask()
-        self.transform_tau_to_pol = get_pols_from_transport(self.transport_idx, self.P, dtype=self.float_type)
-        self.transform_tau_to_pod = get_pods_from_transport(self.transport_idx, self.P, dtype=self.float_type)
 
         # Capacity in TEU per location (bay,deck)
         c = kwargs.get("capacity")
         self.capacity = th.full((self.B, self.D,), c[0], device=self.generator.device, dtype=self.float_type)
         self.norm_capacity = self.capacity
         self.total_capacity = th.sum(self.capacity)
+        self.teus = th.arange(1, self.K // (self.CC * self.W) + 1, device=self.generator.device, dtype=self.float_type) \
+            .repeat_interleave(self.W).repeat(self.CC)
+        self.teus_episode = th.cat([self.teus.repeat(self.T)])
+        self.weights = th.arange(1, self.W + 1, device=self.generator.device, dtype=self.float_type).repeat(self.K // self.W)
+        self.duration = self.transport_idx[:, 1] - self.transport_idx[:, 0]
 
         # Revenue and costs
-        self.revenues = self._precompute_revenues().view(-1)
+        self.revenues = self._precompute_revenues()
         self.revenues = th.cat([self.revenues, self.padding])
+        print(self.revenues)
+        breakpoint()
         self.ho_costs = kwargs.get("hatch_overstowage_costs") #* th.mean(self.revenues)
         self.lc_costs = kwargs.get("long_crane_costs") #* th.mean(self.revenues)
         self.ho_mask = kwargs.get("hatch_overstowage_mask")
-
-        # Crane intensity
         self.CI_target = kwargs.get("CI_target")
+
+        # Step ordering: descending distance, longterm > spot; ascending TEU, ascending weight
+        self.ordering = kwargs.get("episode_order")
+        if self.ordering == "max_distance_then_priority":
+            self.ordered_steps = self._precompute_order_max_distance_then_priority()
+        elif self.ordering == "greedy_revenue":
+            self.ordered_steps = self._precompute_order_greedy_revenue()
+        elif self.ordering == "priority_then_greedy":
+            raise NotImplementedError("Priority then greedy ordering is not implemented yet.")
+        else:
+            self.ordered_steps = self._precompute_order_standard()
+        self.k, self.tau = get_k_tau_pair(self.ordered_steps, self.K)
+        self.pol, self.pod = get_pol_pod_pair(self.tau, self.P)
+        self.k, self.tau, self.pol, self.pod = self._add_padding(self.k, self.tau, self.pol, self.pod)
+
+        # Transport sets
+        self._precompute_transport_sets()
+        self._precompute_transport_sets_episode()
+        self.next_port_mask = self._precompute_next_port_mask()
+        self.transform_tau_to_pol = get_pols_from_transport(self.transport_idx, self.P, dtype=self.float_type)
+        self.transform_tau_to_pod = get_pods_from_transport(self.transport_idx, self.P, dtype=self.float_type)
 
         # Stability
         self.stab_delta = kwargs.get("stability_difference")
@@ -153,7 +162,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         self.vp_weight = th.einsum("d, c -> cd", self.weights, self.vertical_position).unsqueeze(0)
         self.stability_params_lhs = self._precompute_stability_parameters()
 
-        # Compact form:
+        # Constraints
         self.constraint_signs = th.tensor([1, 1, -1, 1, -1], device=self.generator.device, dtype=self.float_type)
         self.swap_signs_stability = th.tensor([1, -1, -1, -1, -1], device=self.generator.device, dtype=self.float_type)
         self.A = self._create_constraint_matrix(shape=(self.n_constraints, self.n_action, self.K, self.T))
@@ -651,7 +660,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         return rhs
 
     # Precomputes
-    def _precompute_step_ordering(self):
+    def _precompute_order_max_distance_then_priority(self):
         """Get ordered steps with transports in descending order of distance
         Suppose (k,tau) = (k, (POL,POD), then we have the following ordered set:
         { (0, (0,P-1)), (1, (0,P-1)), ..., (K-1, (0,P-1));
@@ -675,6 +684,23 @@ class MasterPlanningEnv(RL4COEnvBase):
                 idx += self.K
         return steps
 
+    def _precompute_order_greedy_revenue(self):
+        """Get ordered steps with transports in descending order of revenue per capacity usage:
+        - Revenue per capacity: revenue / (teus * weights * duration)"""
+        duration = self.pod - self.pol
+        relative_revenue = self.revenues[:-1].view(self.T, self.K).T / (self.teus * self.weights).unsqueeze(-1)
+        print(self.revenues[:-1].view(self.T, self.K).T)
+        print(relative_revenue)
+        breakpoint()
+
+
+    def _precompute_order_standard(self):
+        """Get standard order of steps;
+        - POL, POD are in ascending order
+        - K is in ascending order but based on priority"""
+        return th.arange(self.K*self.T, device=self.generator.device, dtype=th.int64)
+
+
     def _add_padding(self, *inputs) -> List[Tensor]:
         """For any number of inputs, add a zero padding at the end of vector"""
         output = []
@@ -695,13 +721,12 @@ class MasterPlanningEnv(RL4COEnvBase):
         """Precompute matrix of revenues with shape [K, T]"""
         # Initialize revenues and pod_grid
         revenues = th.zeros((self.K, self.P, self.P), device=self.generator.device, dtype=self.float_type) # Shape: [K, P, P]
-        pod = th.arange(self.P, 0, -1, device=self.generator.device, dtype=self.float_type)  # Shape: [P]
-        _, pod_grid = th.meshgrid(th.zeros_like(pod), pod, indexing='ij')  # Shapes: [P, P]
-        pod_grid = pod_grid.to(revenues.dtype)
+        pol_grid, pod_grid = th.meshgrid(self.ports, self.ports, indexing='ij')  # Shapes: [P, P]
+        duration_grid = (pod_grid-pol_grid).to(revenues.dtype) # Shape: [P, P]
         # Compute revenues
         mask = th.arange(self.K, device=self.generator.device, dtype=self.float_type) < self.K // 2 # Spot/long-term mask
-        revenues[~mask] = pod_grid # Spot market contracts
-        revenues[mask] = (pod_grid * (1 - reduce_long_revenue)) # Long-term contracts
+        revenues[~mask] = duration_grid # Spot market contracts
+        revenues[mask] = (duration_grid * (1 - reduce_long_revenue)) # Long-term contracts
         i, j = th.triu_indices(self.P, self.P, offset=1) # Get above-diagonal indices of revenues
         # Add 0.1 for variable revenue per container, regardless of (k,tau)
         output = revenues[:, i, j] + 0.1 # Shape: [K, T], where T = P*(P-1)/2
