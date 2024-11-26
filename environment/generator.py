@@ -105,7 +105,7 @@ class MPP_Generator(Generator):
             e_x_init_demand, _ = self._initial_contract_demand(batch_size)
             batch_updates = th.zeros(batch_size, device=self.device)
         else:
-            e_x_init_demand = td["init_expected_demand"].view(-1, self.K, self.T)
+            e_x_init_demand = td["init_expected_demand"].view(-1, self.T, self.K)
             batch_updates = td["batch_updates"].clone()
 
         # Get moments, dist and non-negative sample from Geometric Brownian Motion process
@@ -120,15 +120,15 @@ class MPP_Generator(Generator):
         load_tr = get_load_transport(self.transport_idx, th.zeros((1,), device=self.device,))
         observed_demand = th.zeros_like(demand)
         if self.demand_uncertainty:
-            observed_demand[:, :, load_tr] = demand[:, :, load_tr]
+            observed_demand[:, load_tr, :] = demand[:, load_tr, :]
         else:
             observed_demand = demand
         # Return demand matrix
-        return TensorDict({"realized_demand": demand.view(batch_size[0], self.K*self.T),
-                           "observed_demand": observed_demand.view(batch_size[0], self.K*self.T),
-                           "expected_demand": e_x.view(batch_size[0], self.K*self.T),
-                           "std_demand":std_x.view(batch_size[0], self.K*self.T),
-                           "init_expected_demand": e_x_init_demand.view(batch_size[0], self.K*self.T),
+        return TensorDict({"realized_demand": demand.view(batch_size[0], self.T*self.K),
+                           "observed_demand": observed_demand.view(batch_size[0], self.T*self.K),
+                           "expected_demand": e_x.view(batch_size[0], self.T*self.K),
+                           "std_demand":std_x.view(batch_size[0], self.T*self.K),
+                           "init_expected_demand": e_x_init_demand.view(batch_size[0], self.T*self.K),
                            "batch_updates":batch_updates + 1,
                            },
                           batch_size=batch_size, device=self.device,)
@@ -164,7 +164,7 @@ class MPP_Generator(Generator):
         num_cargo = (self.K * self.tr_loads / (1 - self.tr_ac / self.tr_ob))
         utilization_bound /= num_cargo
         # Get bound with spot, lc using self.spot_lc_percentage
-        bound = th.ger(self.spot_lc_percentage, utilization_bound) / self.teus.view(-1,1)
+        bound = th.ger(utilization_bound, self.spot_lc_percentage) / self.teus.view(1, -1,)
         # Get expected demand and variance
         expected_demand, variance = self._generate_initial_moments(batch_size, bound, self.cv)
         return expected_demand, variance
@@ -174,8 +174,8 @@ class MPP_Generator(Generator):
         - E[X] = Uniform sample * bound
         - V[X] = (E[X] * cv)^2"""
         # Sample uniformly from 0 to bound (inclusive) using torch.rand
-        expected = th.rand(batch_size[0], self.K, self.T, dtype=bound.dtype, device=self.device,) * bound.unsqueeze(0)
-        variance = (expected * cv.view(1, self.K, 1,)) ** 2
+        expected = th.rand(batch_size[0], self.T, self.K, dtype=bound.dtype, device=self.device,) * bound.unsqueeze(0)
+        variance = (expected * cv.view(1, 1, self.K,)) ** 2
         return th.where(expected < eps, eps, expected), variance
 
     # Support functions
