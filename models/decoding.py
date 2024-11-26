@@ -209,7 +209,7 @@ def process_logits(
         # Scale `e_x` to match `constant_sum` if necessary
         if constant_sum is not None:
             e_x_sum = e_x.sum(dim=-1, keepdim=True)
-            e_x = torch.where(e_x_sum > constant_sum.unsqueeze(-1), e_x / e_x_sum * constant_sum.unsqueeze(-1), e_x)
+            e_x = torch.where(e_x_sum > constant_sum, e_x / e_x_sum * constant_sum, e_x)
 
         # Apply clipping
         if clip_max is not None:
@@ -452,7 +452,8 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 # mask=mask, # Change to None to avoid masking logits
                 clip_min=clip_min,
                 clip_max=clip_max,
-                constant_sum=None, #td["state"].get("current_demand", None),
+                # constant_sum=td["obs"].get("current_demand", None),
+                constant_sum=None,
                 temperature=self.temperature,
                 top_p=self.top_p,
                 top_k=self.top_k,
@@ -460,17 +461,16 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 discrete=False,
             )
 
-            # Raise error if nan or inf in td, mean_logits or std_logits
-            recursive_check_for_nans(td)
-            check_for_nans(mean_logits, "mean_logits")
-            check_for_nans(std_logits, "std_logits")
-            # Raise error if std_x is zero
-            if (std_logits == 0).any():
-                raise ValueError("std_x is zero")
-
-            # proj_mean_logits = mean_logits.clone()
-            proj_mean_logits = self.projection_layer(mean_logits, td["lhs_A"], td["rhs"], )
-            check_for_nans(proj_mean_logits, "proj_mean_logits")
+            # # Raise error if nan or inf in td, mean_logits or std_logits
+            # recursive_check_for_nans(td)
+            # check_for_nans(mean_logits, "mean_logits")
+            # check_for_nans(std_logits, "std_logits")
+            # # Raise error if std_x is zero
+            # if (std_logits == 0).any():
+            #     raise ValueError("std_x is zero")
+            proj_mean_logits = mean_logits.clone()
+            # proj_mean_logits = self.projection_layer(mean_logits, td["lhs_A"], td["rhs"], )
+            # check_for_nans(proj_mean_logits, "proj_mean_logits")
 
             # Get logprobs and actions from policy
             logprobs, selected_action, _ = self._step(
