@@ -142,6 +142,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         self.k, self.tau = get_k_tau_pair(self.ordered_steps, self.K)
         self.pol, self.pod = get_pol_pod_pair(self.tau, self.P)
         self.pol, self.pod, self.k, self.tau = self._add_padding(self.pol, self.pod, self.k, self.tau)
+        self.revenues = th.cat([self.revenues[self.ordered_steps], self.padding])
         self._precompute_transport_sets_episode()
         self.next_port_mask = self._precompute_next_port_mask()
         self.transform_tau_to_pol = get_pols_from_transport(self.transport_idx, self.P, dtype=self.float_type)
@@ -221,8 +222,6 @@ class MasterPlanningEnv(RL4COEnvBase):
             profit -= cost
         else:
             cost = th.zeros_like(profit)
-        # (implemented outside environment with get_reward fn for code efficiency)
-        # reward = th.zeros_like(t, dtype=self.float_type)
 
         ## Transition to next step
         # Update next state
@@ -455,6 +454,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         ## Get load indicators - we load below deck that is blocked
         # For above deck (d=0)
         min_pol_d0 = torch.where(pol_locations[:, :, 0, :] > 0, self.ports, self.P).min(dim=-1).values
+        min_pol_d0 = torch.where(min_pol_d0 == self.P, -1, min_pol_d0)
         # For below deck (d=1):
         max_pol_d1 = torch.where(pol_locations[:, :, 1, :] > 0, self.ports, -1).max(dim=-1).values
         agg_pol_locations = torch.stack((min_pol_d0, max_pol_d1), dim=-1)
@@ -464,6 +464,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         max_pod_d0 = torch.where(pod_locations[:, :, 0, :] > 0, self.ports, -1).max(dim=-1).values
         # For below deck (d=1):
         min_pod_d1 = torch.where(pod_locations[:, :, 1, :] > 0, self.ports, self.P).min(dim=-1).values
+        min_pod_d1 = torch.where(min_pod_d1 == self.P, -1, min_pod_d1)
         agg_pod_locations = torch.stack((max_pod_d0, min_pod_d1), dim=-1)
         # Return indicators
         return agg_pol_locations.to(self.float_type), agg_pod_locations.to(self.float_type)
