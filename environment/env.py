@@ -205,9 +205,6 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Compute od-pairs
         pol_locations, pod_locations = self._compute_pol_pod_locations(utilization)
         agg_pol_location, agg_pod_location = self._aggregate_pol_pod_location(pol_locations, pod_locations)
-        print("t", t[0], "pol", pol, "pod", pod,)
-        print("agg_pol_locations", agg_pol_location[0].T)
-        print("agg_pod_locations", agg_pod_location[0].T)
         # Compute total loaded
         sum_action = action.sum(dim=(-2, -1)).unsqueeze(-1)
         total_metrics["total_loaded"] += th.min(sum_action, demand_obs["current_demand"])
