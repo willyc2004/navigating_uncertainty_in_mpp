@@ -138,10 +138,11 @@ class MasterPlanningEnv(RL4COEnvBase):
             raise NotImplementedError("Priority then greedy ordering is not implemented yet.")
         else:
             self.ordered_steps = self._precompute_order_standard()
+        self.ordered_steps = th.cat([self.ordered_steps, self.padding])
         self.k, self.tau = get_k_tau_pair(self.ordered_steps, self.K)
         self.pol, self.pod = get_pol_pod_pair(self.tau, self.P)
-        self.pol, self.pod, self.k, self.tau = self._add_padding(self.pol, self.pod, self.k, self.tau)
-        self.revenues = th.cat([self.revenues_matrix[self.k, self.tau], self.padding])
+        # self.pol, self.pod, self.k, self.tau = self._add_padding(self.pol, self.pod, self.k, self.tau)
+        self.revenues = self.revenues_matrix[self.k, self.tau]
         self._precompute_transport_sets_episode()
         self.next_port_mask = self._precompute_next_port_mask()
         self.transform_tau_to_pol = get_pols_from_transport(self.transport_idx, self.P, dtype=self.float_type)
@@ -162,7 +163,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Constraints
         self.constraint_signs = th.tensor([1, 1, -1, 1, -1], device=self.generator.device, dtype=self.float_type)
         self.swap_signs_stability = th.tensor([1, -1, -1, -1, -1], device=self.generator.device, dtype=self.float_type)
-        self.A = self._create_constraint_matrix(shape=(self.n_constraints, self.n_action, self.K, self.T))
+        self.A = self._create_constraint_matrix(shape=(self.n_constraints, self.n_action, self.T, self.K))
 
     def _make_spec(self, generator:Optional[Generator] = None) -> None:
         """Define the specs for observations, actions, rewards, and done flags."""
@@ -184,21 +185,22 @@ class MasterPlanningEnv(RL4COEnvBase):
 
     def _check_done(self, t: Tensor) -> Tensor:
         """Determine if the episode is done based on the state."""
-        return (t == (self.K * self.T) - 1).view(-1,1)
+        return (t == (self.T*self.K) - 1).view(-1,1)
 
     def _step(self, td: TensorDict) -> TensorDict:
         """Perform a step in the environment and return the next state."""
         ## Extraction and precompute
         action, realized_demand, lhs_A, rhs, t, batch_size = self._extract_from_td(td)
-        pol, pod, k, tau, rev = self._extract_cargo_parameters_for_step(t[0])
+        pol, pod, tau, k, rev = self._extract_cargo_parameters_for_step(self.ordered_steps[t[0]])
         utilization, target_long_crane, total_metrics = self._extract_from_state(td["state"])
         demand_obs = self._extract_from_obs(td["obs"], batch_size)
-        print("obs", demand_obs["observed_demand"].mean(dim=0))
+        print("t", t[0], "obs", demand_obs["observed_demand"].mean(dim=0), "demand", demand_obs["current_demand"].mean(dim=0))
+        print("e[x]", demand_obs["expected_demand"].mean(dim=0), "std", demand_obs["std_demand"].mean(dim=0))
 
         ## Current state
         # Check done, update utilization, and compute violation
         done = self._check_done(t)
-        utilization = self._update_state_loading(action, utilization, k, tau,)
+        utilization = self._update_state_loading(action, utilization, tau, k,)
         violation = compute_violation(action.view(*batch_size, 1, -1), lhs_A, rhs)
         # Compute long crane moves
         long_crane_moves = self._compute_long_crane(utilization, pol)
@@ -234,10 +236,10 @@ class MasterPlanningEnv(RL4COEnvBase):
             lhs_A = self.create_lhs_A(lhs_A, t)
             rhs = self.create_rhs(next_state_dict["utilization"], next_state_dict["current_demand"], batch_size)
             # Express residual capacity in number of containers for next step
-            residual_capacity = th.clamp(self.norm_capacity - next_state_dict["utilization"].sum(dim=-1)
+            residual_capacity = th.clamp(self.norm_capacity - next_state_dict["utilization"].sum(dim=-2)
                                          @ self.teus, min=self.zero) / self.teus_episode[t].view(-1, 1, 1)
         else:
-            residual_capacity = th.zeros_like(next_state_dict["utilization"].sum(dim=-1) @ self.teus)
+            residual_capacity = th.zeros_like(td["clip_max"], dtype=self.float_type)
 
         # # Update action mask
         # # action_mask[t] = 0
@@ -247,7 +249,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         # action_mask = th.where(mask_condition, new_mask, action_mask)
 
         # Only for final port
-        if t[0] == self.K*self.T:
+        if t[0] == self.T*self.K:
             # Compute last port long crane excess
             lc_moves_last_port = self._compute_long_crane(utilization, pol)
             lc_excess_last_port = th.clamp(lc_moves_last_port - next_state_dict["target_long_crane"].view(-1,1), min=0)
@@ -289,9 +291,9 @@ class MasterPlanningEnv(RL4COEnvBase):
             "obs":{
                 # Demand
                 "current_demand": next_state_dict["current_demand"],
-                "observed_demand": next_state_dict["observed_demand"].view(*batch_size, self.K * self.T),
-                "expected_demand": next_state_dict["expected_demand"].view(*batch_size, self.K * self.T),
-                "std_demand": next_state_dict["std_demand"].view(*batch_size, self.K * self.T),
+                "observed_demand": next_state_dict["observed_demand"].view(*batch_size, self.T*self.K),
+                "expected_demand": next_state_dict["expected_demand"].view(*batch_size, self.T*self.K),
+                "std_demand": next_state_dict["std_demand"].view(*batch_size, self.T*self.K),
                 # Vessel
                 "residual_capacity": residual_capacity.view(*batch_size, self.B * self.D),
                 "residual_lc_capacity": next_state_dict["residual_lc_capacity"].view(*batch_size, self.B-1),
@@ -320,25 +322,31 @@ class MasterPlanningEnv(RL4COEnvBase):
     def _reset(self,  td: Optional[TensorDict] = None,  batch_size=None) -> TensorDict:
         """Reset the environment to the initial state."""
         # Reordering on demand
-        td["realized_demand"] = self._reorder_demand(td["realized_demand"], batch_size)
-        td["observed_demand"] = self._reorder_demand(td["observed_demand"], batch_size)
-        td["expected_demand"] = self._reorder_demand(td["expected_demand"], batch_size)
-        td["std_demand"] = self._reorder_demand(td["std_demand"], batch_size)
+        td["realized_demand"] = td["realized_demand"].view(*batch_size, self.T, self.K)
+        td["observed_demand"] = td["observed_demand"].view(*batch_size, self.T, self.K)
+        td["expected_demand"] = td["expected_demand"].view(*batch_size, self.T, self.K)
+        td["std_demand"] = td["std_demand"].view(*batch_size, self.T, self.K)
 
         # Initialize
         # Parameters
         device = td.device
         t = th.zeros(*batch_size, dtype=th.int64)
+        pol, pod, tau, k, rev = self._extract_cargo_parameters_for_step(self.ordered_steps[t[0]])
         # Action mask and clipping
         residual_capacity = (self.norm_capacity / self.teus[t[0]]).unsqueeze(0).repeat(*batch_size, 1, 1)
         action_mask = th.ones((*batch_size, self.B*self.D), dtype=th.bool, device=device)
         # Vessel state
-        target_long_crane = self._compute_target_long_crane(td["realized_demand"], self.moves_idx[t[0]])
-        utilization = th.zeros((*batch_size, self.B, self.D, self.K, self.T), device=device, dtype=self.float_type)
+        target_long_crane = self._compute_target_long_crane(td["realized_demand"].view(*batch_size, self.T, self.K),
+                                                            self.moves_idx[t[0]])
+        utilization = th.zeros((*batch_size, self.B, self.D, self.T, self.K), device=device, dtype=self.float_type)
         locations_utilization = th.zeros_like(action_mask, dtype=self.float_type)
         port_locations = th.zeros((*batch_size, self.B*self.D*self.P), dtype=self.float_type)
         # Demand
-        current_demand = td["observed_demand"][:, self.k[0], self.tau[0]].view(*batch_size, 1)
+        current_demand = td["observed_demand"][:, tau, k].view(*batch_size, 1)
+        # todo: consider - if current_demand visible, then rest of the demand is zero
+        td["observed_demand"][:, tau, k] = 0
+        td["expected_demand"][:, tau, k] = 0
+        td["std_demand"][:, tau, k] = 0
         # Constraints
         lhs_A = self.create_lhs_A(
             th.zeros((*batch_size, self.n_constraints, self.B * self.D),  device=device, dtype=self.float_type), t)
@@ -360,9 +368,9 @@ class MasterPlanningEnv(RL4COEnvBase):
         initial_obs = TensorDict({
             # Demand
             "current_demand": current_demand,
-            "observed_demand": td["observed_demand"].view(*batch_size, self.K * self.T),
-            "expected_demand": td["expected_demand"].view(*batch_size, self.K * self.T),
-            "std_demand": td["std_demand"].view(*batch_size, self.K * self.T),
+            "observed_demand": td["observed_demand"].view(*batch_size, self.T*self.K),
+            "expected_demand": td["expected_demand"].view(*batch_size, self.T*self.K),
+            "std_demand": td["std_demand"].view(*batch_size, self.T*self.K),
             # Vessel
             "residual_capacity": residual_capacity.view(*batch_size, self.B*self.D),
             "residual_lc_capacity": target_long_crane.unsqueeze(-1).expand(-1, self.B-1),
@@ -404,7 +412,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         episodic_step = td["episodic_step"]#.clone()
         action = td["action"].view(*batch_size, self.B, self.D,)#.clone()
         # action_mask = td["action_mask"]#.clone()
-        realized_demand = td["realized_demand"]#.clone()
+        realized_demand = td["realized_demand"].view(*batch_size, self.T, self.K)#.clone()
         lhs_A = td["lhs_A"]#.clone()
         rhs = td["rhs"]#.clone()
         return action, realized_demand, lhs_A, rhs, episodic_step, batch_size
@@ -413,10 +421,10 @@ class MasterPlanningEnv(RL4COEnvBase):
         """Extract cargo-related parameters"""
         pol = self.pol[t]
         pod = self.pod[t]
-        cargo_class = self.k[t]
+        k = self.k[t]
         tau = self.tau[t]
-        revenue = self.revenues[t]
-        return pol, pod, cargo_class, tau, revenue
+        rev_t = self.revenues[t]
+        return pol, pod, tau, k, rev_t
 
     def _extract_from_state(self, state) -> Tuple:
         """Extract and clone state variables from the state TensorDict."""
@@ -436,16 +444,11 @@ class MasterPlanningEnv(RL4COEnvBase):
         """Extract and clone state variables from the obs TensorDict."""
         output = {
             "current_demand": obs["current_demand"].view(*batch_size, 1).clone(),
-            "observed_demand": obs["observed_demand"].view(*batch_size, self.K, self.T).clone(),
-            "expected_demand": obs["expected_demand"].view(*batch_size, self.K, self.T).clone(),
-            "std_demand": obs["std_demand"].view(*batch_size, self.K, self.T).clone(),
+            "observed_demand": obs["observed_demand"].view(*batch_size, self.T, self.K).clone(),
+            "expected_demand": obs["expected_demand"].view(*batch_size, self.T, self.K).clone(),
+            "std_demand": obs["std_demand"].view(*batch_size, self.T, self.K).clone(),
         }
         return output
-
-    def _reorder_demand(self, demand, batch_size):
-        k = self.k[:-1]
-        tau = self.tau[:-1]
-        return demand.view(*batch_size, self.K, self.T)[:, k, tau].view(*batch_size, self.T, self.K).permute(0, 2, 1)
 
     # Reward/costs functions
     def _get_reward(self, td, utilizations) -> Tensor:
@@ -460,8 +463,9 @@ class MasterPlanningEnv(RL4COEnvBase):
 
     def _compute_pol_pod_locations(self, utilization: Tensor) -> Tuple[Tensor, Tensor]:
         """Compute POL and POD locations based on utilization"""
-        pol_locations = (utilization @ self.transform_tau_to_pol).sum(dim=-2) != 0
-        pod_locations = (utilization @ self.transform_tau_to_pod).sum(dim=-2) != 0
+        util = utilization.permute(0, 1, 2, 4, 3)
+        pol_locations = (util @ self.transform_tau_to_pol).sum(dim=-2) != 0
+        pod_locations = (util @ self.transform_tau_to_pod).sum(dim=-2) != 0
         return pol_locations, pod_locations
 
     def _aggregate_pol_pod_location(self, pol_locations: Tensor, pod_locations: Tensor,) -> Tuple:
@@ -505,8 +509,8 @@ class MasterPlanningEnv(RL4COEnvBase):
         ac_transport = self.remain_on_board_transport[single_pol]
         moves = self.moves_idx[single_pol]
         # Compute hatch overstowage
-        hatch_open = utilization[:, :, 1:, :, moves].sum(dim=(2, 3, 4)) > 0
-        hatch_overstowage = utilization[:, :, :1, :, ac_transport].sum(dim=(2, 3, 4)) * hatch_open
+        hatch_open = utilization[:, :, 1:, moves, :].sum(dim=(2, 3, 4)) > 0
+        hatch_overstowage = utilization[:, :, :1, ac_transport, :].sum(dim=(2, 3, 4)) * hatch_open
         return hatch_overstowage
 
     def _compute_target_long_crane(self, realized_demand: Tensor, moves: Tensor) -> Tensor:
@@ -518,7 +522,7 @@ class MasterPlanningEnv(RL4COEnvBase):
 
         Return element-wise minimum of optimal crane moves and max capacity"""
         # Calculate optimal crane moves based per adjacent bay based on loading and discharging
-        total_crane_moves = realized_demand[:, :, moves].sum(dim=(1,2))
+        total_crane_moves = realized_demand[:, moves, :].sum(dim=(1,2))
         # Compute adjacent capacity and max capacity
         max_capacity = ((self.norm_capacity[:-1] + self.norm_capacity[1:]).sum(dim=-1)).max()
         # Compute element-wise minimum of crane moves and target long crane
@@ -527,8 +531,8 @@ class MasterPlanningEnv(RL4COEnvBase):
 
     def _compute_long_crane(self, utilization: Tensor, single_pol: Tensor) -> Tensor:
         """Compute long crane moves based on utilization"""
-        moves_idx = self.moves_idx[single_pol]
-        moves_per_bay = (utilization @ moves_idx.to(utilization.dtype)).sum(dim=(2, 3))
+        moves_idx = self.moves_idx[single_pol].to(utilization.dtype).view(1, 1, 1, self.T, 1)
+        moves_per_bay = (utilization * moves_idx).sum(dim=(2, 3, 4))
         return moves_per_bay[:, :-1] + moves_per_bay[:, 1:]
 
     def _prevent_HO_mask(self, mask:Tensor, pod: Tensor,pod_locations:Tensor, min_pod:Tensor) -> Tensor:
@@ -570,14 +574,14 @@ class MasterPlanningEnv(RL4COEnvBase):
     # Update state
     def _update_state_discharge(self, utilization:Tensor, disc_idx:Tensor,) -> Tensor:
         """Update state as result of discharge"""
-        utilization[:, :, :, :, disc_idx] = 0.0
+        utilization[:, :, :, disc_idx, :] = 0.0
         return utilization
 
     def _update_state_loading(self, action: Tensor, utilization: Tensor,
-                              k:Tensor, tau:Tensor) -> Tensor:
+                              tau:Tensor, k:Tensor,) -> Tensor:
         """Transition to the next state based on the action."""
-        new_utilization = utilization.view(-1, self.B, self.D, self.K, self.T).clone()
-        new_utilization[:, :, :, k, tau] = action
+        new_utilization = utilization.view(-1, self.B, self.D, self.T, self.K).clone()
+        new_utilization[:, :, :, tau, k] = action
         return new_utilization
 
     def _update_next_state(self, utilization: Tensor, target_long_crane:Tensor, long_crane_moves:Tensor,
@@ -589,7 +593,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         - Last step of episode; compute excess crane moves at last port
         """
         # Get cargo parameters
-        pol, pod, k, tau, _ = self._extract_cargo_parameters_for_step(t[0])
+        pol, pod, tau, k, rev = self._extract_cargo_parameters_for_step(self.ordered_steps[t[0]])
 
         # Check next port with t - 1
         load_idx, disc_idx, moves_idx = self._precompute_for_step(pol)
@@ -599,25 +603,25 @@ class MasterPlanningEnv(RL4COEnvBase):
             target_long_crane = self._compute_target_long_crane(realized_demand, moves_idx)
             long_crane_moves = self._compute_long_crane(utilization, pol)
             if self.demand_uncertainty:
-                demand_obs["observed_demand"][:, :, load_idx] = realized_demand[:, :, load_idx]
+                demand_obs["observed_demand"][:, load_idx, :] = realized_demand[:, load_idx, :]
 
         # Update observed and expected demand by setting to 0
-        demand_obs["observed_demand"][:, k, tau] = 0
-        demand_obs["expected_demand"][:, k, tau] = 0
-        demand_obs["std_demand"][:, k, tau] = 0
+        demand_obs["observed_demand"][:, tau, k] = 0
+        demand_obs["expected_demand"][:, tau, k] = 0
+        demand_obs["std_demand"][:, tau, k] = 0
 
         # Update residual lc capacity: target - actual load and discharge moves
         residual_lc_capacity = target_long_crane.unsqueeze(-1) - long_crane_moves
 
         # Get output
         return {
-            "current_demand": realized_demand[:, k, tau].view(-1, 1),
+            "current_demand": realized_demand[:, tau, k].view(-1, 1),
             "observed_demand": demand_obs["observed_demand"],
             "expected_demand": demand_obs["expected_demand"],
             "std_demand":demand_obs["std_demand"],
             "utilization": utilization,
-            "location_utilization": (utilization * self.teus.view(1,1,1,-1,1)).sum(dim=(-2,-1)),
-            "location_weight": (utilization * self.weights.view(1, 1, 1, -1, 1)).sum(dim=(-1,-2)),
+            "location_utilization": (utilization * self.teus.view(1,1,1,1,-1)).sum(dim=(-2,-1)),
+            "location_weight": (utilization * self.weights.view(1,1,1,1,-1)).sum(dim=(-2,-1)),
             "target_long_crane": target_long_crane,
             "residual_lc_capacity": residual_lc_capacity,
         }
@@ -636,7 +640,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         # [1, LM-TW, TW-LM, VM-TW, TW-VM]
         A = th.ones(shape, device=self.generator.device, dtype=self.float_type)
         A *= self.constraint_signs.view(-1, 1, 1, 1)
-        A[self.n_demand:self.n_demand + self.n_stability] *= self.stability_params_lhs.view(self.n_stability, self.B*self.D, self.K, 1)
+        A[self.n_demand:self.n_demand + self.n_stability] *= self.stability_params_lhs.view(self.n_stability, self.B*self.D, 1, self.K,)
         return A.view(self.n_constraints, self.B*self.D, -1)
 
     def create_lhs_A(self, lhs_A:Tensor, t:Tensor) -> Tensor:
@@ -667,7 +671,7 @@ class MasterPlanningEnv(RL4COEnvBase):
           (0, (P-2,P-1)), (1, (P-2,P-1)), ..., (K-1, (P-2,P-1)) }
         """
         # Initialize steps and idx
-        steps = th.zeros(self.K*self.T, dtype=th.int64, device=self.generator.device)
+        steps = th.zeros(self.T*self.K, dtype=th.int64, device=self.generator.device)
         idx = 0
         # We use loops for readability and simplicity, only because it is part of initialization
         for pol in range(self.P - 1):
@@ -683,7 +687,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         """Get ordered steps with transports in descending order of revenue per capacity usage:
         - Revenue per capacity: revenue / (teus * weights * duration)"""
         # Init
-        steps = th.zeros(self.K * self.T, dtype=th.int64, device=self.generator.device)
+        steps = th.zeros(self.T*self.K, dtype=th.int64, device=self.generator.device)
         cap_usage = torch.einsum("j,i->ij", self.duration, (self.teus*self.weights))
         self.revenue_per_capacity = self.revenues_matrix / cap_usage
         idx = 0
@@ -705,7 +709,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         """Get standard order of steps;
         - POL, POD are in ascending order
         - K is in ascending order but based on priority"""
-        return th.arange(self.K*self.T, device=self.generator.device, dtype=th.int64)
+        return th.arange(self.T*self.K, device=self.generator.device, dtype=th.int64)
 
 
     def _add_padding(self, *inputs) -> List[Tensor]:
@@ -768,7 +772,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         - Next port happens when POD = POL+1
         """
         # Initialize next_port
-        next_port = th.zeros((self.K*self.T), dtype=th.bool, device=self.generator.device)
+        next_port = th.zeros((self.T*self.K), dtype=th.bool, device=self.generator.device)
         pol_values = th.arange(self.P - 1, 0, -1,)  # POL values from P-1 to 1
         indices = th.cumsum(self.K * pol_values, dim=0) - 1
         next_port[indices] = True
