@@ -112,7 +112,6 @@ class BatchDataset(Dataset):
 
     def __getitem__(self, index):
         """Return data for a single index."""
-        # run through all shapes of self.memory.tds_obs
         stacked_obs = torch.stack(self.memory.tds_obs, dim=0).permute(1,0)
         return {
             "actions": self.memory.actions[index],
