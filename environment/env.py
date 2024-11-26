@@ -189,10 +189,10 @@ class MasterPlanningEnv(RL4COEnvBase):
     def _step(self, td: TensorDict) -> TensorDict:
         """Perform a step in the environment and return the next state."""
         ## Extraction and precompute
-        action,realized_demand, lhs_A, rhs, t, batch_size = self._extract_from_td(td)
+        action, realized_demand, lhs_A, rhs, t, batch_size = self._extract_from_td(td)
         pol, pod, k, tau, rev = self._extract_cargo_parameters_for_step(t[0])
-        utilization, target_long_crane, total_loaded, total_revenue, total_cost, total_rc = self._extract_from_state(td["state"])
-        current_demand, observed_demand, expected_demand, std_demand = self._extract_from_obs(td["obs"], batch_size)
+        utilization, target_long_crane, total_metrics = self._extract_from_state(td["state"])
+        demand_dict = self._extract_from_obs(td["obs"], batch_size)
 
         ## Current state
         # Check done, update utilization, and compute violation
@@ -204,10 +204,10 @@ class MasterPlanningEnv(RL4COEnvBase):
         agg_pol_location, agg_pod_location = self._aggregate_pol_pod_location(pol_locations, pod_locations)
         # Compute total loaded
         sum_action = action.sum(dim=(-2, -1)).unsqueeze(-1)
-        total_loaded = total_loaded + th.min(sum_action, current_demand)
+        total_metrics["total_loaded"] += th.min(sum_action, demand_dict["current_demand"])
 
         ## Reward
-        revenue = th.min(sum_action, current_demand) * self.revenues[t[0]]
+        revenue = th.min(sum_action, demand_dict["current_demand"]) * self.revenues[t[0]]
         profit = revenue.clone()
         if self.next_port_mask[t].any():
             # Compute aggregated: overstowage and long crane excess
@@ -227,18 +227,16 @@ class MasterPlanningEnv(RL4COEnvBase):
         ## Transition to next step
         # Update next state
         t = t + 1
-        next_state_dict = self._update_next_state(utilization, target_long_crane,
-                                                  realized_demand, observed_demand, expected_demand, std_demand, t, )
-        utilization_ = next_state_dict["utilization"]
+        next_state_dict = self._update_next_state(utilization, target_long_crane, realized_demand, demand_dict, t, )
         if not done.any():
             # Update feasibility: lhs_A, rhs, clip_max based on next state
             lhs_A = self.create_lhs_A(lhs_A, t)
-            rhs = self.create_rhs(utilization_, next_state_dict["current_demand"], batch_size)
+            rhs = self.create_rhs(next_state_dict["utilization"], next_state_dict["current_demand"], batch_size)
             # Express residual capacity in number of containers for next step
-            residual_capacity = th.clamp(self.norm_capacity - utilization_.sum(dim=-1) @ self.teus, min=self.zero) \
-                                / self.teus_episode[t].view(-1, 1, 1)
+            residual_capacity = th.clamp(self.norm_capacity - next_state_dict["utilization"].sum(dim=-1)
+                                         @ self.teus, min=self.zero) / self.teus_episode[t].view(-1, 1, 1)
         else:
-            residual_capacity = th.zeros_like(utilization_.sum(dim=-1) @ self.teus)
+            residual_capacity = th.zeros_like(next_state_dict["utilization"].sum(dim=-1) @ self.teus)
 
         # # Update action mask
         # # action_mask[t] = 0
@@ -261,12 +259,12 @@ class MasterPlanningEnv(RL4COEnvBase):
             cost += cost_
 
         # Track metrics
-        total_rc += residual_capacity.view(*batch_size, -1)
-        total_revenue += revenue
-        total_cost += cost
+        total_metrics["total_rc"] += residual_capacity.view(*batch_size, -1)
+        total_metrics["total_revenue"] += revenue
+        total_metrics["total_cost"] += cost
         # Normalize revenue \in [0,1]:
         # revenue_norm = rev_t / max(rev_t) * min(q_t, sum(a_t)) / q_t
-        normalize_revenue = self.revenues.max() * current_demand
+        normalize_revenue = self.revenues.max() * demand_dict["current_demand"]
         # Normalize accumulated cost \in [0, t_cost], where t_cost is the time at which we evaluate cost:
         # cost_norm = cost_{t_cost} / E[q_t]
         normalize_cost = realized_demand.view(*batch_size, -1)[:,:t[0]].sum(dim=-1, keepdims=True) / t[0]
@@ -282,10 +280,10 @@ class MasterPlanningEnv(RL4COEnvBase):
                 "target_long_crane": next_state_dict["target_long_crane"],
 
                 # Performance
-                "total_loaded": total_loaded,
-                "total_revenue": total_revenue,
-                "total_cost": total_cost,
-                "total_rc": total_rc,
+                "total_loaded": total_metrics["total_loaded"],
+                "total_revenue": total_metrics["total_revenue"],
+                "total_cost": total_metrics["total_cost"],
+                "total_rc": total_metrics["total_rc"],
             },
             "obs":{
                 # Demand
@@ -415,19 +413,23 @@ class MasterPlanningEnv(RL4COEnvBase):
         utilization = state["utilization"].clone()
         target_long_crane = state["target_long_crane"].clone()
         # Additional variables
-        total_loaded = state["total_loaded"].clone()
-        total_revenue = state["total_revenue"].clone()
-        total_cost = state["total_cost"].clone()
-        total_rc = state["total_rc"].clone()
-        return utilization, target_long_crane, total_loaded, total_revenue, total_cost, total_rc
+        total_metrics = {
+            "total_loaded": state["total_loaded"].clone(),
+            "total_revenue": state["total_revenue"].clone(),
+            "total_cost": state["total_cost"].clone(),
+            "total_rc": state["total_rc"].clone(),
+        }
+        return utilization, target_long_crane, total_metrics
 
-    def _extract_from_obs(self, obs, batch_size) -> Tuple:
+    def _extract_from_obs(self, obs, batch_size) -> Dict:
         """Extract and clone state variables from the obs TensorDict."""
-        current_demand = obs["current_demand"].view(*batch_size, 1)#.clone()
-        observed_demand = obs["observed_demand"].view(*batch_size, self.K, self.T)#.clone()
-        expected_demand = obs["expected_demand"].view(*batch_size, self.K, self.T)#.clone()
-        std_demand = obs["std_demand"].view(*batch_size, self.K, self.T)#.clone()
-        return current_demand, observed_demand, expected_demand, std_demand
+        output = {
+            "current_demand": obs["current_demand"].view(*batch_size, 1).clone(),
+            "observed_demand": obs["observed_demand"].view(*batch_size, self.K, self.T).clone(),
+            "expected_demand": obs["expected_demand"].view(*batch_size, self.K, self.T).clone(),
+            "std_demand": obs["std_demand"].view(*batch_size, self.K, self.T).clone(),
+        }
+        return output
 
     # Reward/costs functions
     def _get_reward(self, td, utilizations) -> Tensor:
@@ -585,7 +587,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         return new_utilization
 
     def _update_next_state(self, utilization: Tensor, target_long_crane:Tensor, realized_demand:Tensor,
-                           observed_demand:Tensor, expected_demand:Tensor, std_demand:Tensor, t:Tensor,) \
+                           demand_dict:Dict, t:Tensor,) \
             -> Dict[str, Tensor]:
         """Update next state, following options:
         - Next step moves to new port POL+1
@@ -602,19 +604,19 @@ class MasterPlanningEnv(RL4COEnvBase):
             utilization = self._update_state_discharge(utilization, disc_idx)
             target_long_crane = self._compute_target_long_crane(realized_demand, moves_idx)
             if self.demand_uncertainty:
-                observed_demand[:, :, load_idx] = realized_demand[:, :, load_idx]
+                demand_dict["observed_demand"][:, :, load_idx] = realized_demand[:, :, load_idx]
 
         # Update observed and expected demand by setting to 0
-        observed_demand[:, k, tau] = 0
-        expected_demand[:, k, tau] = 0
-        std_demand[:, k, tau] = 0
+        demand_dict["observed_demand"][:, k, tau] = 0
+        demand_dict["expected_demand"][:, k, tau] = 0
+        demand_dict["std_demand"][:, k, tau] = 0
 
         # Get output
         return {
             "current_demand": realized_demand[:, k, tau].view(-1, 1),
-            "observed_demand": observed_demand,
-            "expected_demand": expected_demand,
-            "std_demand":std_demand,
+            "observed_demand": demand_dict["observed_demand"],
+            "expected_demand": demand_dict["expected_demand"],
+            "std_demand":demand_dict["std_demand"],
             "utilization": utilization,
             "location_utilization": (utilization * self.teus.view(1,1,1,-1,1)).sum(dim=(-2,-1)),
             "location_weight": (utilization * self.weights.view(1, 1, 1, -1, 1)).sum(dim=(-1,-2)),
