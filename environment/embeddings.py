@@ -7,6 +7,7 @@ from torch import Tensor
 from tensordict import TensorDict
 from torch.cuda.amp import autocast
 from rl4co.utils.ops import gather_by_index
+from models.projection_n_step_ppo import check_for_nans
 
 class MPPInitEmbedding(nn.Module):
     def __init__(self, embed_dim, action_dim, env, num_constraints=5):
@@ -30,7 +31,7 @@ class MPPInitEmbedding(nn.Module):
         # Final projection and positional encoding
         num_embeddings = 8  # Number of embeddings
         self.fc = nn.Linear(num_embeddings * embed_dim, embed_dim)
-        self.positional_encoding = DynamicSinusoidalPositionalEncoding(num_embeddings*embed_dim)
+        self.positional_encoding = DynamicSinusoidalPositionalEncoding(embed_dim)
 
     def initialize_cache(self):
         """Initialize cache for fixed embeddings"""
@@ -88,8 +89,8 @@ class MPPInitEmbedding(nn.Module):
         ], dim=-1)
 
         # Final projection
-        positional_emb = self.positional_encoding(combined_emb)
-        initial_embedding = self.fc(positional_emb)
+        positional_emb = self.fc(combined_emb)
+        initial_embedding = self.positional_encoding(positional_emb)
         return initial_embedding
 
 class MPPContextEmbedding(nn.Module):
@@ -131,38 +132,49 @@ class MPPContextEmbedding(nn.Module):
                 init_embeddings: Tensor,
                 td: TensorDict):
         """Embed the context for the MPP"""
-
-        # todo: add state normalization!!
-        # todo: check if gather_by_index is correct
-
         # Get init embedding and state embedding
         select_init_embedding = gather_by_index(init_embeddings, td["episodic_step"])
+        check_for_nans(select_init_embedding, "select_init_embedding")
         state_embedding = self._state_embedding(td)
+        check_for_nans(state_embedding, "state_embedding")
 
         # Project state, concat embeddings, and project concat to output
         context_embedding = torch.cat([select_init_embedding, state_embedding], dim=-1)
+        check_for_nans(context_embedding, "context_embedding")
+
         output = self.project_context(context_embedding)
+        check_for_nans(output, "output")
+
         return output
 
     def _state_embedding(self, td):
         """Embed the state for the MPP.
         Important:
         - The state embedding size should not depend on e.g. voyage length and cargo types.
-        - todo: It does depend on vessel size now, but this could be changed.
+        - todo: We have dependency on ports and bays, which is not ideal for generalization.
+        # todo: code is messy! clean up
         """
+        # Init normalize
+        teu = self.env.teus[self.env.k[td["episodic_step"][0]]]
+        norm_cargo_t = (teu / self.env.total_capacity).view(1, -1, 1)
+
         # Determine the shape based on dimensionality of current_demand
         if td["obs"]["expected_demand"].dim() == 2:
             batch_size, _ = td["obs"]["expected_demand"].shape
             view_transform = lambda x: x.view(batch_size, -1)
+            norm_cargo = (self.env.teus[self.env.k[:-1]] / self.env.total_capacity).view(1, -1,)
         elif td["obs"]["expected_demand"].dim() == 3:
             batch_size, n_step, _ = td["obs"]["expected_demand"].shape
             view_transform = lambda x: x.view(batch_size, n_step, -1)
+            norm_cargo = (self.env.teus[self.env.k[:-1]] / self.env.total_capacity).view(1, -1, 1)
         else:
             raise ValueError("Invalid shape of done in td")
 
         # Process demand embeddings based on demand aggregation type
         def process_demand_embedding(embedding_func, view_transform, demand_type, td, aggregation):
-            demand = view_transform(td[demand_type])
+            # Normalize demand based on teu and cargo capacity
+            demand = view_transform(td[demand_type] * norm_cargo)
+            # Aggregate demand based on aggregation type
             if aggregation == "sum":
                 return embedding_func(torch.sum(demand, dim=-1, keepdim=True))
             elif aggregation == "self_attn":
@@ -178,7 +190,7 @@ class MPPContextEmbedding(nn.Module):
             return gather_by_index(demand, index, dim=dim)
 
         # Compute demand embeddings
-        current_demand = self.current_demand(view_transform(td["obs"]["current_demand"]))
+        current_demand = self.current_demand(view_transform(td["obs"]["current_demand"] * norm_cargo_t))
         expected_demand_t = process_demand_embedding(self.expected_demand, view_transform, "expected_demand", td["obs"],
                                                      self.demand_aggregation)
         std_demand_t = process_demand_embedding(self.std_demand, view_transform, "std_demand", td["obs"],
@@ -192,12 +204,12 @@ class MPPContextEmbedding(nn.Module):
             observed_demand_t = extract_demand_at_timestep(observed_demand_t, td)
 
         # Compute vessel and location embeddings
-        residual_capacity = self.residual_capacity(view_transform(td["obs"]["residual_capacity"]))
-        # origin_embed = self.origin_location(view_transform(td["obs"]["agg_pol_location"]))
-        # destination_embed = self.destination_location(view_transform(td["obs"]["agg_pod_location"]))
-        origin_embed = self.binary_origin_location(view_transform(td["obs"]["pol_location"]))
-        destination_embed = self.binary_destination_location(view_transform(td["obs"]["pod_location"]))
-        residual_lc_capacity = self.long_crane_capacity(view_transform(td["obs"]["residual_lc_capacity"]))
+        residual_capacity = self.residual_capacity(view_transform(td["obs"]["residual_capacity"]*norm_cargo_t))
+        residual_lc_capacity = self.long_crane_capacity(view_transform(td["obs"]["residual_lc_capacity"]*norm_cargo_t))
+        origin_embed = self.origin_location(view_transform(td["obs"]["agg_pol_location"])/self.env.P)
+        destination_embed = self.destination_location(view_transform(td["obs"]["agg_pod_location"]/self.env.P))
+        # origin_embed = self.binary_origin_location(view_transform(td["obs"]["pol_location"]))
+        # destination_embed = self.binary_destination_location(view_transform(td["obs"]["pod_location"]))
 
         # Concatenate all embeddings
         state_embed = torch.cat([
