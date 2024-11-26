@@ -14,43 +14,61 @@ class MPPInitEmbedding(nn.Module):
         # Store environment and sequence size
         self.env = env
         self.seq_size = self.env.T * self.env.K
-
-        # Initialize embeddings and layers
         self.cache_initialized = False  # Flag to check if cache has been created
-        # Category embeddings
-        self.origin_port = nn.Embedding(self.env.P, embed_dim)
-        self.destination_port = nn.Embedding(self.env.P, embed_dim)
-        self.cargo_class = nn.Embedding(self.env.K, embed_dim)
 
+        # Categorical embeddings
+        self.cargo_class = nn.Embedding(self.env.K, embed_dim)
+        # Ordinal embeddings
+        self.origin_port = nn.Linear(1, embed_dim)
+        self.destination_port = nn.Linear(1, embed_dim)
         # Continuous embeddings
-        self.lhs_A = nn.Linear(action_dim*num_constraints, embed_dim)
         self.weight = nn.Linear(1, embed_dim)
         self.teu = nn.Linear(1, embed_dim)
         self.revenue = nn.Linear(1, embed_dim)
         self.ex_demand = nn.Linear(1, embed_dim)
         self.stdx_demand = nn.Linear(1, embed_dim)
-        self.fc = nn.Linear(8 * embed_dim, embed_dim)
-        self.positional_encoding = DynamicSinusoidalPositionalEncoding(embed_dim*8) # 8 is the number of embeddings
+        # Final projection and positional encoding
+        num_embeddings = 8  # Number of embeddings
+        self.fc = nn.Linear(num_embeddings * embed_dim, embed_dim)
+        self.positional_encoding = DynamicSinusoidalPositionalEncoding(num_embeddings*embed_dim)
 
     def initialize_cache(self):
         """Initialize cache for fixed embeddings"""
-        self.origin_emb_cache = self.origin_port(self.env.pol[:-1].to(torch.int64)).view(1,self.seq_size, -1)
-        self.destination_emb_cache = self.destination_port(self.env.pod[:-1].to(torch.int64)).view(1,self.seq_size, -1)
-        self.class_embed_cache = self.cargo_class(self.env.k[:-1].to(torch.int64)).view(1,self.seq_size, -1)
-        self.weight_emb_cache = self.weight(self.env.weights[self.env.k[:-1]].view(-1, 1)).view(1,self.seq_size, -1)
-        self.teu_embd_cache = self.teu(self.env.teus[self.env.k[:-1]].view(-1, 1)).view(1,self.seq_size, -1)
-        self.revenue_emb_cache = self.revenue(self.env.revenues[:-1].view(-1, 1)).view(1,self.seq_size, -1)
+        # Point to integer
+        cargo_class = self.env.k[:-1].to(torch.int64)
+        # Normalize
+        norm_pol = (self.env.pol[:-1] / self.env.P).view(-1, 1)
+        norm_pod = (self.env.pod[:-1] / self.env.P).view(-1, 1)
+        norm_weights = (self.env.weights[self.env.k[:-1]] / self.env.weights[self.env.k[:-1]].max()).view(-1, 1)
+        norm_teus = (self.env.teus[self.env.k[:-1]] / self.env.teus[self.env.k[:-1]].max()).view(-1, 1)
+        # todo: consider revenue per capacity!
+        norm_revenues = (self.env.revenues[:-1] / self.env.revenues[:-1].max()).view(-1, 1)
+
+        # Category embeddings
+        self.class_embed_cache = self.cargo_class(cargo_class).view(1,self.seq_size, -1)
+        # Ordinal embeddings
+        self.origin_emb_cache = self.origin_port(norm_pol).view(1,self.seq_size, -1)
+        self.destination_emb_cache = self.destination_port(norm_pod).view(1,self.seq_size, -1)
+        # Continuous embeddings
+        self.weight_emb_cache = self.weight(norm_weights).view(1,self.seq_size, -1)
+        self.teu_emb_cache = self.teu(norm_teus).view(1,self.seq_size, -1)
+        self.revenue_emb_cache = self.revenue(norm_revenues).view(1,self.seq_size, -1)
         self.cache_initialized = True  # Update flag
 
     def forward(self, td: TensorDict):
-        # Get batch size and sequence length
+        # Get batch size and cargo normalization (based on teu and total capacity)
         batch_size = td.batch_size
+        norm_cargo = (self.env.teus[self.env.k[:-1]] / self.env.total_capacity).view(1, -1, 1)
         if td["obs"]["expected_demand"].dim() == 2:
-            expected_demand = self.ex_demand(td["obs"]["expected_demand"].view(*batch_size, -1, 1))
-            std_demand = self.stdx_demand(td["obs"]["std_demand"].view(*batch_size, -1, 1))
+            e_x = reorder_demand(td["obs"]["expected_demand"], self.env.tau, self.env.k, self.env.T, self.env.K,batch_size)
+            std_x = reorder_demand(td["obs"]["std_demand"], self.env.tau, self.env.k, self.env.T, self.env.K,batch_size)
+            expected_demand = self.ex_demand(e_x.view(*batch_size, -1, 1) * norm_cargo)
+            std_demand = self.stdx_demand(std_x.view(*batch_size, -1, 1) * norm_cargo)
         elif td["obs"]["expected_demand"].dim() == 3:
-            expected_demand = self.ex_demand(td["obs"]["expected_demand"][:,0].view(*batch_size, -1, 1))
-            std_demand = self.stdx_demand(td["obs"]["std_demand"][:,0].view(*batch_size, -1, 1))
+            e_x = reorder_demand(td["obs"]["expected_demand"][:,0], self.env.tau, self.env.k, self.env.T, self.env.K,batch_size)
+            std_x = reorder_demand(td["obs"]["std_demand"][:,0], self.env.tau, self.env.k, self.env.T, self.env.K,batch_size)
+            expected_demand = self.ex_demand(e_x.view(*batch_size, -1, 1) * norm_cargo)
+            std_demand = self.stdx_demand(std_x.view(*batch_size, -1, 1) * norm_cargo)
         else:
             raise ValueError("Invalid shape for POL")
 
@@ -65,7 +83,7 @@ class MPPInitEmbedding(nn.Module):
             self.destination_emb_cache.expand(*batch_size, -1, -1),
             self.class_embed_cache.expand(*batch_size, -1, -1),
             self.weight_emb_cache.expand(*batch_size, -1, -1),
-            self.teu_embd_cache.expand(*batch_size, -1, -1),
+            self.teu_emb_cache.expand(*batch_size, -1, -1),
             self.revenue_emb_cache.expand(*batch_size, -1, -1),
         ], dim=-1)
 
@@ -113,6 +131,9 @@ class MPPContextEmbedding(nn.Module):
                 init_embeddings: Tensor,
                 td: TensorDict):
         """Embed the context for the MPP"""
+
+        # todo: add state normalization!!
+        # todo: check if gather_by_index is correct
 
         # Get init embedding and state embedding
         select_init_embedding = gather_by_index(init_embeddings, td["episodic_step"])
@@ -185,6 +206,10 @@ class MPPContextEmbedding(nn.Module):
         ], dim=-1)
 
         return state_embed
+
+def reorder_demand(demand, tau, k, T, K, batch_size):
+    """Reorder demand to match the episode ordering"""
+    return demand.view(*batch_size, T, K)[:, tau[:-1], k[:-1]]
 
 class StaticEmbedding(nn.Module):
     # This defines shape of key, value
