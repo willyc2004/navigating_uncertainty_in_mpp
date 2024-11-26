@@ -340,8 +340,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         locations_utilization = th.zeros_like(action_mask, dtype=self.float_type)
         port_locations = th.zeros((*batch_size, self.B*self.D*self.P), dtype=self.float_type)
         # Demand
-        current_demand = td["observed_demand"][:, tau, k].view(*batch_size, 1)
-        # todo: consider - if current_demand visible, then rest of the demand is zero
+        current_demand = td["observed_demand"][:, tau, k].clone().view(*batch_size, 1)
         td["observed_demand"][:, tau, k] = 0
         td["expected_demand"][:, tau, k] = 0
         td["std_demand"][:, tau, k] = 0
