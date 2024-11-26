@@ -291,6 +291,8 @@ class MasterPlanningEnv(RL4COEnvBase):
                 "expected_demand": next_state_dict["expected_demand"].view(*batch_size, self.K * self.T),
                 "std_demand": next_state_dict["std_demand"].view(*batch_size, self.K * self.T),
                 "residual_capacity": residual_capacity.view(*batch_size, self.B * self.D),
+                "pol_location": pol_locations.view(*batch_size, -1).to(self.float_type),
+                "pod_location": pod_locations.view(*batch_size, -1).to(self.float_type),
                 "agg_pol_location": agg_pol_location.view(*batch_size, self.B * self.D),
                 "agg_pod_location": agg_pod_location.view(*batch_size, self.B * self.D),
             },
@@ -328,6 +330,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         target_long_crane = self._compute_target_long_crane(td["realized_demand"], self.moves_idx[t[0]])
         utilization = th.zeros((*batch_size, self.B, self.D, self.K, self.T), device=device, dtype=self.float_type)
         locations_utilization = th.zeros_like(action_mask, dtype=self.float_type)
+        port_locations = th.zeros((*batch_size, self.B*self.D*self.P), dtype=self.float_type)
         # Demand
         current_demand = td["observed_demand"][:, self.k[0], self.tau[0]].view(*batch_size, 1)
         # Constraints
@@ -356,6 +359,8 @@ class MasterPlanningEnv(RL4COEnvBase):
             "std_demand": td["std_demand"].view(*batch_size, self.K * self.T),
             # Vessel
             "residual_capacity": residual_capacity.view(*batch_size, self.B*self.D),
+            "pol_location": th.zeros_like(port_locations, dtype=self.float_type),
+            "pod_location": th.zeros_like(port_locations, dtype=self.float_type),
             "agg_pol_location": th.zeros_like(locations_utilization),
             "agg_pod_location": th.zeros_like(locations_utilization),
         }, batch_size=batch_size, device=device,)
