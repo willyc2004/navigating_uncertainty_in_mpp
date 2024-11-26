@@ -141,7 +141,7 @@ class MasterPlanningEnv(RL4COEnvBase):
             self.ordered_steps = self._precompute_order_standard()
         self.k, self.tau = get_k_tau_pair(self.ordered_steps, self.K)
         self.pol, self.pod = get_pol_pod_pair(self.tau, self.P)
-        self.k, self.tau, self.pol, self.pod = self._add_padding(self.k, self.tau, self.pol, self.pod)
+        self.pol, self.pod, self.k, self.tau = self._add_padding(self.pol, self.pod, self.k, self.tau)
         self._precompute_transport_sets_episode()
         self.next_port_mask = self._precompute_next_port_mask()
         self.transform_tau_to_pol = get_pols_from_transport(self.transport_idx, self.P, dtype=self.float_type)
@@ -191,8 +191,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         ## Extraction and precompute
         action,realized_demand, lhs_A, rhs, t, batch_size = self._extract_from_td(td)
         pol, pod, k, tau, rev = self._extract_cargo_parameters_for_step(t[0])
-        utilization, target_long_crane, total_loaded, total_revenue, total_cost, total_rc = \
-            self._extract_from_state(td["state"])
+        utilization, target_long_crane, total_loaded, total_revenue, total_cost, total_rc = self._extract_from_state(td["state"])
         current_demand, observed_demand, expected_demand, std_demand = self._extract_from_obs(td["obs"], batch_size)
 
         ## Current state
@@ -260,7 +259,6 @@ class MasterPlanningEnv(RL4COEnvBase):
             cost_ = lc_excess_last_port.sum(dim=-1, keepdim=True) * self.lc_costs
             profit -= cost_
             cost += cost_
-
 
         # Track metrics
         total_rc += residual_capacity.view(*batch_size, -1)
@@ -414,14 +412,13 @@ class MasterPlanningEnv(RL4COEnvBase):
     def _extract_from_state(self, state) -> Tuple:
         """Extract and clone state variables from the state TensorDict."""
         # Vessel-related variables
-        utilization = state["utilization"]#.clone()
-        target_long_crane = state["target_long_crane"]#.clone()
-        # # Additional variables
-        total_loaded = state["total_loaded"]#.clone()
-        total_revenue = state["total_revenue"]#.clone()
-        total_cost = state["total_cost"]#.clone()
-        total_rc = state["total_rc"]#.clone()
-        # Return
+        utilization = state["utilization"].clone()
+        target_long_crane = state["target_long_crane"].clone()
+        # Additional variables
+        total_loaded = state["total_loaded"].clone()
+        total_revenue = state["total_revenue"].clone()
+        total_cost = state["total_cost"].clone()
+        total_rc = state["total_rc"].clone()
         return utilization, target_long_crane, total_loaded, total_revenue, total_cost, total_rc
 
     def _extract_from_obs(self, obs, batch_size) -> Tuple:
@@ -687,12 +684,12 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Init
         steps = th.zeros(self.K * self.T, dtype=th.int64, device=self.generator.device)
         cap_usage = torch.einsum("j,i->ij", self.duration, (self.teus*self.weights))
-        revenue_per_capacity = self.revenues[:-1].view(self.T, self.K).T / cap_usage
+        self.revenue_per_capacity = self.revenues[:-1].view(self.T, self.K).T / cap_usage
         idx = 0
         for pol in range(self.P - 1):
             # Create a mask for `revenue_per_capacity` where `loads` is True
             loads = self.load_transport[pol].expand(self.K, -1)
-            masked_revenues = torch.where(loads, revenue_per_capacity, float("-inf"))  # Use -inf to exclude non-loads
+            masked_revenues = torch.where(loads, self.revenue_per_capacity, float("-inf"))  # Use -inf to exclude non-loads
 
             # Get argsort indices of the max values in descending order
             sorted_indices = torch.argsort(masked_revenues.T.flatten(), descending=True)
