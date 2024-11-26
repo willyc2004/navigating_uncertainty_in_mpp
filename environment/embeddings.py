@@ -88,10 +88,13 @@ class MPPContextEmbedding(nn.Module):
         # Categorical embeddings with linear layers
         self.origin_location = nn.Linear(action_dim, embed_dim)
         self.destination_location = nn.Linear(action_dim, embed_dim)
+        self.binary_origin_location = nn.Linear(action_dim*self.env.P, embed_dim)
+        self.binary_destination_location = nn.Linear(action_dim*self.env.P, embed_dim)
         # Continuous embeddings
         self.current_demand = nn.Linear(1, embed_dim)
         self.residual_capacity = nn.Linear(action_dim, embed_dim)
-        self.project_context = nn.Linear(embed_dim * 8, embed_dim, )
+        self.long_crane_capacity = nn.Linear(self.env.B - 1, embed_dim)
+        self.project_context = nn.Linear(embed_dim * 9, embed_dim, )
 
         # Self-attention layer
         self.demand_aggregation = demand_aggregation
@@ -169,13 +172,16 @@ class MPPContextEmbedding(nn.Module):
 
         # Compute vessel and location embeddings
         residual_capacity = self.residual_capacity(view_transform(td["obs"]["residual_capacity"]))
-        origin_embed = self.origin_location(view_transform(td["obs"]["agg_pol_location"]))
-        destination_embed = self.destination_location(view_transform(td["obs"]["agg_pod_location"]))
+        # origin_embed = self.origin_location(view_transform(td["obs"]["agg_pol_location"]))
+        # destination_embed = self.destination_location(view_transform(td["obs"]["agg_pod_location"]))
+        origin_embed = self.binary_origin_location(view_transform(td["obs"]["pol_location"]))
+        destination_embed = self.binary_destination_location(view_transform(td["obs"]["pod_location"]))
+        residual_lc_capacity = self.long_crane_capacity(view_transform(td["obs"]["residual_lc_capacity"]))
 
         # Concatenate all embeddings
         state_embed = torch.cat([
             current_demand, expected_demand_t, std_demand_t, observed_demand_t,
-            residual_capacity, origin_embed, destination_embed
+            residual_capacity, residual_lc_capacity, origin_embed, destination_embed
         ], dim=-1)
 
         return state_embed
