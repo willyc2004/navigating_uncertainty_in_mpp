@@ -429,6 +429,9 @@ class Projection_Nstep_PPO(RL4COLitModule):
         log_ratios = ll - old_ll.detach()  # Detach old log-likelihoods to avoid retaining graph
         ratios = torch.exp(log_ratios)  # Calculate importance sampling ratios
         clipped_ratios = torch.clamp(ratios, 1 - self.ppo_cfg["clip_range"], 1 + self.ppo_cfg["clip_range"])
+        # check_for_nans(ratios, "ratios")
+        # check_for_nans(clipped_ratios, "clipped_ratios")
+        # check_for_nans(adv, "adv")
         surrogate_loss = -torch.min(ratios * adv, clipped_ratios * adv).mean()  # Surrogate loss
 
         # Compute the value loss using Huber loss
@@ -443,10 +446,10 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 lambda_values * (1 + alpha * violation),
                 lambda_values,
             )
-        feasibility_loss = F.mse_loss(lambda_values * violation,
+        feasibility_loss = F.huber_loss(lambda_values * violation,
                                       torch.zeros_like(violation), reduction="mean")  # Feasibility loss
         proj_mean_logits_detached = proj_mean_logits.detach()
-        projection_loss = F.mse_loss(mean_logits, proj_mean_logits_detached, reduction="mean")  # Projection loss
+        projection_loss = F.huber_loss(mean_logits, proj_mean_logits_detached, reduction="mean")  # Projection loss
 
         # Combine losses into the total loss
         total_loss = (
