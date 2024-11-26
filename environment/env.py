@@ -191,7 +191,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         """Perform a step in the environment and return the next state."""
         ## Extraction and precompute
         action, realized_demand, lhs_A, rhs, t, batch_size = self._extract_from_td(td)
-        pol, pod, tau, k, rev = self._extract_cargo_parameters_for_step(self.ordered_steps[t[0]])
+        pol, pod, tau, k, rev = self._extract_cargo_parameters_for_step(t[0])
         utilization, target_long_crane, total_metrics = self._extract_from_state(td["state"])
         demand_obs = self._extract_from_obs(td["obs"], batch_size)
 
@@ -205,6 +205,9 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Compute od-pairs
         pol_locations, pod_locations = self._compute_pol_pod_locations(utilization)
         agg_pol_location, agg_pod_location = self._aggregate_pol_pod_location(pol_locations, pod_locations)
+        print("t", t[0], "pol", pol, "pod", pod,)
+        print("agg_pol_locations", agg_pol_location[0].T)
+        print("agg_pod_locations", agg_pod_location[0].T)
         # Compute total loaded
         sum_action = action.sum(dim=(-2, -1)).unsqueeze(-1)
         total_metrics["total_loaded"] += th.min(sum_action, demand_obs["current_demand"])
@@ -329,7 +332,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Parameters
         device = td.device
         t = th.zeros(*batch_size, dtype=th.int64)
-        pol, pod, tau, k, rev = self._extract_cargo_parameters_for_step(self.ordered_steps[t[0]])
+        pol, pod, tau, k, rev = self._extract_cargo_parameters_for_step(t[0])
         # Action mask and clipping
         residual_capacity = (self.norm_capacity / self.teus[t[0]]).unsqueeze(0).repeat(*batch_size, 1, 1)
         action_mask = th.ones((*batch_size, self.B*self.D), dtype=th.bool, device=device)
@@ -471,19 +474,19 @@ class MasterPlanningEnv(RL4COEnvBase):
             - pod: [max(pod_d0), min(pod_d1)]
             - pol: [min(pol_d0), max(pol_d1)]"""
         ## Get load indicators - we load below deck that is blocked
-        # For above deck (d=0)
-        min_pol_d0 = torch.where(pol_locations[:, :, 0, :] > 0, self.ports, self.P).min(dim=-1).values
-        min_pol_d0 = torch.where(min_pol_d0 == self.P, -1, min_pol_d0)
+        # For above deck (d=0):
+        min_pol_d0 = torch.where(pol_locations[:, :, 0, :] > 0, self.ports + 1, self.P).min(dim=-1).values
+        min_pol_d0 = torch.where(min_pol_d0 == self.P, 0, min_pol_d0)
         # For below deck (d=1):
-        max_pol_d1 = torch.where(pol_locations[:, :, 1, :] > 0, self.ports, -1).max(dim=-1).values
+        max_pol_d1 = torch.where(pol_locations[:, :, 1, :] > 0, self.ports + 1, 0).max(dim=-1).values
         agg_pol_locations = torch.stack((min_pol_d0, max_pol_d1), dim=-1)
 
         ## Get discharge indicators - we discharge below deck that is blocked
         # For above deck (d=0):
-        max_pod_d0 = torch.where(pod_locations[:, :, 0, :] > 0, self.ports, -1).max(dim=-1).values
+        max_pod_d0 = torch.where(pod_locations[:, :, 0, :] > 0, self.ports+1, 0).max(dim=-1).values
         # For below deck (d=1):
-        min_pod_d1 = torch.where(pod_locations[:, :, 1, :] > 0, self.ports, self.P).min(dim=-1).values
-        min_pod_d1 = torch.where(min_pod_d1 == self.P, -1, min_pod_d1)
+        min_pod_d1 = torch.where(pod_locations[:, :, 1, :] > 0, self.ports+1, self.P).min(dim=-1).values
+        min_pod_d1 = torch.where(min_pod_d1 == self.P, 0, min_pod_d1)
         agg_pod_locations = torch.stack((max_pod_d0, min_pod_d1), dim=-1)
         # Return indicators
         return agg_pol_locations.to(self.float_type), agg_pod_locations.to(self.float_type)
@@ -591,7 +594,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         - Last step of episode; compute excess crane moves at last port
         """
         # Get cargo parameters
-        pol, pod, tau, k, rev = self._extract_cargo_parameters_for_step(self.ordered_steps[t[0]])
+        pol, pod, tau, k, rev = self._extract_cargo_parameters_for_step(t[0])
 
         # Check next port with t - 1
         load_idx, disc_idx, moves_idx = self._precompute_for_step(pol)
