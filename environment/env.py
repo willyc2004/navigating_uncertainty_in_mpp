@@ -194,8 +194,6 @@ class MasterPlanningEnv(RL4COEnvBase):
         pol, pod, tau, k, rev = self._extract_cargo_parameters_for_step(self.ordered_steps[t[0]])
         utilization, target_long_crane, total_metrics = self._extract_from_state(td["state"])
         demand_obs = self._extract_from_obs(td["obs"], batch_size)
-        print("t", t[0], "obs", demand_obs["observed_demand"].mean(dim=0), "demand", demand_obs["current_demand"].mean(dim=0))
-        print("e[x]", demand_obs["expected_demand"].mean(dim=0), "std", demand_obs["std_demand"].mean(dim=0))
 
         ## Current state
         # Check done, update utilization, and compute violation
