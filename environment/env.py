@@ -120,8 +120,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         self.duration = self.transport_idx[:, 1] - self.transport_idx[:, 0]
 
         # Revenue and costs
-        self.revenues = self._precompute_revenues()
-        self.revenues = th.cat([self.revenues, self.padding])
+        self.revenues_matrix = self._precompute_revenues()
         self.ho_costs = kwargs.get("hatch_overstowage_costs") #* th.mean(self.revenues)
         self.lc_costs = kwargs.get("long_crane_costs") #* th.mean(self.revenues)
         self.ho_mask = kwargs.get("hatch_overstowage_mask")
@@ -142,7 +141,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         self.k, self.tau = get_k_tau_pair(self.ordered_steps, self.K)
         self.pol, self.pod = get_pol_pod_pair(self.tau, self.P)
         self.pol, self.pod, self.k, self.tau = self._add_padding(self.pol, self.pod, self.k, self.tau)
-        self.revenues = th.cat([self.revenues[self.ordered_steps], self.padding])
+        self.revenues = th.cat([self.revenues_matrix[self.k, self.tau], self.padding])
         self._precompute_transport_sets_episode()
         self.next_port_mask = self._precompute_next_port_mask()
         self.transform_tau_to_pol = get_pols_from_transport(self.transport_idx, self.P, dtype=self.float_type)
@@ -194,7 +193,8 @@ class MasterPlanningEnv(RL4COEnvBase):
         pol, pod, k, tau, rev = self._extract_cargo_parameters_for_step(t[0])
         utilization, target_long_crane, total_metrics = self._extract_from_state(td["state"])
         demand_obs = self._extract_from_obs(td["obs"], batch_size)
-        
+        print("obs", demand_obs["observed_demand"].mean(dim=0))
+
         ## Current state
         # Check done, update utilization, and compute violation
         done = self._check_done(t)
@@ -319,9 +319,11 @@ class MasterPlanningEnv(RL4COEnvBase):
 
     def _reset(self,  td: Optional[TensorDict] = None,  batch_size=None) -> TensorDict:
         """Reset the environment to the initial state."""
-        # Shape
-        td["realized_demand"] = td["realized_demand"].view(*batch_size, self.K, self.T)
-        td["observed_demand"] = td["observed_demand"].view(*batch_size, self.K, self.T)
+        # Reordering on demand
+        td["realized_demand"] = self._reorder_demand(td["realized_demand"], batch_size)
+        td["observed_demand"] = self._reorder_demand(td["observed_demand"], batch_size)
+        td["expected_demand"] = self._reorder_demand(td["expected_demand"], batch_size)
+        td["std_demand"] = self._reorder_demand(td["std_demand"], batch_size)
 
         # Initialize
         # Parameters
@@ -439,6 +441,11 @@ class MasterPlanningEnv(RL4COEnvBase):
             "std_demand": obs["std_demand"].view(*batch_size, self.K, self.T).clone(),
         }
         return output
+
+    def _reorder_demand(self, demand, batch_size):
+        k = self.k[:-1]
+        tau = self.tau[:-1]
+        return demand.view(*batch_size, self.K, self.T)[:, k, tau].view(*batch_size, self.T, self.K).permute(0, 2, 1)
 
     # Reward/costs functions
     def _get_reward(self, td, utilizations) -> Tensor:
@@ -678,7 +685,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Init
         steps = th.zeros(self.K * self.T, dtype=th.int64, device=self.generator.device)
         cap_usage = torch.einsum("j,i->ij", self.duration, (self.teus*self.weights))
-        self.revenue_per_capacity = self.revenues[:-1].view(self.T, self.K).T / cap_usage
+        self.revenue_per_capacity = self.revenues_matrix / cap_usage
         idx = 0
         for pol in range(self.P - 1):
             # Create a mask for `revenue_per_capacity` where `loads` is True
@@ -729,8 +736,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         revenues[mask] = (duration_grid * (1 - reduce_long_revenue)) # Long-term contracts
         i, j = th.triu_indices(self.P, self.P, offset=1) # Get above-diagonal indices of revenues
         # Add 0.1 for variable revenue per container, regardless of (k,tau)
-        output = revenues[:, i, j] + 0.1 # Shape: [K, T], where T = P*(P-1)/2
-        return output.T.reshape(-1) # Shape: [T*K]
+        return revenues[:, i, j] + 0.1 # Shape: [K, T], where T = P*(P-1)/2
 
     def _precompute_transport_sets(self):
         """Precompute transport sets based on POL with shape(s): [P, T]"""
