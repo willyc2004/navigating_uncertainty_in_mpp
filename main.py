@@ -283,7 +283,7 @@ def main(config=None):
     # Main trainer configuration
     trainer = RL4COTrainer(
         max_epochs=1, # full training epochs
-        val_check_interval=0.1, # validate every epoch
+        val_check_interval=0.2, # validate every 20%
         accelerator="gpu",
         devices=1, #torch.cuda.device_count(),
         logger=logger,
