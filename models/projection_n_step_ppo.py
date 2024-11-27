@@ -345,7 +345,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
             td_obs = td.select(*self.select_obs_td).clone()
             memory.tds_obs.append(td_obs.clone().detach())
 
-            # Perform step in environment and store results
+            # Generate actions, perform step in environment and store results
             memory.values[:, i] = self.critic(td_obs).view(-1, 1).detach()
             td = self.policy.act(td.clone(), self.env, phase=phase).detach()
             td = self.env.step(td.clone())["next"]
@@ -361,13 +361,13 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
         for k in range(self.ppo_cfg["ppo_epochs"]):
             for batch in dataloader:
-                # Forward pass
-                out = self.policy.evaluate(
+                # Forward pass based on mini-batch actions
+                out = self.policy.act(
                     batch["tds"],
                     action=batch["actions"],
                     env=self.env,
                     phase=phase,
-                    return_actions=False,
+                    return_actions=True,
                 )
                 out["value_preds"] = self.critic(batch["tds"]).clone()
 
@@ -429,9 +429,6 @@ class Projection_Nstep_PPO(RL4COLitModule):
         log_ratios = ll - old_ll.detach()  # Detach old log-likelihoods to avoid retaining graph
         ratios = torch.exp(log_ratios)  # Calculate importance sampling ratios
         clipped_ratios = torch.clamp(ratios, 1 - self.ppo_cfg["clip_range"], 1 + self.ppo_cfg["clip_range"])
-        # check_for_nans(ratios, "ratios")
-        # check_for_nans(clipped_ratios, "clipped_ratios")
-        # check_for_nans(adv, "adv")
         surrogate_loss = -torch.min(ratios * adv, clipped_ratios * adv).mean()  # Surrogate loss
 
         # Compute the value loss using Huber loss
@@ -462,8 +459,8 @@ class Projection_Nstep_PPO(RL4COLitModule):
         check_for_nans(total_loss, "total_loss")
 
         # Compute relevant violations for metrics
-        relevant_violation = self._get_relevant_violations(violation.detach(), self.env)
-
+        real_violation = compute_violation(out["action"].unsqueeze(-2), out["lhs_A"], out["rhs"])
+        relevant_violation = self._get_relevant_violations(real_violation.detach(), self.env)
         # Collect metrics for logging
         metrics = {
             # Losses
@@ -501,6 +498,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
         return {k: torch.stack([dic[k] for dic in list_metrics], dim=0) for k in list_metrics[0]}
 
     def _get_relevant_violations(self, violation, env):
+        """Get all demand violations, but only stability at timesteps between ports"""
         relevant_violation = torch.where(env.next_port_mask.view(1, -1, 1) == 1, violation, torch.zeros_like(violation))
         relevant_violation[..., 0] = violation[..., 0]
         return relevant_violation

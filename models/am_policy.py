@@ -87,40 +87,6 @@ class AttentionModelPolicy4PPO(AttentionModelPolicy):
         self.test_decode_type = test_decode_type
 
     def act(self, td, env, phase: str = "train", action=None, **kwargs) -> TensorDict:
-        hidden, init_embeds = self.encoder(td)
-
-        # Get decode type depending on phase and whether actions are passed for evaluation
-        if action is not None:
-            decode_type = "continuous_evaluate"
-        else:
-            decode_type = getattr(self, f"{phase}_decode_type")
-
-        # Setup decoding strategy
-        decode_strategy: DecodingStrategy = get_decoding_strategy(
-            decode_type,
-            temperature=self.temperature,
-            tanh_clipping=self.tanh_clipping,
-            mask_logits=self.mask_logits,
-            projection_type = self.projection_type,
-            projection_kwargs = self.projection_kwargs,
-            env = env,
-        )
-        # Pre-decoding hook: used for the initial step(s) of the decoding strategy
-        td, env, num_starts = decode_strategy.pre_decoder_hook(td, env)
-        # Additionally call a decoder hook if needed before main decoding
-        td, env, hidden = self.decoder.pre_decoder_hook(td, env, hidden, num_starts)
-
-        # Main step decoding
-        logits, mask = self.decoder(td, hidden, num_starts)
-        td = decode_strategy.step(
-            logits,
-            mask,
-            td,
-            action=action if action is not None else None,
-        )
-        return td
-
-    def evaluate(self, td, env, phase: str = "train", action=None, **kwargs) -> TensorDict:
         # Encoder: get encoder output and initial embeddings from initial state
         hidden, init_embeds = self.encoder(td)
 
