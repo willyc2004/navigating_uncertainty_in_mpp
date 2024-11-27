@@ -216,7 +216,7 @@ def process_logits(
             e_x = torch.clamp(e_x, max=clip_max)
 
         # Ensure std_x is positive
-        std_x = torch.clamp(std_x, min=eps)
+        std_x = torch.clamp(std_x, min=eps, max=1e6)
         return e_x, std_x
     else:
         raise ValueError("Continuous action space requires logits and std_x.")
