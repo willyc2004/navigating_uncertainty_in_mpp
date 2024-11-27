@@ -322,8 +322,7 @@ class ConstructivePolicy(nn.Module):
             outdict["logits"] = dict_out["logits"]
             outdict["proj_mean_logits"] = dict_out["proj_mean_logits"]
         if return_feasibility:
-            outdict["lhs_A"] = dict_out["lhs_A"]
-            outdict["rhs"] = dict_out["rhs"]
+            outdict["lhs_A"], outdict["rhs"] = dict_out["lhs_A"], dict_out["rhs"]
             outdict["violation"] = compute_violation(dict_out["actions"].unsqueeze(-2), dict_out["lhs_A"], dict_out["rhs"])
             outdict["total_profit_and_feas"] -= outdict["violation"].sum(dim=(-1,-2)).view(batch_size, 1)
         if return_entropy:
