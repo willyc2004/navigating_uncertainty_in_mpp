@@ -196,7 +196,8 @@ def main(config=None):
     policy.apply(init_weights)
     critic = CriticNetwork(encoder=copy.deepcopy(encoder), embed_dim=embed_dim,
                            hidden_dim=hidden_dim,num_layers = decoder_layers, context_embedding=context_embed,
-                           normalization=config.model.normalization, dropout_rate=dropout_rate)
+                           normalization=config.model.normalization, dropout_rate=dropout_rate,
+                           temperature=config.model.critic_temperature,)
     critic.apply(init_weights)
 
     am_ppo_params = {

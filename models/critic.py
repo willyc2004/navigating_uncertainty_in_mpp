@@ -20,6 +20,7 @@ class CriticNetwork(nn.Module):
             context_embedding: Optional[nn.Module] = None,  # Context embedding for additional input
             normalization: Optional[str] = None,
             dropout_rate: Optional[float] = None,
+            temperature: float = 1.0,
     ):
         super(CriticNetwork, self).__init__()
 
@@ -36,7 +37,7 @@ class CriticNetwork(nn.Module):
                 embed_dim = getattr(encoder, "embed_dim", embed_dim)
 
             # Create value head with residual connections
-            ffn_activation = nn.LeakyReLU()
+            ffn_activation = nn.ReLU() #nn.LeakyReLU()
             norm_dict = {
                 'layer': nn.LayerNorm(embed_dim),
                 'batch': nn.BatchNorm1d(embed_dim),
@@ -63,15 +64,16 @@ class CriticNetwork(nn.Module):
 
     def forward(self, x: Union[Tensor, dict]) -> Tensor:
         """Forward pass of the critic network: encode the input and return the value."""
-        # Step 1: Encode input using the encoder
+        # Encode input using the encoder
         h, _ = self.encoder(x)  # [batch_size, N, embed_dim]
-
-        # Step 2: If context_embedding exists, compute and apply it
+        # If context_embedding exists, compute and apply it
         if self.context_embedding is not None:
             h = self.context_embedding(h, x)
-
-        # Step 3: Compute value using value_head
+        # Compute value using value_head
         output = self.value_head(h)  # [batch_size, N]
+        # Apply temperature scaling
+        output = output / self.temperature
+        # Return value
         return output
 
 def create_critic_from_actor(
