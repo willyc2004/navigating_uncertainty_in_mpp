@@ -80,7 +80,6 @@ am_ppo:
     project_per_port: False
   optimizer: "Adam"
   #AdamW, Adam
-  train_data_size: 100000
-  #5000000 # 3000000
-  val_data_size: 50000
-  test_data_size: 50000
+  train_data_size: 400000  #5_000_000 # 3_000_000
+  val_data_size: 5000 # 50000
+  test_data_size: 5000
