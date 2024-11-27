@@ -461,13 +461,6 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 discrete=False,
             )
 
-            # # Raise error if nan or inf in td, mean_logits or std_logits
-            # recursive_check_for_nans(td)
-            # check_for_nans(mean_logits, "mean_logits")
-            # check_for_nans(std_logits, "std_logits")
-            # # Raise error if std_x is zero
-            # if (std_logits == 0).any():
-            #     raise ValueError("std_x is zero")
             proj_mean_logits = mean_logits.clone()
             # proj_mean_logits = self.projection_layer(mean_logits, td["lhs_A"], td["rhs"], )
             # check_for_nans(proj_mean_logits, "proj_mean_logits")
