@@ -207,10 +207,16 @@ class MasterPlanningEnv(RL4COEnvBase):
         agg_pol_location, agg_pod_location = self._aggregate_pol_pod_location(pol_locations, pod_locations)
         # Compute total loaded
         sum_action = action.sum(dim=(-2, -1)).unsqueeze(-1)
-        total_metrics["total_loaded"] += th.min(sum_action, demand_obs["current_demand"])
+        total_metrics["total_loaded"] += sum_action
+        # total_metrics["total_loaded"] += th.min(sum_action, demand_obs["current_demand"])
+        # print("act", sum_action.T)
+        # print("dem", demand_obs["current_demand"].T)
+        # print("min", th.min(sum_action, demand_obs["current_demand"]).T)
+        # print("relu(sum - dem).mean()", th.relu(sum_action - demand_obs["current_demand"]).mean())
 
         ## Reward
-        revenue = th.min(sum_action, demand_obs["current_demand"]) * self.revenues[t[0]]
+        revenue = sum_action * self.revenues[t[0]]
+        # revenue = th.min(sum_action, demand_obs["current_demand"]) * self.revenues[t[0]]
         profit = revenue.clone()
         if self.next_port_mask[t].any():
             # Compute aggregated: overstowage and long crane excess
@@ -313,7 +319,7 @@ class MasterPlanningEnv(RL4COEnvBase):
             "revenue": revenue,
             "cost": cost,
             "done": done,
-            "episodic_step":t,
+            "timestep":t,
         })
         return td
 
@@ -397,7 +403,7 @@ class MasterPlanningEnv(RL4COEnvBase):
             "revenue": th.zeros_like(t, dtype=self.float_type),
             "cost": th.zeros_like(t, dtype=self.float_type),
             "done": th.zeros_like(t, dtype=th.bool),
-            "episodic_step": t,
+            "timestep": t,
         }, batch_size=batch_size, device=device)
         return td
 
@@ -406,13 +412,13 @@ class MasterPlanningEnv(RL4COEnvBase):
         """Extract action, reward and step from the TensorDict."""
         # Must clone to avoid in-place operations!
         batch_size = td.batch_size
-        episodic_step = td["episodic_step"]#.clone()
+        timestep = td["timestep"]#.clone()
         action = td["action"].view(*batch_size, self.B, self.D,)#.clone()
         # action_mask = td["action_mask"]#.clone()
         realized_demand = td["realized_demand"].view(*batch_size, self.T, self.K)#.clone()
         lhs_A = td["lhs_A"]#.clone()
         rhs = td["rhs"]#.clone()
-        return action, realized_demand, lhs_A, rhs, episodic_step, batch_size
+        return action, realized_demand, lhs_A, rhs, timestep, batch_size
 
     def _extract_cargo_parameters_for_step(self, t) -> Tuple:
         """Extract cargo-related parameters"""

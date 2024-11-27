@@ -133,7 +133,7 @@ class MPPContextEmbedding(nn.Module):
                 td: TensorDict):
         """Embed the context for the MPP"""
         # Get init embedding and state embedding
-        select_init_embedding = gather_by_index(init_embeddings, td["episodic_step"])
+        select_init_embedding = gather_by_index(init_embeddings, td["timestep"])
         check_for_nans(select_init_embedding, "select_init_embedding")
         state_embedding = self._state_embedding(td)
         check_for_nans(state_embedding, "state_embedding")
@@ -155,7 +155,7 @@ class MPPContextEmbedding(nn.Module):
         # todo: code is messy! clean up
         """
         # Init normalize
-        teu = self.env.teus[self.env.k[td["episodic_step"][0]]]
+        teu = self.env.teus[self.env.k[td["timestep"][0]]]
         norm_cargo_t = (teu / self.env.total_capacity).view(1, -1, 1)
 
         # Determine the shape based on dimensionality of current_demand
@@ -186,7 +186,7 @@ class MPPContextEmbedding(nn.Module):
 
         # Extract timestep-specific demand embedding based on episodic step
         def extract_demand_at_timestep(demand, td):
-            dim, index = (2, td["episodic_step"][:, 0]) if td["done"].dim() == 3 else (1, td["episodic_step"])
+            dim, index = (2, td["timestep"][:, 0]) if td["done"].dim() == 3 else (1, td["timestep"])
             return gather_by_index(demand, index, dim=dim)
 
         # Compute demand embeddings

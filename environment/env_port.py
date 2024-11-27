@@ -179,7 +179,7 @@ class PortMasterPlanningEnv(MasterPlanningEnv):
             "revenue": revenue,
             "cost": cost,
             "done": done,
-            "episodic_step":t,
+            "timestep":t,
         })
         return td
 
@@ -252,7 +252,7 @@ class PortMasterPlanningEnv(MasterPlanningEnv):
             "revenue": th.zeros_like(t, dtype=self.float_type),
             "cost": th.zeros_like(t, dtype=self.float_type),
             "done": th.zeros_like(t, dtype=th.bool,),
-            "episodic_step": t,
+            "timestep": t,
         }, batch_size=batch_size, device=device)
         return td
 
@@ -261,13 +261,13 @@ class PortMasterPlanningEnv(MasterPlanningEnv):
         """Extract action, reward and step from the TensorDict."""
         # Must clone to avoid in-place operations!
         batch_size = td.batch_size
-        episodic_step = td["episodic_step"].clone()
+        timestep = td["timestep"].clone()
         action = td["action"].clone().view(*batch_size, self.B, self.D, self.K, self.P-1)
         # action_mask = td["action_mask"].clone()
         realized_demand = td["realized_demand"].clone()
         lhs_A = td["lhs_A"].clone()
         rhs = td["rhs"].clone()
-        return action, realized_demand, lhs_A, rhs, episodic_step, batch_size
+        return action, realized_demand, lhs_A, rhs, timestep, batch_size
 
     def _extract_indices(self, t) -> Tuple:
         """Extract """
