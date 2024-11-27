@@ -39,6 +39,7 @@ model:
   normalization: "layer"
   out_bias_pointer_attn: False
   temperature: 1.0
+  critic_temperature: 0.1
   tanh_clipping: 0
   train_decode_type: "continuous_sampling"
   val_decode_type: "continuous_projection"
@@ -71,7 +72,7 @@ ppo:
 
 # AM PPO parameters
 am_ppo:
-  lr: 0.0001
+  lr: 0.001
   projection_type: "linear_violation"
   #None, convex_program, worst_case_violation, linear_violation, linear_program
   projection_kwargs:
