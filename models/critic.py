@@ -26,6 +26,7 @@ class CriticNetwork(nn.Module):
 
         self.encoder = encoder
         self.context_embedding = context_embedding  # Store context_embedding
+        self.temperature = temperature
 
         if value_head is None:
             # Adjust embed_dim if encoder has a different dimension
