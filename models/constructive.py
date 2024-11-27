@@ -215,7 +215,7 @@ class ConstructivePolicy(nn.Module):
 
         project_per_port = decoding_kwargs.get("projection_kwargs", {}).get("project_per_port", False)
         if project_per_port:
-            # necessary to prevent double projection
+            # todo: necessary to prevent double projection
             decode_type = "continuous_sampling"
 
         # Setup decoding strategy
@@ -237,73 +237,26 @@ class ConstructivePolicy(nn.Module):
             env=env,
             **decoding_kwargs,
         )
-
         # Pre-decoding hook: used for the initial step(s) of the decoding strategy
         td, env, num_starts = decode_strategy.pre_decoder_hook(td, env)
         # Additionally call a decoder hook if needed before main decoding
         td, env, hidden = self.decoder.pre_decoder_hook(td, env, hidden, num_starts)
 
-        # Initialize
-        batch_size = td.batch_size[0]
         if project_per_port:
-            # Setup projection layer
-            projection_layer = ProjectionFactory.create_class(decoding_kwargs.get("projection_type", {}),
-                                                              kwargs=decoding_kwargs.get("projection_kwargs", {}))
-            # Perform decoding per port to construct the solution
-            step = 0
-            # pred_violations = []
-            # proj_violations = []
-            for port in range(env.P-1):
-                pred_actions = torch.zeros(batch_size, env.K * env.T, env.B * env.D, device=td.device)
-                steps_port = (env.P-(port+1))*env.K
-                ## Decode for each port based on td
-                port_td = td.copy() # Use copy to avoid changing the original td
-                for t in range(steps_port):
-                    logits, mask = self.decoder(port_td, hidden, num_starts)
-                    port_td = decode_strategy_.step(logits, mask, port_td, action=None)
-                    pred_actions[:, step + t, ] = port_td["action"]
-                    port_td = env.step(port_td)["next"]
-                    # pred_violations.append(port_td["violation"].mean(dim=(0,)))
-
-                ## Project actions to feasible region
-                A = env.A.permute(2, 0, 1).unsqueeze(0).expand(batch_size, -1, -1, -1)
-                proj_actions = projection_layer(pred_actions, A, td["rhs"])
-                proj_actions = torch.where(pred_actions > 0, proj_actions, pred_actions)
-
-                # print difference between pred_actions and proj_actions
-                # print("pred_actions", pred_actions.sum(dim=(-1,-2)).mean())
-                # print("proj_actions", proj_actions.sum(dim=(-1,-2)).mean())
-                # print("reduction", (pred_actions.sum(dim=(-1,-2)) - proj_actions.sum(dim=(-1,-2))).mean())
-                # print("reduction %", (pred_actions.sum(dim=(-1,-2)) - proj_actions.sum(dim=(-1,-2))).mean()
-                #       / pred_actions.sum(dim=(-1,-2)).mean())
-
-                ## Decode with projected actions
-                for _ in range(steps_port):
-                    logits, mask = self.decoder(td, hidden, num_starts)
-                    td = decode_strategy.step(logits, mask, td, action=proj_actions[:, step, ])
-                    td = env.step(td)["next"]
-                    # proj_violations.append(td["violation"].mean(dim=(0,)))
-                    step += 1
-
-            dict_out, td, env = decode_strategy.post_decoder_hook(td, env)
-            # # Analyze the difference between pred_violations and proj_violations
-            # pred_violations = torch.stack(pred_violations)
-            # proj_violations = torch.stack(proj_violations)
-            # print("pred_violations", pred_violations.sum(dim=0))
-            # print("proj_violations", proj_violations.sum(dim=0))
-            # breakpoint()
+            # Perform portwise decoding to construct the solution
+            self._portwise_decoding(td, env, actions=actions, hidden=hidden, num_starts=num_starts,
+                                decode_strategy=decode_strategy, decode_strategy_=decode_strategy_,max_steps=max_steps,)
         else:
             # Perform main decoding to construct the solution
-            self.construct_solution(td, env, actions=actions, hidden=hidden, num_starts=num_starts,
-                                    decode_strategy=decode_strategy, max_steps=max_steps,)
+            self._main_decoding(td, env, actions=actions, hidden=hidden, num_starts=num_starts,
+                                decode_strategy=decode_strategy, max_steps=max_steps,)
 
-            # Post-decoding hook: used for the final step(s) of the decoding strategy
-            dict_out, td, env = decode_strategy.post_decoder_hook(td, env)
+        # Post-decoding hook: used for the final step(s) of the decoding strategy
+        dict_out, td, env = decode_strategy.post_decoder_hook(td, env)
 
         # Output dictionary construction
         if calc_reward:
             td.set("total_profit_and_feas", env.get_reward(td, dict_out["utilization"]))
-
         outdict = {
             "total_profit_and_feas": td["total_profit_and_feas"],
             "log_likelihood": get_log_likelihood(
@@ -324,16 +277,16 @@ class ConstructivePolicy(nn.Module):
         if return_feasibility:
             outdict["lhs_A"], outdict["rhs"] = dict_out["lhs_A"], dict_out["rhs"]
             outdict["violation"] = compute_violation(dict_out["actions"].unsqueeze(-2), dict_out["lhs_A"], dict_out["rhs"])
-            outdict["total_profit_and_feas"] -= outdict["violation"].sum(dim=(-1,-2)).view(batch_size, 1)
+            outdict["total_profit_and_feas"] -= outdict["violation"].sum(dim=(-1,-2)).view(td.batch_size[0], 1)
         if return_entropy:
             outdict["entropy"] = calculate_entropy(dict_out["logprobs"])
         if return_td:
             outdict["td"] = td
         return outdict
 
-    def construct_solution(self, td: TensorDict, env: RL4COEnvBase, actions=None, hidden: Any = None, num_starts: int = 0,
-                           decode_strategy: DecodingStrategy = None, max_steps=1_000_000, use_lp_solver=False,
-                           **decoding_kwargs):
+    def _main_decoding(self, td: TensorDict, env: RL4COEnvBase, actions=None, hidden: Any = None, num_starts: int = 0,
+                       decode_strategy: DecodingStrategy = None, max_steps=1_000_000, use_lp_solver=False,
+                       **decoding_kwargs):
         # Main decoding: loop until all sequences are done
         step = 0
         while not td["done"].all():
@@ -352,6 +305,59 @@ class ConstructivePolicy(nn.Module):
                     f"Exceeded maximum number of steps ({max_steps}) during decoding"
                 )
                 break
+
+    def _portwise_decoding(self, td: TensorDict, env: RL4COEnvBase, actions=None, hidden: Any = None, num_starts: int = 0,
+                           decode_strategy: DecodingStrategy = None, decode_strategy_: DecodingStrategy = None,
+                           max_steps=1_000_000, use_lp_solver=False, **decoding_kwargs):
+        # Setup projection layer
+        batch_size = td.batch_size[0]
+        projection_layer = ProjectionFactory.create_class(decoding_kwargs.get("projection_type", {}),
+                                                          kwargs=decoding_kwargs.get("projection_kwargs", {}))
+        # Perform decoding per port to construct the solution
+        step = 0
+        # pred_violations = []
+        # proj_violations = []
+        for port in range(env.P - 1):
+            pred_actions = torch.zeros(batch_size, env.K * env.T, env.B * env.D, device=td.device)
+            steps_port = (env.P - (port + 1)) * env.K
+            ## Decode for each port based on td
+            port_td = td.copy()  # Use copy to avoid changing the original td
+            for t in range(steps_port):
+                logits, mask = self.decoder(port_td, hidden, num_starts)
+                port_td = decode_strategy_.step(logits, mask, port_td, action=None)
+                pred_actions[:, step + t, ] = port_td["action"]
+                port_td = env.step(port_td)["next"]
+                # pred_violations.append(port_td["violation"].mean(dim=(0,)))
+
+            ## Project actions to feasible region
+            A = env.A.permute(2, 0, 1).unsqueeze(0).expand(batch_size, -1, -1, -1)
+            print("A", A.shape)
+            print("rhs", td["rhs"].shape)
+            breakpoint()
+            proj_actions = projection_layer(pred_actions, A, td["rhs"])
+            proj_actions = torch.where(pred_actions > 0, proj_actions, pred_actions)
+
+            # print difference between pred_actions and proj_actions
+            # print("pred_actions", pred_actions.sum(dim=(-1,-2)).mean())
+            # print("proj_actions", proj_actions.sum(dim=(-1,-2)).mean())
+            # print("reduction", (pred_actions.sum(dim=(-1,-2)) - proj_actions.sum(dim=(-1,-2))).mean())
+            # print("reduction %", (pred_actions.sum(dim=(-1,-2)) - proj_actions.sum(dim=(-1,-2))).mean()
+            #       / pred_actions.sum(dim=(-1,-2)).mean())
+
+            ## Decode with projected actions
+            for _ in range(steps_port):
+                logits, mask = self.decoder(td, hidden, num_starts)
+                td = decode_strategy.step(logits, mask, td, action=proj_actions[:, step, ])
+                td = env.step(td)["next"]
+                # proj_violations.append(td["violation"].mean(dim=(0,)))
+                step += 1
+
+        # # Analyze the difference between pred_violations and proj_violations
+        # pred_violations = torch.stack(pred_violations)
+        # proj_violations = torch.stack(proj_violations)
+        # print("pred_violations", pred_violations.sum(dim=0))
+        # print("proj_violations", proj_violations.sum(dim=0))
+        # breakpoint()
 
 def stack_dicts_on_dim(dicts, dim=1):
     """Stack a list of dictionaries on the first dimension of the tensors"""
