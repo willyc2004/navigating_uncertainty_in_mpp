@@ -265,7 +265,8 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
         self.lambda_violations = torch.tensor([demand_lambda] + [stability_lambda] * env.n_stability,
                                               device='cuda', dtype=torch.float32)
-        self.select_obs_td = ["obs", "done", "timestep", "action_mask", "lhs_A", "rhs", ("state", "utilization")]
+        self.select_obs_td = ["obs", "done", "timestep", "action_mask", "lhs_A", "rhs", "clip_min", "clip_max",
+                              ("state", "utilization")]
 
     def configure_optimizers(self):
         parameters = list(self.policy.parameters()) + list(self.critic.parameters())
