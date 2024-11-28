@@ -37,16 +37,18 @@ def stepwise_lp(action, A, b, verbose=True,):
     # Decision variables
     s = model.continuous_var_list(n, name="s", lb=0)  # s >= 0
     x = model.continuous_var_list(n, name="x", lb=0)  # x >= 0
+    slack = model.continuous_var_list(m, name="slack", lb=0)  # slack >= 0
+    slack_param = 10
 
     # Constraints
-    model.add_constraints(A[j, :] @ x <= b[j] for j in range(m))  # A x <= b
+    model.add_constraints(A[j, :] @ x <= b[j] + slack[j] for j in range(m))  # A x <= b + slack
     model.add_constraints(x[i] == action[i] - s[i] for i in range(n))  # x = action - s
     model.add_constraints(s[i] <= action[i] for i in range(n))  # s <= action
 
     # Objective function: Minimize sum of s
     model.set_time_limit(100) #3600
     model.parameters.mip.tolerances.mipgap = 0.0001  # 0.01%
-    model.minimize(model.sum(s))
+    model.minimize(model.sum(s) + slack_param * model.sum(slack))
 
     # Solve the model
     solution = model.solve(log_output=verbose)
