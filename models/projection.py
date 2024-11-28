@@ -8,7 +8,7 @@ class EmptyLayer(th.nn.Module):
     def __init__(self, **kwargs):
         super(EmptyLayer, self).__init__()
 
-    def forward(self, x, A, b):
+    def forward(self, x, A, b, **kwargs):
         return x
 
 class ConvexProgramLayer(th.nn.Module):
@@ -39,7 +39,7 @@ class ConvexProgramLayer(th.nn.Module):
         }
         # check code: https://github.com/INFERLab/PROF/blob/main/agents/nn_policy.py
 
-    def forward(self, x, A, b, t):
+    def forward(self, x, A, b, t, **kwargs):
         # Get the dimensions of the input
         batch_size = A.shape[0]
         x_out = []
@@ -68,7 +68,7 @@ class LinearViolationAdaption(th.nn.Module):
     def __init__(self, **kwargs):
         super(LinearViolationAdaption, self).__init__()
 
-    def forward(self, x, A, b, alpha=0.005, delta=0.01, tolerance=0.01, max_iter=100,):
+    def forward(self, x, A, b, alpha=0.005, delta=0.01, tolerance=0.01, max_iter=100, **kwargs):
         """
         - alpha => 0.04 diverges, 0.025 might also cause nans
         - delta, tolerance = 0.05 causes overshooting demand
@@ -136,7 +136,7 @@ class LinearProgramLayer(th.nn.Module):
     def __init__(self, **kwargs):
         super(LinearProgramLayer, self).__init__()
 
-    def forward(self, x, A, b,):
+    def forward(self, x, A, b, **kwargs):
         x_ = th.zeros_like(x)
         for i in range(x.size(0)):
             # Solve the stepwise problem for each instance in the batch
@@ -148,7 +148,7 @@ class WorstcaseViolationLayer(th.nn.Module):
     def __init__(self, **kwargs):
         super(WorstcaseViolationLayer, self).__init__()
 
-    def forward(self, x, A, b, violation=None, eps=1e-3):
+    def forward(self, x, A, b, violation=None, eps=1e-3, **kwargs):
         """Scale x by worst-case constraint violation based on exponential similarity"""
         eta = th.clamp(self.exponential_similarity(violation), min=eps)
         eta_min = th.min(eta, dim=1).values
