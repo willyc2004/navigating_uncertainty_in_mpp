@@ -647,15 +647,17 @@ class MasterPlanningEnv(RL4COEnvBase):
         return A.view(self.n_constraints, self.B*self.D, -1)
 
     def create_lhs_A(self, lhs_A:Tensor, t:Tensor) -> Tensor:
-        """Create lhs A_t of compact constraints: A_t x_t <= b_t"""
-        lhs_A[:] = self.A[:,:, t[0]].clone()
+        """Get A_t based on ordered timestep"""
+        order_t = self.ordered_steps[t[0]]
+        lhs_A[:] = self.A[:,:, order_t].clone()
         return lhs_A
 
     def create_rhs(self, utilization:Tensor, current_demand:Tensor, batch_size) -> Tensor:
-        """Create rhs of compact constraints: A_t x_t <= b_t"""
+        """Create b_t based on current utilization and demand"""
         # Get rhs = [current_demand, LM_ub, LM_lb, VM_ub, VM_lb]
         # Stability constraints
         A = self.swap_signs_stability.view(-1, 1, 1,) * self.A.clone()
+        # Note util is filled on k,tau derived from order_t, i.e., util and A are static!
         rhs = utilization.view(*batch_size, -1) @ A.view(self.n_constraints, -1).T
         # Demand constraint
         rhs[:, :self.n_demand] = current_demand.view(-1, 1)
