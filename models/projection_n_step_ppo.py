@@ -452,8 +452,8 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 surrogate_loss
                 + self.ppo_cfg["vf_lambda"] * value_loss
                 - self.ppo_cfg["entropy_lambda"] * entropy.mean()
-                # + self.ppo_cfg["feasibility_lambda"] * feasibility_loss
-                # + self.ppo_cfg["projection_lambda"] * projection_loss
+                + self.ppo_cfg["feasibility_lambda"] * feasibility_loss
+                + self.ppo_cfg["projection_lambda"] * projection_loss
         ).mean()
         check_for_nans(total_loss, "total_loss")
 
