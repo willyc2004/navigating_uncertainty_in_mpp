@@ -330,19 +330,19 @@ class ConstructivePolicy(nn.Module):
                 # Predict actions for the port
                 logits, mask = self.decoder(port_td, hidden, num_starts)
                 port_td = decode_strategy_.step(logits, mask, port_td, action=None)
-                # Store actions and rhs in portwise tensors
+                # Store lhs_A, rhs and actions for each step
                 port_actions[:, port, t] = port_td["action"].clone()
-                port_rhs[:, port, t] = port_td["rhs"][...,0]
-                # Only store stability rhs at start port
-                if t == 0: port_rhs[:, port, -4:] = port_td["rhs"][...,1:]
+                port_A[:, port, -4:, t, :] = port_td["lhs_A"][:, -4:, :]
+                port_rhs[:, port, t] = port_td["rhs"][...,0] # Demand rhs
+                if t == 0: port_rhs[:, port, -4:] = port_td["rhs"][...,-4:] # Stability rhs
                 # Perform step
                 port_td = env.step(port_td)["next"]
 
             ## Project actions to feasible region
-            # todo: demand violation works, stability violation does not work
-            #  - check if stability is correctly computed
             proj_actions = projection_layer(port_actions[:, port].view(-1, self.features_action*self.features_class_pod),
-                                            port_A[:, port], port_rhs[:, port],
+                                            port_A[:, port].view(batch_size, self.n_constraints,
+                                                                 self.features_class_pod*self.features_action),
+                                            port_rhs[:, port],
                                             alpha=1e-4, delta=1e-3, tolerance=1e-3, max_iter=100,)
             proj_actions = proj_actions.view(batch_size, self.features_class_pod, self.features_action)
 
@@ -372,15 +372,12 @@ class ConstructivePolicy(nn.Module):
         - First, k=0 for (b*d) features, then k=1 for next (b*d) features, etc.
         """
         batch_size = td.batch_size[0]
-        stab_params = stability_params.permute(0,2,1).view(1, 1, 4, -1, self.features_action).repeat(1, 1, 1, self.pods, 1)
         A = torch.zeros((batch_size, self.steps, self.n_constraints, self.features_class_pod, self.features_action, ),
                         device=td.device, dtype=torch.float32)
         for i in range(self.n_constraints):
             if i < self.features_class_pod:
                 A[:, :, i, i, :] = 1
-        A[:, :, -4:, :, :] = stab_params
-        output = A.view(batch_size, self.steps, self.n_constraints, self.features_action*self.features_class_pod)
-        return output
+        return A
 
 def stack_dicts_on_dim(dicts, dim=1):
     """Stack a list of dictionaries on the first dimension of the tensors"""
