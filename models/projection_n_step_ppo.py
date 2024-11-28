@@ -349,10 +349,10 @@ class Projection_Nstep_PPO(RL4COLitModule):
             memory.values[:, i] = self.critic(td_obs).view(-1, 1).detach()
             td = self.policy.act(td.clone(), self.env, phase=phase).detach()
             td = self.env.step(td.clone())["next"]
-            memory.actions[:, i] = td["action"]
-            memory.logprobs[:, i] = td["logprobs"]
-            memory.rewards[:, i] = td["reward"].view(-1, 1)
-            memory.profit[:, i] = td["profit"].view(-1, 1)
+            memory.actions[:, i] = td["action"].clone()
+            memory.logprobs[:, i] = td["logprobs"].clone()
+            memory.rewards[:, i] = td["reward"].view(-1, 1).clone()
+            memory.profit[:, i] = td["profit"].view(-1, 1).clone()
 
         # Create DataLoader for mini-batch sampling
         dataset = BatchDataset(td, memory)
@@ -432,7 +432,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
         surrogate_loss = -torch.min(ratios * adv, clipped_ratios * adv).mean()  # Surrogate loss
 
         # Compute the value loss using Huber loss
-        value_loss = F.huber_loss(value_preds, returns.detach(), reduction="mean")
+        value_loss = F.mse_loss(value_preds, returns.detach(), reduction="mean")
 
         # Compute feasibility and projection losses
         violation = compute_violation(proj_mean_logits.unsqueeze(-2), out["lhs_A"], out["rhs"])  # Feasibility violation
@@ -443,10 +443,9 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 lambda_values * (1 + alpha * violation),
                 lambda_values,
             )
-        feasibility_loss = F.huber_loss(lambda_values * violation,
-                                      torch.zeros_like(violation), reduction="mean")  # Feasibility loss
+        feasibility_loss = F.mse_loss(lambda_values * violation, torch.zeros_like(violation), reduction="mean")  # Feasibility loss
         proj_mean_logits_detached = proj_mean_logits.detach()
-        projection_loss = F.huber_loss(mean_logits, proj_mean_logits_detached, reduction="mean")  # Projection loss
+        projection_loss = F.mse_loss(mean_logits, proj_mean_logits_detached, reduction="mean")  # Projection loss
 
         # Combine losses into the total loss
         total_loss = (
