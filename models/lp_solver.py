@@ -26,82 +26,45 @@ def to_numpy(*args):
     return result
 
 def stepwise_lp(action, A, b, verbose=True,):
-    """Stepwise LP to find feasible action"""
     # Create environment and MIP model
-    mdl = Model(name='stepwise_lp')
+    model = Model(name='stepwise_lp')
 
     # Get parameters, detach and reshape
     action, A, b = to_numpy(action, A, b)
-    num_vars = action.shape[0]
-    num_constraints = b.shape[0]
+    n = action.shape[0]
+    m = b.shape[0]
 
-    # Add variables to the model
-    s_min = mdl.continuous_var_list(num_vars, lb=0, name="s-")
-    # s_plus = mdl.continuous_var_list(num_vars, lb=0, name="s+")
-    x_ = mdl.continuous_var_list(num_vars, lb=0, name="x_")
-    z = mdl.continuous_var_list(num_constraints, lb=0, name="z")
+    # Decision variables
+    s = model.continuous_var_list(n, name="s", lb=0)  # s >= 0
+    x = model.continuous_var_list(n, name="x", lb=0)  # x >= 0
 
-    # Add constraints to the model
-    for j in range(num_vars):
-        mdl.add_constraint(x_[j] == (action[j] - s_min[j]))
+    # Constraints
+    model.add_constraints(A[j, :] @ x <= b[j] for j in range(m))  # A x <= b
+    model.add_constraints(x[i] == action[i] - s[i] for i in range(n))  # x = action - s
+    model.add_constraints(s[i] <= action[i] for i in range(n))  # s <= action
 
-    for i in range(num_constraints):
-        mdl.add_constraint(mdl.sum(A[i][j] * x_[j] for j in range(num_vars)) <= b[i])
+    # Objective function: Minimize sum of s
+    model.set_time_limit(100) #3600
+    model.parameters.mip.tolerances.mipgap = 0.0001  # 0.01%
+    model.minimize(model.sum(s))
 
-    # Set the objective function
-    mdl.minimize(mdl.sum(s_min[j] for j in range(num_vars)))
+    # Solve the model
+    solution = model.solve(log_output=verbose)
 
-    # # Add constraints to the model
-    # for j in range(num_vars):
-    #     mdl.add_constraint(x_[j] == (action[j] - s_min[j]))
-    #
-    # for i in range(num_constraints):
-    #     if i != 0:
-    #         mdl.add_constraint(mdl.sum(A[i][j] * x_[j] for j in range(num_vars)) - b[i] <= z[i])
-    #
-    # mdl.minimize(param * mdl.sum(z[i] for i in range(num_constraints)) + mdl.sum(s_min[j] for j in range(num_vars)))
 
-    # Solve the problem
-    mdl.set_time_limit(100) #3600
-    mdl.parameters.mip.tolerances.mipgap = 0.0001  # 0.01%
-    solution = mdl.solve(log_output=verbose)
-    # print("Solution status: ", mdl.get_solve_status())
-
-    # Extract solution, objective value, optimality gap and time
-    x_sol = np.zeros((num_vars,))
-    try:
-        # Extract solution
-        for j in range(num_vars):
-            x_sol[j] = x_[j].solution_value
-        # Compute objective value, optimality gap and time
-        # print("action", action)
-        # print("x_sol", x_sol)
+    # Check if the solution exists
+    if solution:
         obj = solution.get_objective_value()
-        opt_gap = mdl.solve_details.mip_relative_gap
-        time = mdl.solve_details.time
+        opt_gap = model.solve_details.mip_relative_gap
+        time = model.solve_details.time
+        s_opt = np.array([solution[s[i]] for i in range(n)])
+        x_opt = np.array([solution[x[i]] for i in range(n)])
+        print("Optimal s:", s_opt.mean())
+        print("Optimal x:", x_opt.mean())
+        return x_opt, obj, opt_gap, time
+    else:
+        raise Exception("No solution found.")
 
-    except:
-        obj = np.nan
-        opt_gap = np.nan
-        time = np.nan
-        x_sol = action
-
-        # Find violations
-        print("-"*50)
-        print("Infeasible MIP")
-        print("-"*50)
-        print("A", A)
-        print("b", b)
-        print("action", action)
-        breakpoint()
-        # Ax = A.T @ action.reshape(-1)
-        # diff = b - Ax
-        # print("Ax", Ax)
-        # print("diff", diff)
-
-
-        pass
-    return x_sol, obj, opt_gap, time
 
 def polwise_lp(util, demand, env, verbose=True,):
     """POL-wise LP to find feasible action"""
