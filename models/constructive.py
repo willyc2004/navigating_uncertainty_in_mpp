@@ -245,7 +245,8 @@ class ConstructivePolicy(nn.Module):
         if project_per_port:
             # Perform portwise decoding to construct the solution
             self._portwise_decoding(td, env, actions=actions, hidden=hidden, num_starts=num_starts,
-                                decode_strategy=decode_strategy, decode_strategy_=decode_strategy_,max_steps=max_steps,)
+                                    decode_strategy=decode_strategy, decode_strategy_=decode_strategy_,max_steps=max_steps,
+                                    **decoding_kwargs)
         else:
             # Perform main decoding to construct the solution
             self._main_decoding(td, env, actions=actions, hidden=hidden, num_starts=num_starts,
@@ -315,49 +316,69 @@ class ConstructivePolicy(nn.Module):
                                                           kwargs=decoding_kwargs.get("projection_kwargs", {}))
         # Perform decoding per port to construct the solution
         step = 0
-        # pred_violations = []
-        # proj_violations = []
+        # Create constraint matrix for portwise decoding
+        self._constraint_shapes_portwise(env)
+        port_A = self._create_port_constraint_matrix(td, env.stability_params_lhs)
+        port_actions = torch.zeros(batch_size, env.P-1, self.features_class_pod, self.features_action, device=td.device)
+        port_rhs = torch.zeros(batch_size, env.P-1, self.n_constraints, device=td.device)
         for port in range(env.P - 1):
-            pred_actions = torch.zeros(batch_size, env.K * env.T, env.B * env.D, device=td.device)
             steps_port = (env.P - (port + 1)) * env.K
+
             ## Decode for each port based on td
             port_td = td.copy()  # Use copy to avoid changing the original td
             for t in range(steps_port):
+                # Predict actions for the port
                 logits, mask = self.decoder(port_td, hidden, num_starts)
                 port_td = decode_strategy_.step(logits, mask, port_td, action=None)
-                pred_actions[:, step + t, ] = port_td["action"]
+                # Store actions and rhs in portwise tensors
+                port_actions[:, port, t] = port_td["action"].clone()
+                port_rhs[:, port, t] = port_td["rhs"][...,0]
+                # Only store stability rhs at start port
+                if t == 0: port_rhs[:, port, -4:] = port_td["rhs"][...,1:]
+                # Perform step
                 port_td = env.step(port_td)["next"]
-                # pred_violations.append(port_td["violation"].mean(dim=(0,)))
 
             ## Project actions to feasible region
-            A = env.A.permute(2, 0, 1).unsqueeze(0).expand(batch_size, -1, -1, -1)
-            print("A", A.shape)
-            print("rhs", td["rhs"].shape)
-            breakpoint()
-            proj_actions = projection_layer(pred_actions, A, td["rhs"])
-            proj_actions = torch.where(pred_actions > 0, proj_actions, pred_actions)
-
-            # print difference between pred_actions and proj_actions
-            # print("pred_actions", pred_actions.sum(dim=(-1,-2)).mean())
-            # print("proj_actions", proj_actions.sum(dim=(-1,-2)).mean())
-            # print("reduction", (pred_actions.sum(dim=(-1,-2)) - proj_actions.sum(dim=(-1,-2))).mean())
-            # print("reduction %", (pred_actions.sum(dim=(-1,-2)) - proj_actions.sum(dim=(-1,-2))).mean()
-            #       / pred_actions.sum(dim=(-1,-2)).mean())
+            proj_actions = projection_layer(port_actions[:, port].view(-1, self.features_action*self.features_class_pod),
+                                            port_A[:, port], port_rhs[:, port],
+                                            alpha=1e-4, delta=0.001, tolerance=0.001, max_iter=100,)
+            proj_actions = proj_actions.view(batch_size, self.features_class_pod, self.features_action)
 
             ## Decode with projected actions
-            for _ in range(steps_port):
+            for t in range(steps_port):
                 logits, mask = self.decoder(td, hidden, num_starts)
-                td = decode_strategy.step(logits, mask, td, action=proj_actions[:, step, ])
+                td = decode_strategy.step(logits, mask, td, action=proj_actions[:, t])
                 td = env.step(td)["next"]
-                # proj_violations.append(td["violation"].mean(dim=(0,)))
                 step += 1
 
-        # # Analyze the difference between pred_violations and proj_violations
-        # pred_violations = torch.stack(pred_violations)
-        # proj_violations = torch.stack(proj_violations)
-        # print("pred_violations", pred_violations.sum(dim=0))
-        # print("proj_violations", proj_violations.sum(dim=0))
-        # breakpoint()
+    def _constraint_shapes_portwise(self, env: RL4COEnvBase):
+        self.steps = env.P - 1
+        self.pods = env.P - 1
+        self.n_constraints = env.K * (env.P - 1) + env.n_constraints - 1
+        self.features_action = env.B * env.D
+        self.features_class_pod = env.K * (env.P - 1)
+
+    def _create_port_constraint_matrix(self, td: TensorDict, stability_params:Tensor):
+        """
+        Create the constraint matrix for the portwise decoding:
+        - A: constraint matrix in shape         [P-1, n_constraints, features ]
+        - b: rhs of the constraints in shape    [Batch, P-1, n_constraints]
+        - x: variable in shape                  [Batch, P-1, features]
+
+        Features = B * D * K * (P-1)
+        - Inner loop of features is all features of action, outer loop is features of class and pod
+        - First, k=0 for (b*d) features, then k=1 for next (b*d) features, etc.
+        """
+        batch_size = td.batch_size[0]
+        stab_params = stability_params.permute(0,2,1).view(1, 1, 4, -1, self.features_action).repeat(1, 1, 1, self.pods, 1)
+        A = torch.zeros((batch_size, self.steps, self.n_constraints, self.features_class_pod, self.features_action, ),
+                        device=td.device, dtype=torch.float32)
+        for i in range(self.n_constraints):
+            if i < self.features_class_pod:
+                A[:, :, i, i, :] = 1
+        A[:, :, -4:, :, :] = stab_params
+        output = A.view(batch_size, self.steps, self.n_constraints, self.features_action*self.features_class_pod)
+        return output
 
 def stack_dicts_on_dim(dicts, dim=1):
     """Stack a list of dictionaries on the first dimension of the tensors"""
