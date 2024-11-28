@@ -215,8 +215,8 @@ def process_logits(
         if clip_max is not None:
             e_x = torch.clamp(e_x, max=clip_max)
 
-        # Ensure std_x is positive
-        std_x = torch.clamp(std_x, min=eps, max=1e6)
+        # Ensure std_x is positive but not too big
+        std_x = torch.clamp(std_x, min=eps, max=1.5)
         return e_x, std_x
     else:
         raise ValueError("Continuous action space requires logits and std_x.")
@@ -470,8 +470,9 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 proj_mean_logits, std_logits, mask=None, # mask=mask # Change to None to avoid masking logits
                 td=td, clip_min=clip_min, clip_max=clip_max, action=action, **kwargs
             )
-            # print("t", td["timestep"][0], "action", selected_action.mean(dim=0).sum())
-            # print("demand", td["obs"]["current_demand"].mean(dim=0),
+            # print("t", td["timestep"][0], "mean action", selected_action.mean())
+            # print("sum action", selected_action.mean(dim=0).sum(),
+            #       "demand", td["obs"]["current_demand"].mean(dim=0),
             #       "residual capacity", clip_max.mean(dim=0).sum())
 
             # Update logprobs and actions
