@@ -119,6 +119,7 @@ class LinearViolationAdaption(th.nn.Module):
 
             # Apply penalty gradient update only for active batches/steps
             x_ = th.where(active_mask.unsqueeze(2), x_ - alpha * penalty_gradient, x_)
+            x_ = th.clamp(x_, min=0) # Ensure non-negativity
 
             # Update violation_old for the next iteration
             violation_old = violation_new.clone()
