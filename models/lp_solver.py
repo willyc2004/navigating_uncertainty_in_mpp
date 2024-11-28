@@ -41,14 +41,14 @@ def stepwise_lp(action, A, b, verbose=True,):
     slack_param = 10
 
     # Constraints
-    model.add_constraints(A[j, :] @ x <= b[j] + slack[j] for j in range(m))  # A x <= b + slack
+    model.add_constraints(A[j, :] @ x <= b[j] for j in range(m))  # A x <= b (optional: + slack[j] )
     model.add_constraints(x[i] == action[i] - s[i] for i in range(n))  # x = action - s
     model.add_constraints(s[i] <= action[i] for i in range(n))  # s <= action
 
     # Objective function: Minimize sum of s
-    model.set_time_limit(100) #3600
+    model.set_time_limit(100)
     model.parameters.mip.tolerances.mipgap = 0.0001  # 0.01%
-    model.minimize(model.sum(s) + slack_param * model.sum(slack))
+    model.minimize(model.sum(s)) # + slack_param * model.sum(slack))
 
     # Solve the model
     solution = model.solve(log_output=verbose)
@@ -61,8 +61,10 @@ def stepwise_lp(action, A, b, verbose=True,):
         time = model.solve_details.time
         s_opt = np.array([solution[s[i]] for i in range(n)])
         x_opt = np.array([solution[x[i]] for i in range(n)])
-        print("Optimal s:", s_opt.mean())
-        print("Optimal x:", x_opt.mean())
+        if verbose:
+            print("-"*50)
+            print("Optimal s:", s_opt.mean())
+            print("Optimal x:", x_opt.mean())
         return x_opt, obj, opt_gap, time
     else:
         raise Exception("No solution found.")
