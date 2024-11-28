@@ -140,7 +140,7 @@ class LinearProgramLayer(th.nn.Module):
         x_ = th.zeros_like(x)
         for i in range(x.size(0)):
             # Solve the stepwise problem for each instance in the batch
-            solution, _, _, _ = stepwise_lp(x[i], A[i], b[i], verbose=True)
+            solution, _, _, _ = stepwise_lp(x[i], A[i], b[i], verbose=False)
             x_[i, :] = th.tensor(solution, device=x.device)
         return x_
 
