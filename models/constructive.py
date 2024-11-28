@@ -339,9 +339,11 @@ class ConstructivePolicy(nn.Module):
                 port_td = env.step(port_td)["next"]
 
             ## Project actions to feasible region
+            # todo: demand violation works, stability violation does not work
+            #  - check if stability is correctly computed
             proj_actions = projection_layer(port_actions[:, port].view(-1, self.features_action*self.features_class_pod),
                                             port_A[:, port], port_rhs[:, port],
-                                            alpha=1e-4, delta=0.001, tolerance=0.001, max_iter=100,)
+                                            alpha=1e-4, delta=1e-3, tolerance=1e-3, max_iter=100,)
             proj_actions = proj_actions.view(batch_size, self.features_class_pod, self.features_action)
 
             ## Decode with projected actions
