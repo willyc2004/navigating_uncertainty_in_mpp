@@ -458,6 +458,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             mean_logits, std_logits = process_logits(
                 logits,
                 mask=None,
+                mask_logits=False,
                 # mask=mask, # Change to None to avoid masking logits
                 clip_min=clip_min,
                 clip_max=clip_max,
@@ -501,6 +502,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             logprobs = process_logits(
                 logits,
                 mask,
+                mask_logits=self.mask_logits,
                 temperature=self.temperature,
                 top_p=self.top_p,
                 top_k=self.top_k,
