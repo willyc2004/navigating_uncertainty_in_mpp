@@ -86,7 +86,7 @@ class NoEncoder(ConstructiveEncoder):
         return None, None
 
 
-class ConstructivePolicy(nn.Module):
+class ConstructivePolicyMPP(nn.Module):
     """
     Base class for constructive policies. Constructive policies take as input and instance and output a solution (sequence of actions).
     "Constructive" means that a solution is created from scratch by the model.
