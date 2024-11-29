@@ -194,9 +194,8 @@ def process_logits(
     if discrete:
         # Compute log probabilities
         return F.log_softmax(logits, dim=-1)
-
-    # For continuous action space, we have logits and std_x
-    if logits.dim() == 3 or logits.dim() == 4:
+    else:
+        # For continuous action space, we have logits and std_x
         # Unpack logits
         e_x, std_x = logits[..., 0], logits[..., 1]
 
@@ -224,8 +223,6 @@ def process_logits(
         # Ensure std_x is positive but not too big
         std_x = torch.clamp(std_x, min=eps, max=1.5)
         return e_x, std_x
-    else:
-        raise ValueError("Continuous action space requires logits and std_x.")
 
 def random_policy(td):
     """Helper function to select a random action from available actions"""
