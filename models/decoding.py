@@ -147,6 +147,7 @@ def process_logits(
     temperature: float = 1.0,
     top_p: float = 0.0,
     top_k: int = 0,
+    mask_logits: bool = True,
     tanh_clipping: float = 0,
     discrete: bool = False,
     eps = 1e-3,
@@ -174,6 +175,11 @@ def process_logits(
     # Tanh clipping from Bello et al. 2016
     if tanh_clipping > 0:
         logits = torch.tanh(logits) * tanh_clipping
+
+    # In RL, we want to mask the logits to prevent the agent from selecting infeasible actions
+    if mask_logits:
+        assert mask is not None, "mask must be provided if mask_logits is True"
+        logits[~mask] = float("-inf")
 
     logits = logits / temperature  # temperature scaling
 
@@ -333,6 +339,12 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
         self.multistart = multistart
         self.num_starts = num_starts
         self.select_start_nodes_fn = select_start_nodes_fn
+        # create projection layer
+        self.env = kwargs.get("env", None)
+        self.projection_type = kwargs.get("projection_type", None)
+        self.projection_kwargs = kwargs.get("projection_kwargs", None)
+        self.projection_layer = ProjectionFactory.create_class(
+            self.projection_type, kwargs=self.projection_kwargs)
         # initialize buffers
         self.actions = []
         self.action_masks = []
@@ -341,13 +353,8 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
         self.proj_mean_logits = []
         self.lhs_A = []
         self.rhs = []
-        self.utilization = []
-        # create projection layer
-        self.env = kwargs.get("env", None)
-        self.projection_type = kwargs.get("projection_type", None)
-        self.projection_kwargs = kwargs.get("projection_kwargs", None)
-        self.projection_layer = ProjectionFactory.create_class(
-            self.projection_type, kwargs=self.projection_kwargs)
+        if self.env.name == "mpp":
+            self.utilization = []
 
     @abc.abstractmethod
     def _step(
@@ -415,13 +422,15 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
         dict_out = {
             "logprobs":torch.stack(self.logprobs, 1),
             "logits":torch.stack(self.logits, 1),
-            "proj_mean_logits":torch.stack(self.proj_mean_logits, 1),
             "actions":torch.stack(self.actions, 1),
-            "action_masks":torch.stack(self.action_masks, 1),
-            "lhs_A":torch.stack(self.lhs_A, 1),
-            "rhs":torch.stack(self.rhs, 1),
-            "utilization":torch.stack(self.utilization, 1),
         }
+        if self.name.startswith("continuous") and self.projection_layer is not None:
+            dict_out["proj_mean_logits"] = torch.stack(self.proj_mean_logits, 1)
+            dict_out["lhs_A"] = torch.stack(self.lhs_A, 1)
+            dict_out["rhs"] = torch.stack(self.rhs, 1)
+            dict_out["action_masks"] = torch.stack(self.action_masks, 1)
+            if self.env.name == "mpp":
+                dict_out["utilization"] = torch.stack(self.utilization, 1)
         return dict_out, td, env
 
     def step(
