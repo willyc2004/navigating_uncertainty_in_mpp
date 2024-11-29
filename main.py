@@ -42,10 +42,11 @@ from rl4co.utils.trainer import RL4COTrainer
 from rl4co.models.zoo import AMPPO
 # Customized RL4CO modules
 from models.projection_n_step_ppo import Projection_Nstep_PPO
-from models.constructive import ConstructivePolicy
+from models.constructive import ConstructivePolicyMPP
 from rl4co.models.zoo.am.encoder import AttentionModelEncoder
 from rl4co.models.common.constructive.autoregressive import AutoregressivePolicy
-AutoregressivePolicy.__bases__ = (ConstructivePolicy,) # Adapt base class
+AutoregressivePolicy.__bases__ = (ConstructivePolicyMPP,) # Adapt base class
+AMPPO.__bases__ = (Projection_Nstep_PPO,)  # Adapt base class
 
 # Custom modules
 from environment.env import MasterPlanningEnv
@@ -214,7 +215,6 @@ def main(config=None):
         **config.ppo,
         **config.am_ppo,
     }
-    AMPPO.__bases__ = (Projection_Nstep_PPO,) # Adapt base class
     model = AMPPO(**am_ppo_params).to(device)
     # print(model)
     # breakpoint()
