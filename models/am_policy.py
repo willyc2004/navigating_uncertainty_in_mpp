@@ -92,10 +92,9 @@ class AttentionModelPolicy4PPO(AttentionModelPolicy):
         hidden, init_embeds = self.encoder(td)
 
         # Get decode type depending on phase and whether actions are passed for evaluation
-        if action is not None:
+        decode_type = getattr(self, f"{phase}_decode_type")
+        if action is not None and decode_type.startswith("continuous"):
             decode_type = "continuous_evaluate"
-        else:
-            decode_type = getattr(self, f"{phase}_decode_type")
 
         # Setup decoding strategy
         decode_strategy: DecodingStrategy = get_decoding_strategy(
