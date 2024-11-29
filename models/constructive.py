@@ -137,7 +137,7 @@ class ConstructivePolicyMPP(nn.Module):
         test_decode_type: str = "greedy",
         **unused_kw,
     ):
-        super(ConstructivePolicy, self).__init__()
+        super(ConstructivePolicyMPP, self).__init__()
 
         if len(unused_kw) > 0:
             log.error(f"Found {len(unused_kw)} unused kwargs: {unused_kw}")
