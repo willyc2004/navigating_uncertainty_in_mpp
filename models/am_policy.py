@@ -8,6 +8,7 @@ from rl4co.models.common.constructive.autoregressive.policy import Autoregressiv
 from rl4co.models.zoo.am.decoder import AttentionModelDecoder
 from rl4co.models.zoo.am.encoder import AttentionModelEncoder
 from rl4co.models.zoo.am.policy import AttentionModelPolicy
+from rl4co.utils.ops import calculate_entropy
 
 # Custom modules
 from models.decoding import DecodingStrategy, get_decoding_strategy, get_log_likelihood, calculate_gaussian_entropy
@@ -120,7 +121,10 @@ class AttentionModelPolicy4PPO(AttentionModelPolicy):
             action=action if action is not None else None,
         )
         # Compute entropy
-        td["entropy"] = calculate_gaussian_entropy((td["proj_mean_logits"], td["std_logits"]))
+        if decode_type.startswith("continuous"):
+            td["entropy"] = calculate_gaussian_entropy((td["proj_mean_logits"], td["std_logits"]))
+        else:
+            td["entropy"] = calculate_entropy(td["logprobs"].unsqueeze(-1))
         return td
 
     @torch.no_grad()
