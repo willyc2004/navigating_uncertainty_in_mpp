@@ -21,6 +21,7 @@ from torchrl.data import (
 )
 
 from rl4co.utils.decoding import rollout, random_policy
+from rl4co.models.rl.ppo.stepwise_ppo import StepwisePPO
 from rl4co.models.zoo import AttentionModel, AttentionModelPolicy, AMPPO
 from rl4co.utils.ops import gather_by_index, get_tour_length
 from rl4co.utils.trainer import RL4COTrainer
@@ -31,10 +32,13 @@ from rl4co.models.zoo import AMPPO
 # Customized RL4CO modules
 from models.am_policy import AttentionModelPolicy4PPO
 from models.projection_n_step_ppo import Projection_Nstep_PPO
+from models.projection_ppo import Projection_PPO
 from models.constructive import ConstructivePolicyMPP
 from rl4co.models.zoo.am.encoder import AttentionModelEncoder
 from rl4co.models.common.constructive.autoregressive import AutoregressivePolicy
-AMPPO.__bases__ = (Projection_Nstep_PPO,)  # Adapt base class
+# AMPPO.__bases__ = (StepwisePPO,)  # Adapt base class
+# AMPPO.__bases__ = (Projection_Nstep_PPO,)  # Adapt base class
+AMPPO.__bases__ = (Projection_PPO,)  # Adapt base class
 
 class TSPInitEmbedding(nn.Module):
     """Initial embedding for the Traveling Salesman Problems (TSP).
@@ -171,6 +175,7 @@ def main():
     # Model: default is AM with REINFORCE and greedy rollout baseline
     # check out `RL4COLitModule` and `REINFORCE` for more details
     policy = AttentionModelPolicy4PPO(env_name=env.name,
+                                      encoder=AttentionModelEncoder(emb_dim,),
                                   # this is actually not needed since we are initializing the embeddings!
                                   embed_dim=emb_dim,
                                   # init_embedding=TSPInitEmbedding(emb_dim),
@@ -182,7 +187,7 @@ def main():
     model = AMPPO(
         env,
         policy=policy,
-        n_step = 100,
+        # n_step = 100,
         # baseline="rollout",
         train_data_size=1_000_000,  # really small size for demo
         val_data_size=100_000,
