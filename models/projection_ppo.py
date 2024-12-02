@@ -353,13 +353,10 @@ class Projection_PPO(RL4COLitModule):
                     ll, entropy = out["log_likelihood"], out["entropy"]
 
                     # Compute the ratio of probabilities of new and old actions
-                    # todo: properly allow for dynamic envs/shapes of ll and logprobs/retain graph
                     if self.env.name == "mpp":
                         ratio = torch.exp(ll.sum(dim=-1) - sub_td["logprobs"].sum(dim=-1)).sum(dim=-1, keepdim=True)
-                        retain_graph = True
                     else:
                         ratio = torch.exp(ll.sum(dim=-1) - sub_td["logprobs"]).view(-1, 1)  # [batch, 1]
-                        retain_graph = False
 
                     # Compute the advantage
                     value_pred = self.critic(sub_td)  # [batch, 1]
@@ -395,7 +392,7 @@ class Projection_PPO(RL4COLitModule):
 
                     opt = self.optimizers()
                     opt.zero_grad()
-                    self.manual_backward(loss, retain_graph=retain_graph)
+                    self.manual_backward(loss)
                     if self.ppo_cfg["max_grad_norm"] is not None:
                         self.clip_gradients(
                             opt,
