@@ -1,8 +1,6 @@
 import abc
 
 from typing import Any, Callable, Optional, Tuple, Union
-import numpy as np
-import torch
 import torch.nn as nn
 
 from tensordict import TensorDict
@@ -18,7 +16,6 @@ from models.decoding import (
     get_log_likelihood,
     calculate_gaussian_entropy,
 )
-from models.projection import ProjectionFactory, LinearProgramLayer
 from environment.utils import compute_violation
 
 log = get_pylogger(__name__)
@@ -128,7 +125,7 @@ class ConstructivePolicyMPP(nn.Module):
         self,
         encoder: Union[ConstructiveEncoder, Callable],
         decoder: Union[ConstructiveDecoder, Callable],
-        env_name: str = "mpp",
+        env_name: str = "tsp",
         temperature: float = 1.0,
         tanh_clipping: float = 0,
         mask_logits: bool = True,
@@ -167,10 +164,10 @@ class ConstructivePolicyMPP(nn.Module):
         calc_reward: bool = True,
         return_actions: bool = False,
         return_entropy: bool = False,
+        return_feasibility: bool = True,
+        return_hidden: bool = False,
+        return_init_embeds: bool = False,
         return_sum_log_likelihood: bool = True,
-        return_logits: bool = True,
-        return_feasibility: bool = False,
-        return_td: bool = False,
         actions=None,
         max_steps=1_000_000,
         **decoding_kwargs,
@@ -185,8 +182,9 @@ class ConstructivePolicyMPP(nn.Module):
             calc_reward: Whether to calculate the reward
             return_actions: Whether to return the actions
             return_entropy: Whether to return the entropy
+            return_hidden: Whether to return the hidden state
+            return_init_embeds: Whether to return the initial embeddings
             return_sum_log_likelihood: Whether to return the sum of the log likelihood
-            return_feasibility: Whether to return the matrix A on lhs and rhs of the feasibility constraints
             actions: Actions to use for evaluating the policy.
                 If passed, use these actions instead of sampling from the policy to calculate log likelihood
             max_steps: Maximum number of decoding steps for sanity check to avoid infinite loops if envs are buggy (i.e. do not reach `done`)
@@ -207,16 +205,11 @@ class ConstructivePolicyMPP(nn.Module):
 
         # Get decode type depending on phase and whether actions are passed for evaluation
         decode_type = decoding_kwargs.pop("decode_type", None)
-        if decode_type is None:
-            if actions is not None:
-                decode_type = "continuous_evaluate"
-            else:
-                decode_type = getattr(self, f"{phase}_decode_type")
-
-        project_per_port = decoding_kwargs.get("projection_kwargs", {}).get("project_per_port", False)
-        if project_per_port:
-            # todo: necessary to prevent double projection
-            decode_type = "continuous_sampling"
+        # todo: improve here for all continuous
+        if actions is not None and env.name == "mpp":
+            decode_type = "continuous_evaluate"
+        elif decode_type is None:
+            decode_type = getattr(self, f"{phase}_decode_type")
 
         # Setup decoding strategy
         decode_strategy: DecodingStrategy = get_decoding_strategy(
@@ -228,66 +221,13 @@ class ConstructivePolicyMPP(nn.Module):
             env=env,
             **decoding_kwargs,
         )
-        decode_strategy_: DecodingStrategy = get_decoding_strategy(
-            decode_type,
-            temperature=decoding_kwargs.pop("temperature", self.temperature),
-            tanh_clipping=decoding_kwargs.pop("tanh_clipping", self.tanh_clipping),
-            mask_logits=decoding_kwargs.pop("mask_logits", self.mask_logits),
-            store_all_logp=decoding_kwargs.pop("store_all_logp", return_entropy),
-            env=env,
-            **decoding_kwargs,
-        )
+
         # Pre-decoding hook: used for the initial step(s) of the decoding strategy
         td, env, num_starts = decode_strategy.pre_decoder_hook(td, env)
+
         # Additionally call a decoder hook if needed before main decoding
         td, env, hidden = self.decoder.pre_decoder_hook(td, env, hidden, num_starts)
 
-        if project_per_port:
-            # Perform portwise decoding to construct the solution
-            self._portwise_decoding(td, env, actions=actions, hidden=hidden, num_starts=num_starts,
-                                    decode_strategy=decode_strategy, decode_strategy_=decode_strategy_,max_steps=max_steps,
-                                    **decoding_kwargs)
-        else:
-            # Perform main decoding to construct the solution
-            self._main_decoding(td, env, actions=actions, hidden=hidden, num_starts=num_starts,
-                                decode_strategy=decode_strategy, max_steps=max_steps,)
-
-        # Post-decoding hook: used for the final step(s) of the decoding strategy
-        dict_out, td, env = decode_strategy.post_decoder_hook(td, env)
-
-        # Output dictionary construction
-        if calc_reward:
-            td.set("total_profit_and_feas", env.get_reward(td, dict_out["utilization"]))
-        outdict = {
-            "total_profit_and_feas": td["total_profit_and_feas"],
-            "log_likelihood": get_log_likelihood(
-                dict_out["logprobs"], dict_out["actions"],
-                mask=dict_out["action_masks"],
-                return_sum=return_sum_log_likelihood),
-            "utilization": dict_out["utilization"],
-            "total_loaded": td["state"].get("total_loaded", None),
-            "total_revenue": td["state"].get("total_revenue", None),
-            "total_cost": td["state"].get("total_cost", None),
-        }
-        if return_actions:
-            outdict["actions"] = dict_out["actions"]
-            outdict["action_masks"] = dict_out["action_masks"]
-        if return_logits:
-            outdict["logits"] = dict_out["logits"]
-            outdict["proj_mean_logits"] = dict_out["proj_mean_logits"]
-        if return_feasibility:
-            outdict["lhs_A"], outdict["rhs"] = dict_out["lhs_A"], dict_out["rhs"]
-            outdict["violation"] = compute_violation(dict_out["actions"].unsqueeze(-2), dict_out["lhs_A"], dict_out["rhs"])
-            outdict["total_profit_and_feas"] -= outdict["violation"].sum(dim=(-1,-2)).view(td.batch_size[0], 1)
-        if return_entropy:
-            outdict["entropy"] = calculate_entropy(dict_out["logprobs"])
-        if return_td:
-            outdict["td"] = td
-        return outdict
-
-    def _main_decoding(self, td: TensorDict, env: RL4COEnvBase, actions=None, hidden: Any = None, num_starts: int = 0,
-                       decode_strategy: DecodingStrategy = None, max_steps=1_000_000, use_lp_solver=False,
-                       **decoding_kwargs):
         # Main decoding: loop until all sequences are done
         step = 0
         while not td["done"].all():
@@ -299,91 +239,50 @@ class ConstructivePolicyMPP(nn.Module):
                 action=actions[:, step, ] if actions is not None else None,
             )
             td = env.step(td)["next"]
-
             step += 1
             if step > max_steps:
                 log.error(
-                    f"Exceeded maximum number of steps ({max_steps}) during decoding"
+                    f"Exceeded maximum number of steps ({max_steps}) duing decoding"
                 )
                 break
 
-    def _portwise_decoding(self, td: TensorDict, env: RL4COEnvBase, actions=None, hidden: Any = None, num_starts: int = 0,
-                           decode_strategy: DecodingStrategy = None, decode_strategy_: DecodingStrategy = None,
-                           max_steps=1_000_000, use_lp_solver=False, **decoding_kwargs):
-        # Setup projection layer
-        batch_size = td.batch_size[0]
-        projection_layer = ProjectionFactory.create_class(decoding_kwargs.get("projection_type", {}),
-                                                          kwargs=decoding_kwargs.get("projection_kwargs", {}))
-        # Perform decoding per port to construct the solution
-        step = 0
-        # Create constraint matrix for portwise decoding
-        self._constraint_shapes_portwise(env)
-        port_A = self._create_port_constraint_matrix(td, env.stability_params_lhs)
-        port_actions = torch.zeros(batch_size, env.P-1, self.features_class_pod, self.features_action, device=td.device)
-        port_rhs = torch.zeros(batch_size, env.P-1, self.n_constraints, device=td.device)
-        for port in range(env.P - 1):
-            steps_port = (env.P - (port + 1)) * env.K
+        # Post-decoding hook: used for the final step(s) of the decoding strategy
+        dictout, td, env = decode_strategy.post_decoder_hook(td, env)
+        logprobs, actions = dictout["logprobs"], dictout["actions"]
+        # Output dictionary construction
+        if calc_reward:
+            if env.name == "mpp":
+                td.set("reward", env.get_reward(td, dictout["utilization"]))
+            else:
+                td.set("reward", env.get_reward(td, actions))
 
-            ## Decode for each port based on td
-            port_td = td.copy()  # Use copy to avoid changing the original td
-            for t in range(steps_port):
-                # Predict actions for the port
-                logits, mask = self.decoder(port_td, hidden, num_starts)
-                port_td = decode_strategy_.step(logits, mask, port_td, action=None)
-                # Store lhs_A, rhs and actions for each step
-                port_actions[:, port, t] = port_td["action"].clone()
-                port_A[:, port, -4:, t, :] = port_td["lhs_A"][:, -4:, :]
-                port_rhs[:, port, t] = port_td["rhs"][...,0] # Demand rhs
-                if t == 0: port_rhs[:, port, -4:] = port_td["rhs"][...,-4:] # Stability rhs
-                # Perform step
-                port_td = env.step(port_td)["next"]
+        outdict = {
+            "reward": td["reward"],
+            "log_likelihood": get_log_likelihood(
+                dictout["logprobs"], dictout["actions"],
+                mask=dictout["action_masks"],
+                return_sum=return_sum_log_likelihood),
+            "utilization": dictout["utilization"],
+            "total_loaded": td["state"].get("total_loaded", None),
+            "total_revenue": td["state"].get("total_revenue", None),
+            "total_cost": td["state"].get("total_cost", None),
+        }
 
-            ## Project actions to feasible region
-            proj_actions = projection_layer(port_actions[:, port].view(-1, self.features_action*self.features_class_pod),
-                                            port_A[:, port].view(batch_size, self.n_constraints,
-                                                                 self.features_class_pod*self.features_action),
-                                            port_rhs[:, port],
-                                            alpha=1e-4, delta=1e-3, tolerance=1e-3, max_iter=100,)
-            proj_actions = proj_actions.view(batch_size, self.features_class_pod, self.features_action)
+        if return_actions:
+            outdict["actions"] = actions
+            outdict["action_masks"] = dictout["action_masks"]
+        if return_entropy:
+            if decode_type.startswith("continuous"):
+                outdict["entropy"] = calculate_gaussian_entropy((dictout["proj_mean_logits"], dictout["std_logits"]))
+            else:
+                outdict["entropy"] = calculate_entropy(logprobs)
+        if return_feasibility:
+            outdict["lhs_A"], outdict["rhs"] = dictout["lhs_A"], dictout["rhs"]
+            outdict["violation"] = compute_violation(dictout["actions"].unsqueeze(-2), dictout["lhs_A"], dictout["rhs"])
+            outdict["reward"] -= outdict["violation"].sum(dim=(-1, -2)).view(td.batch_size[0], 1)
+        if return_hidden:
+            outdict["hidden"] = hidden
+        if return_init_embeds:
+            outdict["init_embeds"] = init_embeds
 
-            ## Decode with projected actions
-            for t in range(steps_port):
-                logits, mask = self.decoder(td, hidden, num_starts)
-                td = decode_strategy.step(logits, mask, td, action=proj_actions[:, t])
-                td = env.step(td)["next"]
-                step += 1
-
-    def _constraint_shapes_portwise(self, env: RL4COEnvBase):
-        self.steps = env.P - 1
-        self.pods = env.P - 1
-        self.n_constraints = env.K * (env.P - 1) + env.n_constraints - 1
-        self.features_action = env.B * env.D
-        self.features_class_pod = env.K * (env.P - 1)
-
-    def _create_port_constraint_matrix(self, td: TensorDict, stability_params:Tensor):
-        """
-        Create the constraint matrix for the portwise decoding:
-        - A: constraint matrix in shape         [P-1, n_constraints, features ]
-        - b: rhs of the constraints in shape    [Batch, P-1, n_constraints]
-        - x: variable in shape                  [Batch, P-1, features]
-
-        Features = B * D * K * (P-1)
-        - Inner loop of features is all features of action, outer loop is features of class and pod
-        - First, k=0 for (b*d) features, then k=1 for next (b*d) features, etc.
-        """
-        batch_size = td.batch_size[0]
-        A = torch.zeros((batch_size, self.steps, self.n_constraints, self.features_class_pod, self.features_action, ),
-                        device=td.device, dtype=torch.float32)
-        for i in range(self.n_constraints):
-            if i < self.features_class_pod:
-                A[:, :, i, i, :] = 1
-        return A
-
-def stack_dicts_on_dim(dicts, dim=1):
-    """Stack a list of dictionaries on the first dimension of the tensors"""
-    stacked_dict = {}
-    for key in dicts[0].keys():
-        tensors_to_stack = [d[key] for d in dicts]
-        stacked_tensor = torch.cat(tensors_to_stack, dim=dim)
-        stacked_dict[key] = stacked_tensor
-    return stacked_dict
+        return outdict
