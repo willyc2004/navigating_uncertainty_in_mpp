@@ -33,12 +33,29 @@ from rl4co.models.zoo import AMPPO
 from models.am_policy import AttentionModelPolicy4PPO
 from models.projection_n_step_ppo import Projection_Nstep_PPO
 from models.projection_ppo import Projection_PPO
-from models.constructive import ConstructivePolicyMPP
 from rl4co.models.zoo.am.encoder import AttentionModelEncoder
+from models.decoder import AttentionModelDecoder
+from models.constructive import ConstructivePolicyMPP
 from rl4co.models.common.constructive.autoregressive import AutoregressivePolicy
+from environment.env import MasterPlanningEnv
 # AMPPO.__bases__ = (StepwisePPO,)  # Adapt base class
-# AMPPO.__bases__ = (Projection_Nstep_PPO,)  # Adapt base class
-AMPPO.__bases__ = (Projection_PPO,)  # Adapt base class
+AMPPO.__bases__ = (Projection_Nstep_PPO,)  # Adapt base class
+# AMPPO.__bases__ = (Projection_PPO,)  # Adapt base class
+
+import yaml
+from dotmap import DotMap
+
+def adapt_env_kwargs(config):
+    """Adapt environment kwargs based on configuration"""
+    config.env.bays = 10 if config.env.TEU == 1000 else 20
+    config.env.weight_classes = 3 if config.env.cargo_classes % 3 == 0 else 2 # 2 weights for 2 classes, 3 weights for 3,6 classes
+    config.env.capacity = [50] if config.env.TEU == 1000 else [500]
+    return config
+
+def make_env(env_kwargs, device):
+    """Setup custom environment"""
+    return MasterPlanningEnv(**env_kwargs).to(device)
+    # return PortMasterPlanningEnv(**env_kwargs).to(device).half()
 
 class TSPInitEmbedding(nn.Module):
     """Initial embedding for the Traveling Salesman Problems (TSP).
@@ -115,86 +132,66 @@ def check_env_specs(env):
         print("Please make sure your environment defines valid action_spec and observation_spec properties.")
         return False
 
-def main():
-    # Set device
+def main(config: Optional[DotMap] = None):
+    # Initialize torch and cuda
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    torch.cuda.empty_cache()
+    torch.backends.cudnn.benchmark = True
+    torch._dynamo.config.cache_size_limit = 64  # or some higher value
 
-    # RL4CO env based on TorchRL
+    # Set random seed and device
+    torch.set_num_threads(1)
+    seed = 42
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)  # If you are using multi-GPU
+        torch.backends.cudnn.deterministic = True
+
+    ## Environment initialization
     emb_dim = 128
-    env = DenseRewardTSPEnv(generator_params=dict(num_loc=100),)
+    env_kwargs = config.env
+    env = make_env(env_kwargs, device)
+    # env = DenseRewardTSPEnv(generator_params=dict(num_loc=100),)
     check_env_specs(env)
     td = env.reset(batch_size=32)
 
-    if env.name == "mpp":
-        AutoregressivePolicy.__bases__ = (ConstructivePolicyMPP,)  # Adapt base class
-
-    def random_policy(td):
-        # Ensure action_mask is a float tensor
-        action_mask = td["action_mask"].float()
-
-        # Normalize the action mask
-        action_mask /= action_mask.sum()  # Normalize to make it a valid probability distribution
-
-        # Sample from the multinomial distribution
-        action = torch.multinomial(action_mask, 1).squeeze(-1)
-        td.set("action", action)
-        return td
-
-    num_rollouts = 10
-    # with torch.profiler.profile(
-    #         schedule=torch.profiler.schedule(wait=1, warmup=1, active=2, repeat=1),
-    #         on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/profiler'),
-    #         record_shapes=True,
-    #         record_shapes=True,
-    #         profile_memory=True
-    # ) as prof:
-    #     for idx in range(num_rollouts):
-    #         td = env.reset(batch_size=td.batch_size,td=td)
-    #         done = td["done"][0]
-    #         while not done:
-    #             td = random_policy(td)
-    #             next_td = env.step(td)["next"]
-    #             td = next_td
-    #             done = td["done"][0]
-    #             prof.step()  # Update the profiler
-
-
-    # Test the rollout function
-    runtimes_rollout = torch.zeros(num_rollouts, dtype=torch.float32, device=device)
-    for idx in range(num_rollouts):
-        start_time = time.time()
-        reward, td, actions = rollout(env, env.reset(batch_size=td.batch_size, td=td), random_policy)
-        runtime = time.time() - start_time
-        runtimes_rollout[idx] = runtime
-    print(f"Mean runtime: {torch.mean(runtimes_rollout):.3f} s")
-    print(f"Std runtime: {torch.std(runtimes_rollout):.3f} s")
-    print(f"Max runtime: {torch.max(runtimes_rollout):.3f} s")
-    print(f"Min runtime: {torch.min(runtimes_rollout):.3f} s")
-    # breakpoint()
+    # if env.name == "mpp":
+    AutoregressivePolicy.__bases__ = (ConstructivePolicyMPP,)  # Adapt base class
 
     # Model: default is AM with REINFORCE and greedy rollout baseline
     # check out `RL4COLitModule` and `REINFORCE` for more details
+    from environment.embeddings import MPPContextEmbedding, MPPInitEmbedding
+    init_embedding = MPPInitEmbedding(emb_dim, env.action_spec.shape[0], env)
+    context_embedding = MPPContextEmbedding(env.action_spec.shape[0], emb_dim, env)
     policy = AttentionModelPolicy4PPO(env_name=env.name,
-                                      encoder=AttentionModelEncoder(emb_dim,),
+                                      encoder=AttentionModelEncoder(emb_dim, init_embedding=init_embedding,),
+                                        decoder=AttentionModelDecoder(emb_dim, context_embedding=context_embedding, mask_inner=False),
                                   # this is actually not needed since we are initializing the embeddings!
                                   embed_dim=emb_dim,
-                                  # init_embedding=TSPInitEmbedding(emb_dim),
-                                  # context_embedding=TSPContext(emb_dim),
-                                  # dynamic_embedding=StaticEmbedding(emb_dim)
-                                  )
+                                  init_embedding=init_embedding,
+                                      context_embedding=context_embedding,
+                                      mask_inner=False,
+                                      # train_decode_type="sampling",
+                                      # val_decode_type="greedy",
+                                      # test_decode_type="beam_search",
+                                    train_decode_type="continuous_sampling",
+                                    val_decode_type="continuous_projection",
+                                    test_decode_type="continuous_projection",
+                                    )
 
     # model = AttentionModel(
     model = AMPPO(
         env,
         policy=policy,
-        # n_step = 100,
+        n_step = 100,
         # baseline="rollout",
         train_data_size=1_000_000,  # really small size for demo
         val_data_size=100_000,
         policy_kwargs={  # we can specify the decode types using the policy_kwargs
-            "train_decode_type": "sampling",
-            "val_decode_type": "greedy",
-            "test_decode_type": "beam_search",
+            "train_decode_type": "continuous_sampling",
+            "val_decode_type": "continuous_projection",
+            "test_decode_type": "continuous_projection",
         }
     )
 
@@ -241,4 +238,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # Load static configuration from the YAML file
+    with open('config.yaml', 'r') as file:
+    # with open('test_config.yaml', 'r') as file:
+        config = yaml.safe_load(file)
+        config = DotMap(config)
+        config = adapt_env_kwargs(config)
+
+    main(config)
