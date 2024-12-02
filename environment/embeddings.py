@@ -74,6 +74,7 @@ class MPPInitEmbedding(nn.Module):
 
         # # Initialize cache if not done yet
         # if not self.cache_initialized:
+        # todo: check if this works properly!
         self.initialize_cache()
 
         # Concatenate all embeddings (using cached values for fixed ones)
