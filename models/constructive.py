@@ -1,6 +1,7 @@
 import abc
 
 from typing import Any, Callable, Optional, Tuple, Union
+import torch
 import torch.nn as nn
 
 from tensordict import TensorDict
@@ -17,6 +18,7 @@ from models.decoding import (
     calculate_gaussian_entropy,
 )
 from environment.utils import compute_violation
+from models.projection import ProjectionFactory
 
 log = get_pylogger(__name__)
 
@@ -211,6 +213,11 @@ class ConstructivePolicyMPP(nn.Module):
         elif decode_type is None:
             decode_type = getattr(self, f"{phase}_decode_type")
 
+        project_per_port = decoding_kwargs.get("projection_kwargs", {}).get("project_per_port", False)
+        if project_per_port:
+            # todo: necessary to prevent double projection
+            decode_type = "continuous_sampling"
+
         # Setup decoding strategy
         decode_strategy: DecodingStrategy = get_decoding_strategy(
             decode_type,
@@ -221,30 +228,29 @@ class ConstructivePolicyMPP(nn.Module):
             env=env,
             **decoding_kwargs,
         )
-
+        decode_strategy_: DecodingStrategy = get_decoding_strategy(
+            decode_type,
+            temperature=decoding_kwargs.pop("temperature", self.temperature),
+            tanh_clipping=decoding_kwargs.pop("tanh_clipping", self.tanh_clipping),
+            mask_logits=decoding_kwargs.pop("mask_logits", self.mask_logits),
+            store_all_logp=decoding_kwargs.pop("store_all_logp", return_entropy),
+            env=env,
+            **decoding_kwargs,
+        )
         # Pre-decoding hook: used for the initial step(s) of the decoding strategy
         td, env, num_starts = decode_strategy.pre_decoder_hook(td, env)
-
         # Additionally call a decoder hook if needed before main decoding
         td, env, hidden = self.decoder.pre_decoder_hook(td, env, hidden, num_starts)
 
-        # Main decoding: loop until all sequences are done
-        step = 0
-        while not td["done"].all():
-            logits, mask = self.decoder(td, hidden, num_starts)
-            td = decode_strategy.step(
-                logits,
-                mask,
-                td,
-                action=actions[:, step, ] if actions is not None else None,
-            )
-            td = env.step(td)["next"]
-            step += 1
-            if step > max_steps:
-                log.error(
-                    f"Exceeded maximum number of steps ({max_steps}) duing decoding"
-                )
-                break
+        if project_per_port:
+            # Perform portwise decoding to construct the solution
+            self._portwise_decoding(td, env, actions=actions, hidden=hidden, num_starts=num_starts,
+                                    decode_strategy=decode_strategy, decode_strategy_=decode_strategy_,max_steps=max_steps,
+                                    **decoding_kwargs)
+        else:
+            # Perform main decoding to construct the solution
+            self._main_decoding(td, env, actions=actions, hidden=hidden, num_starts=num_starts,
+                                decode_strategy=decode_strategy, max_steps=max_steps,)
 
         # Post-decoding hook: used for the final step(s) of the decoding strategy
         dictout, td, env = decode_strategy.post_decoder_hook(td, env)
@@ -286,3 +292,108 @@ class ConstructivePolicyMPP(nn.Module):
             outdict["init_embeds"] = init_embeds
 
         return outdict
+
+    def _main_decoding(self, td: TensorDict, env: RL4COEnvBase, actions=None, hidden: Any = None, num_starts: int = 0,
+                       decode_strategy: DecodingStrategy = None, max_steps=1_000_000, use_lp_solver=False,
+                       **decoding_kwargs):
+        # Main decoding: loop until all sequences are done
+        step = 0
+        while not td["done"].all():
+            logits, mask = self.decoder(td, hidden, num_starts)
+            td = decode_strategy.step(
+                logits,
+                mask,
+                td,
+                action=actions[:, step, ] if actions is not None else None,
+            )
+            td = env.step(td)["next"]
+
+            step += 1
+            if step > max_steps:
+                log.error(
+                    f"Exceeded maximum number of steps ({max_steps}) during decoding"
+                )
+                break
+
+    def _portwise_decoding(self, td: TensorDict, env: RL4COEnvBase, actions=None, hidden: Any = None, num_starts: int = 0,
+                           decode_strategy: DecodingStrategy = None, decode_strategy_: DecodingStrategy = None,
+                           max_steps=1_000_000, use_lp_solver=False, **decoding_kwargs):
+        # Setup projection layer
+        batch_size = td.batch_size[0]
+        projection_layer = ProjectionFactory.create_class(decoding_kwargs.get("projection_type", {}),
+                                                          kwargs=decoding_kwargs.get("projection_kwargs", {}))
+        # Perform decoding per port to construct the solution
+        step = 0
+        # Create constraint matrix for portwise decoding
+        self._constraint_shapes_portwise(env)
+        port_A = self._create_port_constraint_matrix(td, env.stability_params_lhs)
+        port_actions = torch.zeros(batch_size, env.P-1, self.features_class_pod, self.features_action, device=td.device)
+        port_rhs = torch.zeros(batch_size, env.P-1, self.n_constraints, device=td.device)
+        for port in range(env.P - 1):
+            steps_port = (env.P - (port + 1)) * env.K
+
+            ## Decode for each port based on td
+            port_td = td.copy()  # Use copy to avoid changing the original td
+            for t in range(steps_port):
+                # Predict actions for the port
+                logits, mask = self.decoder(port_td, hidden, num_starts)
+                port_td = decode_strategy_.step(logits, mask, port_td, action=None)
+                # Store actions and rhs in portwise tensors
+                port_actions[:, port, t] = port_td["action"].clone()
+                port_rhs[:, port, t] = port_td["rhs"][...,0]
+                # Only store stability rhs at start port
+                if t == 0: port_rhs[:, port, -4:] = port_td["rhs"][...,1:]
+                # Perform step
+                port_td = env.step(port_td)["next"]
+
+            ## Project actions to feasible region
+            # todo: demand violation works, stability violation does not work
+            #  - check if stability is correctly computed
+            proj_actions = projection_layer(port_actions[:, port].view(-1, self.features_action*self.features_class_pod),
+                                            port_A[:, port], port_rhs[:, port],
+                                            alpha=1e-4, delta=1e-3, tolerance=1e-3, max_iter=100,)
+            proj_actions = proj_actions.view(batch_size, self.features_class_pod, self.features_action)
+
+            ## Decode with projected actions
+            for t in range(steps_port):
+                logits, mask = self.decoder(td, hidden, num_starts)
+                td = decode_strategy.step(logits, mask, td, action=proj_actions[:, t])
+                td = env.step(td)["next"]
+                step += 1
+
+    def _constraint_shapes_portwise(self, env: RL4COEnvBase):
+        self.steps = env.P - 1
+        self.pods = env.P - 1
+        self.n_constraints = env.K * (env.P - 1) + env.n_constraints - 1
+        self.features_action = env.B * env.D
+        self.features_class_pod = env.K * (env.P - 1)
+
+    def _create_port_constraint_matrix(self, td: TensorDict, stability_params:Tensor):
+        """
+        Create the constraint matrix for the portwise decoding:
+        - A: constraint matrix in shape         [P-1, n_constraints, features ]
+        - b: rhs of the constraints in shape    [Batch, P-1, n_constraints]
+        - x: variable in shape                  [Batch, P-1, features]
+        Features = B * D * K * (P-1)
+        - Inner loop of features is all features of action, outer loop is features of class and pod
+        - First, k=0 for (b*d) features, then k=1 for next (b*d) features, etc.
+        """
+        batch_size = td.batch_size[0]
+        stab_params = stability_params.permute(0,2,1).view(1, 1, 4, -1, self.features_action).repeat(1, 1, 1, self.pods, 1)
+        A = torch.zeros((batch_size, self.steps, self.n_constraints, self.features_class_pod, self.features_action, ),
+                        device=td.device, dtype=torch.float32)
+        for i in range(self.n_constraints):
+            if i < self.features_class_pod:
+                A[:, :, i, i, :] = 1
+        A[:, :, -4:, :, :] = stab_params
+        output = A.view(batch_size, self.steps, self.n_constraints, self.features_action*self.features_class_pod)
+        return output
+
+def stack_dicts_on_dim(dicts, dim=1):
+    """Stack a list of dictionaries on the first dimension of the tensors"""
+    stacked_dict = {}
+    for key in dicts[0].keys():
+        tensors_to_stack = [d[key] for d in dicts]
+        stacked_tensor = torch.cat(tensors_to_stack, dim=dim)
+        stacked_dict[key] = stacked_tensor
+    return stacked_dict
