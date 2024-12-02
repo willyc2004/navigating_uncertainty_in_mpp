@@ -177,7 +177,8 @@ def process_logits(
         logits = torch.tanh(logits) * tanh_clipping
 
     # In RL, we want to mask the logits to prevent the agent from selecting infeasible actions
-    if mask_logits:
+    # todo: allow for continuous as well
+    if mask_logits and discrete:
         assert mask is not None, "mask must be provided if mask_logits is True"
         logits[~mask] = float("-inf")
 
@@ -196,20 +197,11 @@ def process_logits(
         return F.log_softmax(logits, dim=-1)
     else:
         # For continuous action space, we have logits and std_x
-        # Unpack logits
         e_x, std_x = logits[..., 0], logits[..., 1]
 
         # Apply lower bound - todo: not sure if this is general
         if clip_min is not None:
             e_x = torch.clamp(e_x, min=clip_min)
-
-        # temperature scaling
-        e_x = e_x / temperature
-
-        # Apply masking
-        if mask is not None:
-            e_x = e_x * mask
-            std_x = torch.clamp(std_x * mask, min=1e-6)
 
         # Scale `e_x` to match `constant_sum` if necessary
         if constant_sum is not None:
@@ -348,6 +340,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
         self.logprobs = []
         self.logits = []
         self.proj_mean_logits = []
+        self.std_logits = []
         self.lhs_A = []
         self.rhs = []
         if self.env.name == "mpp":
@@ -423,6 +416,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
         }
         if self.name.startswith("continuous") and self.projection_layer is not None:
             dict_out["proj_mean_logits"] = torch.stack(self.proj_mean_logits, 1)
+            dict_out["std_logits"] = torch.stack(self.std_logits, 1)
             dict_out["lhs_A"] = torch.stack(self.lhs_A, 1)
             dict_out["rhs"] = torch.stack(self.rhs, 1)
             dict_out["action_masks"] = torch.stack(self.action_masks, 1)
@@ -486,6 +480,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             self.lhs_A.append(td["lhs_A"])
             self.rhs.append(td["rhs"])
             self.proj_mean_logits.append(proj_mean_logits)
+            self.std_logits.append(std_logits)
             self.utilization.append(td["state"]["utilization"])
             self.action_masks.append(mask)
             td.update({"mean_logits": mean_logits,
