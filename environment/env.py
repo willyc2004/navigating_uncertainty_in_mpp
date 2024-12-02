@@ -294,7 +294,7 @@ class MasterPlanningEnv(RL4COEnvBase):
             },
             "obs":{
                 # Demand
-                "current_demand": next_state_dict["current_demand"],
+                "current_demand": next_state_dict["current_demand"].view(*batch_size, 1),
                 "observed_demand": next_state_dict["observed_demand"].view(*batch_size, self.T*self.K),
                 "expected_demand": next_state_dict["expected_demand"].view(*batch_size, self.T*self.K),
                 "std_demand": next_state_dict["std_demand"].view(*batch_size, self.T*self.K),
@@ -370,7 +370,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Init tds - obs: observed by embeddings
         initial_obs = TensorDict({
             # Demand
-            "current_demand": current_demand,
+            "current_demand": current_demand.view(*batch_size, 1),
             "observed_demand": td["observed_demand"].view(*batch_size, self.T*self.K),
             "expected_demand": td["expected_demand"].view(*batch_size, self.T*self.K),
             "std_demand": td["std_demand"].view(*batch_size, self.T*self.K),
