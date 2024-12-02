@@ -346,7 +346,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         locations_utilization = th.zeros_like(action_mask, dtype=self.float_type)
         port_locations = th.zeros((*batch_size, self.B*self.D*self.P), dtype=self.float_type)
         # Demand
-        current_demand = td["observed_demand"][:, tau, k].clone().view(*batch_size, 1)
+        current_demand = td["observed_demand"][:, tau, k].view(*batch_size, 1)
         td["observed_demand"][:, tau, k] = 0
         td["expected_demand"][:, tau, k] = 0
         td["std_demand"][:, tau, k] = 0
@@ -412,12 +412,12 @@ class MasterPlanningEnv(RL4COEnvBase):
         """Extract action, reward and step from the TensorDict."""
         # Must clone to avoid in-place operations!
         batch_size = td.batch_size
-        timestep = td["timestep"]#.clone()
-        action = td["action"].view(*batch_size, self.B, self.D,)#.clone()
-        # action_mask = td["action_mask"]#.clone()
-        realized_demand = td["realized_demand"].view(*batch_size, self.T, self.K)#.clone()
-        lhs_A = td["lhs_A"]#.clone()
-        rhs = td["rhs"]#.clone()
+        timestep = td["timestep"].clone()
+        action = td["action"].view(*batch_size, self.B, self.D,).clone()
+        # action_mask = td["action_mask"].clone()
+        realized_demand = td["realized_demand"].view(*batch_size, self.T, self.K).clone()
+        lhs_A = td["lhs_A"].clone()
+        rhs = td["rhs"].clone()
         return action, realized_demand, lhs_A, rhs, timestep, batch_size
 
     def _extract_cargo_parameters_for_step(self, t) -> Tuple:
@@ -446,10 +446,10 @@ class MasterPlanningEnv(RL4COEnvBase):
     def _extract_from_obs(self, obs, batch_size) -> Dict:
         """Extract and clone state variables from the obs TensorDict."""
         output = {
-            "current_demand": obs["current_demand"].view(*batch_size, 1).clone(),
-            "observed_demand": obs["observed_demand"].view(*batch_size, self.T, self.K).clone(),
-            "expected_demand": obs["expected_demand"].view(*batch_size, self.T, self.K).clone(),
-            "std_demand": obs["std_demand"].view(*batch_size, self.T, self.K).clone(),
+            "current_demand": obs["current_demand"],
+            "observed_demand": obs["observed_demand"].view(*batch_size, self.T, self.K),
+            "expected_demand": obs["expected_demand"].view(*batch_size, self.T, self.K),
+            "std_demand": obs["std_demand"].view(*batch_size, self.T, self.K),
         }
         return output
 
@@ -618,7 +618,7 @@ class MasterPlanningEnv(RL4COEnvBase):
 
         # Get output
         return {
-            "current_demand": realized_demand[:, tau, k].view(-1, 1),
+            "current_demand": realized_demand[:, tau, k],
             "observed_demand": demand_obs["observed_demand"],
             "expected_demand": demand_obs["expected_demand"],
             "std_demand":demand_obs["std_demand"],
