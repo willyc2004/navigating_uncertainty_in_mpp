@@ -59,14 +59,15 @@ class MPPInitEmbedding(nn.Module):
         # Get batch size and cargo normalization (based on teu and total capacity)
         batch_size = td.batch_size
         norm_cargo = (self.env.teus[self.env.k[:-1]] / self.env.total_capacity).view(1, -1, 1)
+        # todo: clean-up code!
         if td["obs"]["expected_demand"].dim() == 2:
             e_x = reorder_demand(td["obs"]["expected_demand"], self.env.tau, self.env.k, self.env.T, self.env.K,batch_size)
             std_x = reorder_demand(td["obs"]["std_demand"], self.env.tau, self.env.k, self.env.T, self.env.K,batch_size)
             expected_demand = self.ex_demand(e_x.view(*batch_size, -1, 1) * norm_cargo)
             std_demand = self.stdx_demand(std_x.view(*batch_size, -1, 1) * norm_cargo)
         elif td["obs"]["expected_demand"].dim() == 3:
-            e_x = reorder_demand(td["obs"]["expected_demand"], self.env.tau, self.env.k, self.env.T, self.env.K,batch_size)
-            std_x = reorder_demand(td["obs"]["std_demand"], self.env.tau, self.env.k, self.env.T, self.env.K,batch_size)
+            e_x = reorder_demand(td["obs"]["expected_demand"][:,0], self.env.tau, self.env.k, self.env.T, self.env.K,batch_size)
+            std_x = reorder_demand(td["obs"]["std_demand"][:,0], self.env.tau, self.env.k, self.env.T, self.env.K,batch_size)
             expected_demand = self.ex_demand(e_x.view(*batch_size, -1, 1) * norm_cargo)
             std_demand = self.stdx_demand(std_x.view(*batch_size, -1, 1) * norm_cargo)
         else:
@@ -136,18 +137,20 @@ class MPPContextEmbedding(nn.Module):
         """Embed the context for the MPP"""
         # Get init embedding and state embedding
         select_init_embedding = gather_by_index(init_embeddings, td["timestep"])
+
         state_embedding = self._state_embedding(td)
-        # check_for_nans(select_init_embedding, "select_init_embedding")
-        # check_for_nans(state_embedding, "state_embedding")
+        check_for_nans(select_init_embedding, "select_init_embedding")
+        check_for_nans(state_embedding, "state_embedding")
 
         # Project state, concat embeddings, and project concat to output
         if state_embedding.dim() < select_init_embedding.dim():
             state_embedding = state_embedding.unsqueeze(1)
-        context_embedding = torch.cat([select_init_embedding, state_embedding], dim=1)
-        # check_for_nans(context_embedding, "context_embedding")
+
+        context_embedding = torch.cat([select_init_embedding, state_embedding], dim=-1)
+        check_for_nans(context_embedding, "context_embedding")
 
         output = self.project_context(context_embedding)
-        # check_for_nans(output, "output")
+        check_for_nans(output, "output")
         return output
 
     def _state_embedding(self, td):
@@ -157,8 +160,20 @@ class MPPContextEmbedding(nn.Module):
         - todo: We have dependency on ports and bays, which is not ideal for generalization.
         """
         # Normalize demand based on teu and cargo capacity
-        norm_cargo = (self.env.teus[self.env.k[:-1]] / self.env.total_capacity).unsqueeze(0)
-        norm_cargo_t = norm_cargo[:, td["timestep"]].view(-1, 1)
+        # todo: improve this code:
+        batch_size = td["obs"]["current_demand"].shape[0]
+        dims = td["obs"]["current_demand"].dim()
+        if dims == 2:
+            shape = (1, self.seq_size,)
+            shape_t = (batch_size, 1)
+        elif dims == 3:
+            shape = (1, self.seq_size, 1)
+            shape_t = (batch_size, -1, 1)
+        else:
+            raise ValueError(f"Unsupported number of dimensions: {dims}")
+
+        norm_cargo = (self.env.teus[self.env.k[:-1]] / self.env.total_capacity).view(*shape)
+        norm_cargo_t = norm_cargo[:, td["timestep"]].view(*shape_t)
 
         # Extract demand
         # todo: add sum and self-attention aggregation
