@@ -346,7 +346,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         locations_utilization = th.zeros_like(action_mask, dtype=self.float_type)
         port_locations = th.zeros((*batch_size, self.B*self.D*self.P), dtype=self.float_type)
         # Demand
-        current_demand = td["observed_demand"][:, tau, k].view(*batch_size, 1)
+        current_demand = td["observed_demand"][:, tau, k].view(*batch_size, 1).clone() # clone to prevent in-place!
         td["observed_demand"][:, tau, k] = 0
         td["expected_demand"][:, tau, k] = 0
         td["std_demand"][:, tau, k] = 0
@@ -446,10 +446,11 @@ class MasterPlanningEnv(RL4COEnvBase):
     def _extract_from_obs(self, obs, batch_size) -> Dict:
         """Extract and clone state variables from the obs TensorDict."""
         output = {
-            "current_demand": obs["current_demand"],
-            "observed_demand": obs["observed_demand"].view(*batch_size, self.T, self.K),
-            "expected_demand": obs["expected_demand"].view(*batch_size, self.T, self.K),
-            "std_demand": obs["std_demand"].view(*batch_size, self.T, self.K),
+            # clones are needed to prevent in-place
+            "current_demand": obs["current_demand"].clone(),
+            "observed_demand": obs["observed_demand"].view(*batch_size, self.T, self.K).clone(),
+            "expected_demand": obs["expected_demand"].view(*batch_size, self.T, self.K).clone(),
+            "std_demand": obs["std_demand"].view(*batch_size, self.T, self.K).clone(),
         }
         return output
 
