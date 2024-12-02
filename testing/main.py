@@ -34,7 +34,7 @@ from models.am_policy import AttentionModelPolicy4PPO
 from models.projection_n_step_ppo import Projection_Nstep_PPO
 from models.projection_ppo import Projection_PPO
 from rl4co.models.zoo.am.encoder import AttentionModelEncoder
-from models.decoder import AttentionModelDecoder
+from models.decoder2 import AttentionModelDecoder
 from models.constructive import ConstructivePolicyMPP
 from rl4co.models.common.constructive.autoregressive import AutoregressivePolicy
 from environment.env import MasterPlanningEnv
