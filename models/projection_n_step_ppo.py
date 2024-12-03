@@ -341,19 +341,20 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
         # Gather n_steps in memory
         memory.clear_memory()
-        for i in range(self.ppo_cfg["n_step"]):
-            # Store observation in memory
-            td_obs = td.select(*self.select_obs_td).clone()
-            memory.tds_obs.append(td_obs.clone().detach())
+        with torch.no_grad():
+            for i in range(self.ppo_cfg["n_step"]):
+                # Store observation in memory
+                td_obs = td.select(*self.select_obs_td).clone()
+                memory.tds_obs.append(td_obs.clone())
 
-            # Generate actions, perform step in environment and store results
-            memory.values[:, i] = self.critic(td_obs).view(-1, 1).detach()
-            td = self.policy.act(td.clone(), self.env, phase=phase).detach()
-            td = self.env.step(td.clone())["next"]
-            memory.actions[:, i] = td["action"].clone()
-            memory.logprobs[:, i] = td["logprobs"].clone()
-            memory.rewards[:, i] = td["reward"].view(-1, 1).clone()
-            memory.profit[:, i] = td["profit"].view(-1, 1).clone()
+                # Generate actions, perform step in environment and store results
+                memory.values[:, i] = self.critic(td_obs).view(-1, 1)
+                td = self.policy.act(td.clone(), self.env, phase=phase)
+                td = self.env.step(td.clone())["next"]
+                memory.actions[:, i] = td["action"].clone()
+                memory.logprobs[:, i] = td["logprobs"].clone()
+                memory.rewards[:, i] = td["reward"].view(-1, 1).clone()
+                memory.profit[:, i] = td["profit"].view(-1, 1).clone()
 
         # Create DataLoader for mini-batch sampling
         dataset = BatchDataset(td, memory)
@@ -421,12 +422,12 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
         # Compute the ratios for PPO clipping
         log_ratios = ll - old_ll.detach()  # Detach old log-likelihoods
-        ratios = torch.exp(log_ratios)  # Calculate importance sampling ratios
+        ratios = torch.exp(log_ratios.sum(dim=-1, keepdims=True))  # Calculate importance sampling ratios
         clipped_ratios = torch.clamp(ratios, 1 - self.ppo_cfg["clip_range"], 1 + self.ppo_cfg["clip_range"])
         surrogate_loss = -torch.min(ratios * adv, clipped_ratios * adv).mean()  # Surrogate loss
 
         # Compute the value loss using Huber loss
-        value_loss = F.mse_loss(value_preds, returns.detach(), reduction="mean")
+        value_loss = F.huber_loss(value_preds, returns.detach(), reduction="mean")
 
         # Compute feasibility and projection losses
         violation = compute_violation(proj_mean_logits.unsqueeze(-2), out["lhs_A"], out["rhs"])  # Feasibility violation
