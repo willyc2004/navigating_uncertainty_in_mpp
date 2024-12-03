@@ -21,12 +21,14 @@ class CriticNetwork(nn.Module):
             normalization: Optional[str] = None,
             dropout_rate: Optional[float] = None,
             temperature: float = 1.0,
+            customized: bool = False,
     ):
         super(CriticNetwork, self).__init__()
 
         self.encoder = encoder
         self.context_embedding = context_embedding  # Store context_embedding
         self.temperature = temperature
+        self.customized = customized
 
         if value_head is None:
             # Adjust embed_dim if encoder has a different dimension
@@ -43,7 +45,6 @@ class CriticNetwork(nn.Module):
                 'layer': nn.LayerNorm(embed_dim),
                 'batch': nn.BatchNorm1d(embed_dim),
             }
-            assert normalization != 'batch', "BatchNorm1d is not supported in the critic network"
             norm_fn = norm_dict.get(normalization, nn.Identity)
 
             # Build the value head
@@ -63,18 +64,24 @@ class CriticNetwork(nn.Module):
 
         self.value_head = value_head
 
-    def forward(self, x: Union[Tensor, dict]) -> Tensor:
-        """Forward pass of the critic network: encode the input and return the value."""
-        # Encode input using the encoder
-        h, _ = self.encoder(x)  # [batch_size, N, embed_dim]
-        # If context_embedding exists, compute and apply it
-        if self.context_embedding is not None:
-            h = self.context_embedding(h, x)
-        # Compute value using value_head
-        output = self.value_head(h)  # [batch_size, N]
-        # Apply temperature scaling
+    def forward(self, x: Union[Tensor, TensorDict], hidden=None) -> Tensor:
+        """Forward pass of the critic network: encode the imput in embedding space and return the value
+
+        Args:
+            x: Input containing the environment state. Can be a Tensor or a TensorDict
+
+        Returns:
+            Value of the input state
+        """
+        if not self.customized:  # fir for most of costructive tasks
+            h, _ = self.encoder(x)  # [batch_size, N, embed_dim] -> [batch_size, N]
+            h = self.context_embedding(h, x)  # Apply context embedding
+            output = self.value_head(h).sum(1)  # [batch_size, N] -> [batch_size]
+        else:  # customized encoder and value head with hidden input
+            h = self.encoder(x)  # [batch_size, N, embed_dim] -> [batch_size, N]
+            h = self.context_embedding(h, x)  # Apply context embedding
+            output = self.value_head(h, hidden)
         output = output / self.temperature
-        # Return value
         return output
 
 def create_critic_from_actor(
