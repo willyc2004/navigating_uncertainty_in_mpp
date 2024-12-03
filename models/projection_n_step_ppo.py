@@ -195,7 +195,8 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 "loss", "surrogate_loss", "value_loss", "entropy", "feasibility_loss", "projection_loss",
                 "return", "ratios", "clipped_ratios", "adv", "value_pred",
                 # violation logging
-                "violation", "violation_demand", "violation_lcg_ub", "violation_lcg_lb", "violation_vcg_ub", "violation_vcg_lb",
+                "mean_violation", "violation",
+                "violation_demand", "violation_lcg_ub", "violation_lcg_lb", "violation_vcg_ub", "violation_vcg_lb",
                 # performance metrics
                 "total_loaded", "total_profit", "total_revenue", "total_cost",
             ]
@@ -469,6 +470,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
             "adv": adv.detach(),
             "value_pred": value_preds.detach(),
             # Violation metrics
+            "mean_violation":violation.sum(dim=(1, 2)).mean(),
             "violation": relevant_violation.sum(dim=(1, 2)).mean().detach(),
             "violation_demand": relevant_violation[..., 0].sum(dim=1).mean().detach(),
             "violation_lcg_ub": relevant_violation[..., 1].sum(dim=1).mean().detach(),
