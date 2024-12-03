@@ -63,10 +63,9 @@ class AttentionDecoderWithCache(nn.Module):
 
         # Layer Normalization
         norm_dict = {
-            'layer': FP32LayerNorm,
-            # 'batch': nn.BatchNorm1d,
+            "layer": FP32LayerNorm,
+            "batch": nn.BatchNorm1d,
         }
-        assert normalization != 'batch', "BatchNorm1d is not supported in the critic network"
         norm = norm_dict.get(normalization, nn.Identity)
         self.q_layer_norm = norm(embed_dim)
         self.attn_layer_norm = norm(embed_dim)
@@ -192,10 +191,9 @@ class MLPDecoderWithCache(nn.Module):
         # Create policy MLP
         ffn_activation = nn.LeakyReLU()
         norm_dict = {
-            'layer': nn.LayerNorm(embed_dim),
-            'batch': nn.BatchNorm1d(embed_dim),
+            "layer": nn.LayerNorm(embed_dim),
+            "batch": nn.BatchNorm1d(embed_dim),
         }
-        assert normalization != 'batch', "BatchNorm1d is not supported in the critic network"
         norm_fn = norm_dict.get(normalization, nn.Identity)
 
         # Build the layers
