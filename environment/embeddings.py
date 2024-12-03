@@ -177,14 +177,14 @@ class MPPContextEmbedding(nn.Module):
 
         # Extract demand
         # todo: add sum and self-attention aggregation
-        current_demand = self.current_demand(td["obs"]["current_demand"] * norm_cargo_t)
-        expected_demand = self.expected_demand(td["obs"]["expected_demand"] * norm_cargo)
-        std_demand = self.std_demand(td["obs"]["std_demand"] * norm_cargo)
-        observed_demand = self.observed_demand(td["obs"]["observed_demand"] * norm_cargo)
+        current_demand = self.current_demand(td["obs"]["current_demand"]) # * norm_cargo_t)
+        expected_demand = self.expected_demand(td["obs"]["expected_demand"]) # * norm_cargo)
+        std_demand = self.std_demand(td["obs"]["std_demand"]) # * norm_cargo)
+        observed_demand = self.observed_demand(td["obs"]["observed_demand"]) # * norm_cargo)
 
         # Extract vessel and location embeddings
-        residual_capacity = self.residual_capacity(td["obs"]["residual_capacity"] * norm_cargo_t)
-        residual_lc_capacity = self.long_crane_capacity(td["obs"]["residual_lc_capacity"] * norm_cargo_t)
+        residual_capacity = self.residual_capacity(td["obs"]["residual_capacity"]) # * norm_cargo_t)
+        residual_lc_capacity = self.long_crane_capacity(td["obs"]["residual_lc_capacity"]) # * norm_cargo_t)
         origin_embed = self.origin_location(td["obs"]["agg_pol_location"]/self.env.P)
         destination_embed = self.destination_location(td["obs"]["agg_pod_location"]/self.env.P)
 
