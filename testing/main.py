@@ -39,8 +39,8 @@ from models.constructive import ConstructivePolicyMPP
 from rl4co.models.common.constructive.autoregressive import AutoregressivePolicy
 from environment.env import MasterPlanningEnv
 # AMPPO.__bases__ = (StepwisePPO,)  # Adapt base class
-AMPPO.__bases__ = (Projection_Nstep_PPO,)  # Adapt base class
-# AMPPO.__bases__ = (Projection_PPO,)  # Adapt base class
+# AMPPO.__bases__ = (Projection_Nstep_PPO,)  # Adapt base class
+AMPPO.__bases__ = (Projection_PPO,)  # Adapt base class
 
 import yaml
 from dotmap import DotMap
@@ -151,40 +151,42 @@ def main(config: Optional[DotMap] = None):
     ## Environment initialization
     emb_dim = 128
     env_kwargs = config.env
-    env = make_env(env_kwargs, device)
-    # env = DenseRewardTSPEnv(generator_params=dict(num_loc=100),)
+    # env = make_env(env_kwargs, device)
+    env = DenseRewardTSPEnv(generator_params=dict(num_loc=100),)
     check_env_specs(env)
     td = env.reset(batch_size=32)
 
-    # if env.name == "mpp":
-    AutoregressivePolicy.__bases__ = (ConstructivePolicyMPP,)  # Adapt base class
+    if env.name == "mpp":
+        AutoregressivePolicy.__bases__ = (ConstructivePolicyMPP,)  # Adapt base class
 
     # Model: default is AM with REINFORCE and greedy rollout baseline
     # check out `RL4COLitModule` and `REINFORCE` for more details
     from environment.embeddings import MPPContextEmbedding, MPPInitEmbedding
-    init_embedding = MPPInitEmbedding(emb_dim, env.action_spec.shape[0], env)
-    context_embedding = MPPContextEmbedding(env.action_spec.shape[0], emb_dim, env)
-    policy = AttentionModelPolicy4PPO(env_name=env.name,
-                                      encoder=AttentionModelEncoder(emb_dim, init_embedding=init_embedding,),
-                                        decoder=AttentionModelDecoder(emb_dim, context_embedding=context_embedding, mask_inner=False),
+    # init_embedding = MPPInitEmbedding(emb_dim, env.action_spec.shape[0], env)
+    # context_embedding = MPPContextEmbedding(env.action_spec.shape[0], emb_dim, env)
+    # policy = AttentionModelPolicy4PPO(env_name=env.name,
+    policy = AttentionModelPolicy(env_name=env.name,
+
+                                      # encoder=AttentionModelEncoder(emb_dim, init_embedding=init_embedding,),
+                                      #   decoder=AttentionModelDecoder(emb_dim, context_embedding=context_embedding, mask_inner=False),
                                   # this is actually not needed since we are initializing the embeddings!
                                   embed_dim=emb_dim,
-                                  init_embedding=init_embedding,
-                                      context_embedding=context_embedding,
+                                  # init_embedding=init_embedding,
+                                  #     context_embedding=context_embedding,
                                       mask_inner=False,
-                                      # train_decode_type="sampling",
-                                      # val_decode_type="greedy",
-                                      # test_decode_type="beam_search",
-                                    train_decode_type="continuous_sampling",
-                                    val_decode_type="continuous_projection",
-                                    test_decode_type="continuous_projection",
+                                      train_decode_type="sampling",
+                                      val_decode_type="greedy",
+                                      test_decode_type="beam_search",
+                                    # train_decode_type="continuous_sampling",
+                                    # val_decode_type="continuous_projection",
+                                    # test_decode_type="continuous_projection",
                                     )
 
     # model = AttentionModel(
     model = AMPPO(
         env,
         policy=policy,
-        n_step = 100,
+        # n_step = 100,
         # baseline="rollout",
         train_data_size=1_000_000,  # really small size for demo
         val_data_size=100_000,
