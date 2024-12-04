@@ -462,8 +462,8 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 surrogate_loss
                 + self.ppo_cfg["vf_lambda"] * value_loss
                 - self.ppo_cfg["entropy_lambda"] * entropy.mean()
-                # + self.ppo_cfg["feasibility_lambda"] * feasibility_loss
-                # + self.ppo_cfg["projection_lambda"] * projection_loss
+                + self.ppo_cfg["feasibility_lambda"] * feasibility_loss
+                + self.ppo_cfg["projection_lambda"] * projection_loss
         ).mean()
         assert total_loss.requires_grad, "Total loss should require gradients"
         check_for_nans(total_loss, "total_loss")
@@ -486,14 +486,14 @@ class Projection_Nstep_PPO(RL4COLitModule):
             "clipped_ratios": clipped_ratios.mean().detach(),
             "adv": adv.detach(),
             "value_pred": value_preds.detach(),
-            # # Violation metrics
-            # "mean_violation":violation.sum(dim=(1, 2)).mean(),
-            # "violation": relevant_violation.sum(dim=(1, 2)).mean().detach(),
-            # "violation_demand": relevant_violation[..., 0].sum(dim=1).mean().detach(),
-            # "violation_lcg_ub": relevant_violation[..., 1].sum(dim=1).mean().detach(),
-            # "violation_lcg_lb": relevant_violation[..., 2].sum(dim=1).mean().detach(),
-            # "violation_vcg_ub": relevant_violation[..., 3].sum(dim=1).mean().detach(),
-            # "violation_vcg_lb": relevant_violation[..., 4].sum(dim=1).mean().detach(),
+            # Violation metrics
+            "mean_violation":violation.sum(dim=(1, 2)).mean(),
+            "violation": relevant_violation.sum(dim=(1, 2)).mean().detach(),
+            "violation_demand": relevant_violation[..., 0].sum(dim=1).mean().detach(),
+            "violation_lcg_ub": relevant_violation[..., 1].sum(dim=1).mean().detach(),
+            "violation_lcg_lb": relevant_violation[..., 2].sum(dim=1).mean().detach(),
+            "violation_vcg_ub": relevant_violation[..., 3].sum(dim=1).mean().detach(),
+            "violation_vcg_lb": relevant_violation[..., 4].sum(dim=1).mean().detach(),
             # Additional metrics for debugging or logging
             "total_loaded": td["state"]["total_loaded"].mean().detach(),
             "total_profit": (
