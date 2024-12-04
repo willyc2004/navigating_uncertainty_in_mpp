@@ -191,12 +191,13 @@ class MLPDecoderWithCache(nn.Module):
         # Create policy MLP
         ffn_activation = nn.LeakyReLU()
         norm_dict = {
-            "layer": nn.LayerNorm(embed_dim),
-            "batch": nn.BatchNorm1d(embed_dim),
+            "layer": nn.LayerNorm,
+            "batch": nn.BatchNorm1d,
         }
         norm_fn = norm_dict.get(normalization, nn.Identity)
 
         # Build the layers
+        # todo: add batch normalization; need to permute as batchnorm uses [batch, feature, seq] shape
         layers = [
             # norm_fn,
             nn.Linear(embed_dim, hidden_dim),
@@ -287,7 +288,7 @@ class FP32Attention(nn.MultiheadAttention):
 class ResidualBlock(nn.Module):
     def __init__(self, dim, norm_fn, activation, dropout_rate=None):
         super().__init__()
-        self.norm = norm_fn
+        self.norm = norm_fn(dim)
         self.linear = nn.Linear(dim, dim)
         self.activation = activation
         self.dropout = nn.Dropout(dropout_rate) if dropout_rate else nn.Identity()

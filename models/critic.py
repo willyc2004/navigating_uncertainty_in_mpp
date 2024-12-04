@@ -40,16 +40,16 @@ class CriticNetwork(nn.Module):
                 embed_dim = getattr(encoder, "embed_dim", embed_dim)
 
             # Create value head with residual connections
-            ffn_activation = nn.ReLU() #nn.LeakyReLU()
+            ffn_activation = nn.LeakyReLU() # nn.ReLU()
             norm_dict = {
-                'layer': nn.LayerNorm(embed_dim),
-                'batch': nn.BatchNorm1d(embed_dim),
+                'layer': nn.LayerNorm,
+                'batch': nn.BatchNorm1d,
             }
             norm_fn = norm_dict.get(normalization, nn.Identity)
 
             # Build the value head
             layers = [
-                # norm_fn,
+                # norm_fn(embed_dim),
                 nn.Linear(embed_dim, hidden_dim),
                 ffn_activation,
             ]
