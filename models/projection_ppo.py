@@ -309,7 +309,7 @@ class Projection_PPO(RL4COLitModule):
         # Evaluate old actions, log probabilities, and rewards
         with torch.no_grad():
             td = self.env.reset(batch)  # note: clone needed for dataloader
-            out = self.policy(td.clone(), self.env, phase=phase, return_actions=True)
+            out = self.policy(td.clone(), self.env, phase=phase, return_actions=True, return_sum_log_likelihood=False,)
 
         if phase == "train":
             batch_size = out["actions"].shape[0]
@@ -354,7 +354,15 @@ class Projection_PPO(RL4COLitModule):
 
                     # Compute the ratio of probabilities of new and old actions
                     if self.env.name == "mpp":
-                        ratio = torch.exp(ll.sum(dim=-1) - sub_td["logprobs"].sum(dim=-1)).sum(dim=-1, keepdim=True)
+                        # todo: work on logprobs in this algorithm
+                        log_ratio = ll - sub_td["logprobs"]
+                        # print("mean ll ", ll.mean(), ll.shape)
+                        # print("mean ll ", ll.mean(dim=(0,1)), ll.mean(dim=0))
+                        # breakpoint()
+                        # print("mean sub_td[logprobs]", sub_td["logprobs"].mean(), sub_td["logprobs"].shape)
+                        ratio = torch.exp(log_ratio.sum(dim=(-1,-2)))
+                        # print("shape", ratio.shape)
+                        # print("ratio", ratio.mean())
                     else:
                         ratio = torch.exp(ll.sum(dim=-1) - sub_td["logprobs"]).view(-1, 1)  # [batch, 1]
 
@@ -408,115 +416,115 @@ class Projection_PPO(RL4COLitModule):
                     "value_loss": value_loss,
                     "entropy": entropy.mean(),
                     "value_pred": value_pred,
-                    "return": previous_reward.mean(),
-                    "ratio": ratio,
+                    "previous_reward": previous_reward.mean(),
+                    "ratios": ratio.mean(),
 
                 }
             )
 
         metrics = self.log_metrics(out, phase, dataloader_idx=dataloader_idx)
         return {"loss": out.get("loss", None), **metrics}
-
-    def shared_step2(
-        self, batch: Any, batch_idx: int, phase: str, dataloader_idx: int = None
-    ):
-        if phase != "train":
-            td = self.env.reset(batch)
-            out = self.policy.generate(td, env=self.env, phase=phase, return_feasibility=True,
-                                       projection_type=self.projection_type, projection_kwargs=self.projection_kwargs)
-            # Log metrics
-            if self.env.name == "mpp":
-                self.log("val/total_profit_and_feas", out["total_profit_and_feas"].mean(), on_epoch=True, prog_bar=True, logger=True)
-                self.log("val/total_revenue", out["total_revenue"].mean(), on_epoch=True, prog_bar=True, logger=True)
-                self.log("val/total_cost", out["total_cost"].mean(), on_epoch=True, prog_bar=True, logger=True)
-                self.log("val/total_loaded", out["total_loaded"].mean(), on_epoch=True, prog_bar=True, logger=True)
-
-                # Log relevant violations
-                relevant_violation = self._get_relevant_violations(out["violation"], self.env)
-                self.log("val/violation_demand", relevant_violation[...,0].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
-                self.log("val/violation_lcg_ub", relevant_violation[...,1].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
-                self.log("val/violation_lcg_lb", relevant_violation[...,2].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
-                self.log("val/violation_vcg_ub", relevant_violation[...,3].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
-                self.log("val/violation_vcg_lb", relevant_violation[...,4].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
-                self.log("val/violation", relevant_violation.sum(dim=(1,2)).mean(), on_epoch=True, prog_bar=True, logger=True)
-        else:
-            td = self.env.reset(batch)
-            # todo: improve code here
-            if "action_mask" in self.env.observation_spec:
-                logprob_shape = self.env.observation_spec["action_mask"].shape[0]
-            else:
-                logprob_shape = self.env.action_spec.shape[0]
-            memory = Memory(batch, self.ppo_cfg["n_step"], self.env.action_spec.shape[0], logprob_shape)
-            out = self.update(td, memory, phase)
-        metrics = self.log_metrics(out, phase, dataloader_idx=dataloader_idx)
-        return {"loss": out.get("loss", None), **metrics}
-
-    def update(self, td, memory, phase,):
-        # Initialize metrics list
-        list_metrics = []
-        # Clear replay buffer memory
-        self.rb.empty()
-        # no_grad
-        for i in range(self.ppo_cfg["n_step"]):
-            # Select td_obs
-            td_obs = td.clone()
-            # Forward pass to get values and actions
-            with torch.no_grad():
-                values = self.critic(td_obs).view(-1, 1).detach()
-                td = self.policy.act(td_obs, self.env, phase=phase).detach()
-                td = self.env.step(td.clone())["next"]
-            # todo: We need dense rewards; possibly adapt get_reward
-            reward = self.env.get_reward(td, None)
-            td.set("reward", reward)
-            td.set("values", values)
-            self.rb.extend(td)
-
-        for k in range(self.ppo_cfg["ppo_epochs"]):
-            for sub_td in self.rb:
-                batch = sub_td.clone()
-                out = self.policy.act(
-                    batch,
-                    action=batch["action"],
-                    env=self.env,
-                    phase=phase,
-                    return_actions=True,
-                )
-                out["value_preds"] = self.critic(batch).clone()
-
-                # Advantage and return computation
-                # todo: not sure if this works
-                adv, returns = generalized_advantage_estimate(
-                    gamma=self.ppo_cfg["gamma"],
-                    lmbda=self.ppo_cfg["gae_lambda"],
-                    state_value=batch["values"],
-                    next_state_value=out["value_preds"].detach(),
-                    reward=batch["reward"],
-                    done=out["done"].bool(),
-                )
-                out["adv"] = self._normalize_if_enabled(adv, self.ppo_cfg["normalize_adv"])
-                out["returns"] = self._normalize_if_enabled(returns, self.ppo_cfg["normalize_return"])
-
-                # with torch.autograd.set_detect_anomaly(True):
-                # Compute losses
-                if self.env.name == "mpp":
-                    loss, metrics = self._compute_losses_mpp(out, batch, td, self.lambda_violations, )
-                else:
-                    loss, metrics = self._compute_losses(out, batch, td, self.lambda_violations, )
-                # Backward pass
-                opt = self.optimizers()
-                opt.zero_grad()
-                self.manual_backward(loss,) # retain_graph=True)
-                if self.ppo_cfg["max_grad_norm"] is not None:
-                    self.clip_gradients(
-                        opt,
-                        gradient_clip_val=self.ppo_cfg["max_grad_norm"],
-                        gradient_clip_algorithm="norm",
-                    )
-
-                opt.step()
-                list_metrics.append(metrics)
-
-        return self._aggregate_metrics(list_metrics)
+    #
+    # def shared_step2(
+    #     self, batch: Any, batch_idx: int, phase: str, dataloader_idx: int = None
+    # ):
+    #     if phase != "train":
+    #         td = self.env.reset(batch)
+    #         out = self.policy.generate(td, env=self.env, phase=phase, return_feasibility=True,
+    #                                    projection_type=self.projection_type, projection_kwargs=self.projection_kwargs)
+    #         # Log metrics
+    #         if self.env.name == "mpp":
+    #             self.log("val/total_profit_and_feas", out["total_profit_and_feas"].mean(), on_epoch=True, prog_bar=True, logger=True)
+    #             self.log("val/total_revenue", out["total_revenue"].mean(), on_epoch=True, prog_bar=True, logger=True)
+    #             self.log("val/total_cost", out["total_cost"].mean(), on_epoch=True, prog_bar=True, logger=True)
+    #             self.log("val/total_loaded", out["total_loaded"].mean(), on_epoch=True, prog_bar=True, logger=True)
+    #
+    #             # Log relevant violations
+    #             relevant_violation = self._get_relevant_violations(out["violation"], self.env)
+    #             self.log("val/violation_demand", relevant_violation[...,0].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
+    #             self.log("val/violation_lcg_ub", relevant_violation[...,1].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
+    #             self.log("val/violation_lcg_lb", relevant_violation[...,2].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
+    #             self.log("val/violation_vcg_ub", relevant_violation[...,3].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
+    #             self.log("val/violation_vcg_lb", relevant_violation[...,4].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
+    #             self.log("val/violation", relevant_violation.sum(dim=(1,2)).mean(), on_epoch=True, prog_bar=True, logger=True)
+    #     else:
+    #         td = self.env.reset(batch)
+    #         # todo: improve code here
+    #         if "action_mask" in self.env.observation_spec:
+    #             logprob_shape = self.env.observation_spec["action_mask"].shape[0]
+    #         else:
+    #             logprob_shape = self.env.action_spec.shape[0]
+    #         memory = Memory(batch, self.ppo_cfg["n_step"], self.env.action_spec.shape[0], logprob_shape)
+    #         out = self.update(td, memory, phase)
+    #     metrics = self.log_metrics(out, phase, dataloader_idx=dataloader_idx)
+    #     return {"loss": out.get("loss", None), **metrics}
+    #
+    # def update(self, td, memory, phase,):
+    #     # Initialize metrics list
+    #     list_metrics = []
+    #     # Clear replay buffer memory
+    #     self.rb.empty()
+    #     # no_grad
+    #     for i in range(self.ppo_cfg["n_step"]):
+    #         # Select td_obs
+    #         td_obs = td.clone()
+    #         # Forward pass to get values and actions
+    #         with torch.no_grad():
+    #             values = self.critic(td_obs).view(-1, 1).detach()
+    #             td = self.policy.act(td_obs, self.env, phase=phase).detach()
+    #             td = self.env.step(td.clone())["next"]
+    #         # todo: We need dense rewards; possibly adapt get_reward
+    #         reward = self.env.get_reward(td, None)
+    #         td.set("reward", reward)
+    #         td.set("values", values)
+    #         self.rb.extend(td)
+    #
+    #     for k in range(self.ppo_cfg["ppo_epochs"]):
+    #         for sub_td in self.rb:
+    #             batch = sub_td.clone()
+    #             out = self.policy.act(
+    #                 batch,
+    #                 action=batch["action"],
+    #                 env=self.env,
+    #                 phase=phase,
+    #                 return_actions=True,
+    #             )
+    #             out["value_preds"] = self.critic(batch).clone()
+    #
+    #             # Advantage and return computation
+    #             # todo: not sure if this works
+    #             adv, returns = generalized_advantage_estimate(
+    #                 gamma=self.ppo_cfg["gamma"],
+    #                 lmbda=self.ppo_cfg["gae_lambda"],
+    #                 state_value=batch["values"],
+    #                 next_state_value=out["value_preds"].detach(),
+    #                 reward=batch["reward"],
+    #                 done=out["done"].bool(),
+    #             )
+    #             out["adv"] = self._normalize_if_enabled(adv, self.ppo_cfg["normalize_adv"])
+    #             out["returns"] = self._normalize_if_enabled(returns, self.ppo_cfg["normalize_return"])
+    #
+    #             # with torch.autograd.set_detect_anomaly(True):
+    #             # Compute losses
+    #             if self.env.name == "mpp":
+    #                 loss, metrics = self._compute_losses_mpp(out, batch, td, self.lambda_violations, )
+    #             else:
+    #                 loss, metrics = self._compute_losses(out, batch, td, self.lambda_violations, )
+    #             # Backward pass
+    #             opt = self.optimizers()
+    #             opt.zero_grad()
+    #             self.manual_backward(loss,) # retain_graph=True)
+    #             if self.ppo_cfg["max_grad_norm"] is not None:
+    #                 self.clip_gradients(
+    #                     opt,
+    #                     gradient_clip_val=self.ppo_cfg["max_grad_norm"],
+    #                     gradient_clip_algorithm="norm",
+    #                 )
+    #
+    #             opt.step()
+    #             list_metrics.append(metrics)
+    #
+    #     return self._aggregate_metrics(list_metrics)
 
     def _normalize_if_enabled(self, tensor, enabled):
         """Normalize tensors if enabled in configuration"""
