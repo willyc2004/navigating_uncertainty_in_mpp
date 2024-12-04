@@ -215,8 +215,8 @@ class MasterPlanningEnv(RL4COEnvBase):
         # print("relu(sum - dem).mean()", th.relu(sum_action - demand_obs["current_demand"]).mean())
 
         ## Reward
-        revenue = sum_action * self.revenues[t[0]]
-        # revenue = th.min(sum_action, demand_obs["current_demand"]) * self.revenues[t[0]]
+        # revenue = sum_action * self.revenues[t[0]]
+        revenue = th.min(sum_action, demand_obs["current_demand"]) * self.revenues[t[0]]
         profit = revenue.clone()
         if self.next_port_mask[t].any():
             # Compute aggregated: overstowage and long crane excess
