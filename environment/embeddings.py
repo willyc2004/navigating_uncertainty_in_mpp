@@ -29,35 +29,45 @@ class MPPInitEmbedding(nn.Module):
         self.ex_demand = nn.Linear(1, embed_dim)
         self.stdx_demand = nn.Linear(1, embed_dim)
         # Final projection and positional encoding
-        num_embeddings = 2 #8  # Number of embeddings
+        num_embeddings = 8 # Number of embeddings
         self.fc = nn.Linear(num_embeddings * embed_dim, embed_dim)
         self.positional_encoding = DynamicSinusoidalPositionalEncoding(embed_dim)
 
-    def initialize_cache(self):
-        """Initialize cache for fixed embeddings"""
-        # Point to integer
-        cargo_class = self.env.k[:-1].to(torch.int64)
-        # Normalize
-        norm_pol = (self.env.pol[:-1] / self.env.P).view(-1, 1)
-        norm_pod = (self.env.pod[:-1] / self.env.P).view(-1, 1)
-        norm_weights = (self.env.weights[self.env.k[:-1]] / self.env.weights[self.env.k[:-1]].max()).view(-1, 1)
-        norm_teus = (self.env.teus[self.env.k[:-1]] / self.env.teus[self.env.k[:-1]].max()).view(-1, 1)
-        norm_revenues = (self.env.revenues[:-1] / self.env.revenues[:-1].max()).view(-1, 1)
+    def _cargo_parameters_embedding(self, batch_size):
+        """Get the cargo parameters embedding"""
+        # Clone environment parameters to avoid modification
+        cargo_class = self.env.k[:-1].clone().to(torch.int64)
+        norm_features = {
+            "pol": (self.env.pol[:-1].clone() / self.env.P).view(-1, 1),
+            "pod": (self.env.pod[:-1].clone() / self.env.P).view(-1, 1),
+            "weights": (self.env.weights[self.env.k[:-1]].clone() / self.env.weights[self.env.k[:-1]].max()).view(-1, 1),
+            "teus": (self.env.teus[self.env.k[:-1]].clone() / self.env.teus[self.env.k[:-1]].max()).view(-1, 1),
+            "revenues": (self.env.revenues[:-1].clone() / self.env.revenues[:-1].max()).view(-1, 1),
+        }
 
-        # Category embeddings
-        self.class_embed_cache = self.cargo_class(cargo_class).view(1,self.seq_size, -1)
-        # Ordinal embeddings
-        self.origin_emb_cache = self.origin_port(norm_pol).view(1,self.seq_size, -1)
-        self.destination_emb_cache = self.destination_port(norm_pod).view(1,self.seq_size, -1)
-        # Continuous embeddings
-        self.weight_emb_cache = self.weight(norm_weights).view(1,self.seq_size, -1)
-        self.teu_emb_cache = self.teu(norm_teus).view(1,self.seq_size, -1)
-        self.revenue_emb_cache = self.revenue(norm_revenues).view(1,self.seq_size, -1)
-        # self.cache_initialized = True  # Update flag
+        # Cache category embeddings
+        class_embed = self.cargo_class(cargo_class).view(1, self.seq_size, -1).expand(batch_size, -1, -1)
+
+        # Cache ordinal embeddings
+        origin_emb = self.origin_port(norm_features["pol"]).view(1, self.seq_size, -1).expand(batch_size, -1, -1)
+        destination_emb = self.destination_port(norm_features["pod"]).view(1, self.seq_size, -1).expand(batch_size, -1, -1)
+
+        # Cache continuous embeddings
+        weight_emb = self.weight(norm_features["weights"]).view(1, self.seq_size, -1).expand(batch_size, -1, -1)
+        teu_emb = self.teu(norm_features["teus"]).view(1, self.seq_size, -1).expand(batch_size, -1, -1)
+        revenue_emb = self.revenue(norm_features["revenues"]).view(1, self.seq_size, -1).expand(batch_size,-1,-1)
+
+        return {
+            "class_embed": class_embed,
+            "origin_emb": origin_emb,
+            "destination_emb": destination_emb,
+            "weight_emb": weight_emb,
+            "teu_emb": teu_emb,
+            "revenue_emb": revenue_emb,
+        }
 
     def forward(self, td: TensorDict):
         # Get batch size and cargo normalization (based on teu and total capacity)
-        batch_size = td.batch_size
         norm_cargo = (self.env.teus[self.env.k[:-1]] / self.env.total_capacity).view(1, -1, 1)
         # todo: clean-up code!
         if td["obs"]["expected_demand"].dim() == 2:
@@ -69,21 +79,20 @@ class MPPInitEmbedding(nn.Module):
         else:
             raise ValueError("Invalid shape for expected_demand")
 
-        # # Initialize cache if not done yet
-        # if not self.cache_initialized:
-        # self.initialize_cache()
+        # Initialize for parameter embeddings
+        # todo: test if this works properly
+        out = self._cargo_parameters_embedding(batch_size=td.batch_size[0])
 
         # Concatenate all embeddings (using cached values for fixed ones)
-        # todo: not working properly; initialize cache disguises fact there is no gradient tracking!
         combined_emb = torch.cat([
             expected_demand,
             std_demand,
-            # self.origin_emb_cache.expand(*batch_size, -1, -1),
-            # self.destination_emb_cache.expand(*batch_size, -1, -1),
-            # self.class_embed_cache.expand(*batch_size, -1, -1),
-            # self.weight_emb_cache.expand(*batch_size, -1, -1),
-            # self.teu_emb_cache.expand(*batch_size, -1, -1),
-            # self.revenue_emb_cache.expand(*batch_size, -1, -1),
+            out["origin_emb"],
+            out["destination_emb"],
+            out["class_embed"],
+            out["weight_emb"],
+            out["teu_emb"],
+            out["revenue_emb"],
         ], dim=-1)
 
         # Final projection
@@ -111,7 +120,7 @@ class MPPContextEmbedding(nn.Module):
         self.current_demand = nn.Linear(1, embed_dim)
         self.residual_capacity = nn.Linear(action_dim, embed_dim)
         self.long_crane_capacity = nn.Linear(self.env.B - 1, embed_dim)
-        self.project_context = nn.Linear(embed_dim * 3, embed_dim, ) # 9
+        self.project_context = nn.Linear(embed_dim * 9, embed_dim, )
 
         # Self-attention layer
         self.demand_aggregation = demand_aggregation
