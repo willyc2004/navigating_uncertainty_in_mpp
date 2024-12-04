@@ -327,17 +327,11 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 self.log("val/violation", relevant_violation.sum(dim=(1,2)).mean(), on_epoch=True, prog_bar=True, logger=True)
         else:
             td = self.env.reset(batch)
-            # todo: improve code here
-            if "action_mask" in self.env.observation_spec:
-                logprob_shape = self.env.observation_spec["action_mask"].shape[0]
-            else:
-                logprob_shape = self.env.action_spec.shape[0]
-            memory = Memory(batch, self.ppo_cfg["n_step"], self.env.action_spec.shape[0], logprob_shape)
-            out = self.update(td, memory, phase)
+            out = self.update(td, phase)
         metrics = self.log_metrics(out, phase, dataloader_idx=dataloader_idx)
         return {"loss": out.get("loss", None), **metrics}
 
-    def update(self, td, memory, phase,):
+    def update(self, td, phase,):
         # Initialize metrics list
         list_metrics = []
         # Clear replay buffer memory
