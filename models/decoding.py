@@ -471,10 +471,6 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 proj_mean_logits, std_logits, mask=None, # mask=mask # Change to None to avoid masking logits
                 td=td, clip_min=clip_min, clip_max=clip_max, action=action, **kwargs
             )
-            # print("t", td["timestep"][0], "mean action", selected_action.mean())
-            # print("sum action", selected_action.mean(dim=0).sum(),
-            #       "demand", td["obs"]["current_demand"].mean(dim=0),
-            #       "residual capacity", clip_max.mean(dim=0).sum())
 
             # Update logprobs and actions
             self.lhs_A.append(td["lhs_A"])
