@@ -341,20 +341,19 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
         # Gather n_steps in memory
         memory.clear_memory()
-        with torch.no_grad():
-            for i in range(self.ppo_cfg["n_step"]):
-                # Store observation in memory
-                td_obs = td.select(*self.select_obs_td).clone()
-                memory.tds_obs.append(td_obs.clone())
+        for i in range(self.ppo_cfg["n_step"]):
+            # Store observation in memory
+            td_obs = td.select(*self.select_obs_td).clone()
+            memory.tds_obs.append(td_obs.clone())
 
-                # Generate actions, perform step in environment and store results
-                memory.values[:, i] = self.critic(td_obs).view(-1, 1)
-                td = self.policy.act(td.clone(), self.env, phase=phase)
-                td = self.env.step(td.clone())["next"]
-                memory.actions[:, i] = td["action"].clone()
-                memory.logprobs[:, i] = td["logprobs"].clone()
-                memory.rewards[:, i] = td["reward"].view(-1, 1).clone()
-                memory.profit[:, i] = td["profit"].view(-1, 1).clone()
+            # Generate actions, perform step in environment and store results
+            memory.values[:, i] = self.critic(td_obs).view(-1, 1).detach()
+            td = self.policy.act(td.clone(), self.env, phase=phase).detach()
+            td = self.env.step(td.clone())["next"]
+            memory.actions[:, i] = td["action"].clone()
+            memory.logprobs[:, i] = td["logprobs"].clone()
+            memory.rewards[:, i] = td["reward"].view(-1, 1).clone()
+            memory.profit[:, i] = td["profit"].view(-1, 1).clone()
 
         # Create DataLoader for mini-batch sampling
         dataset = BatchDataset(td, memory)
@@ -384,6 +383,22 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 )
                 out["adv"] = self._normalize_if_enabled(adv, self.ppo_cfg["normalize_adv"])
                 out["returns"] = self._normalize_if_enabled(returns, self.ppo_cfg["normalize_return"])
+                # print(f"Adv: {out['adv'].mean(dim=0).T}")
+                # print(f"Returns: {out['returns'].mean(dim=0).T}")
+                # print(f"Values: {batch['values'].mean(dim=0).T}")
+                # print(f"Rewards: {batch['rewards'].mean(dim=0).T}")
+                # print("#" * 50)
+                # print(f"Actions requires_grad: {batch['actions'].requires_grad}")
+                # print(f"Old log probs requires_grad: {batch['logprobs'].requires_grad}")
+                # print(f"Values requires_grad: {batch['values'].requires_grad}")
+                # print(f"Rewards requires_grad: {batch['rewards'].requires_grad}")
+                # print(f"Adv requires_grad: {out['adv'].requires_grad}")
+                # print(f"Returns requires_grad: {out['returns'].requires_grad}")
+                # print("-" * 50)
+                # print(f"Log probs requires_grad: {out['logprobs'].requires_grad}")
+                # print(f"Value preds requires_grad: {out['value_preds'].requires_grad}")
+                # print(f"logits requires_grad: {out['mean_logits'].requires_grad}")
+                # print(f"Projected logits requires_grad: {out['proj_mean_logits'].requires_grad}")
 
                 # with torch.autograd.set_detect_anomaly(True):
                 # Compute losses
@@ -391,7 +406,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 # Backward pass
                 opt = self.optimizers()
                 opt.zero_grad()
-                self.manual_backward(loss, retain_graph=True)
+                self.manual_backward(loss)
                 if self.ppo_cfg["max_grad_norm"] is not None:
                     self.clip_gradients(
                         opt,
@@ -447,9 +462,10 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 surrogate_loss
                 + self.ppo_cfg["vf_lambda"] * value_loss
                 - self.ppo_cfg["entropy_lambda"] * entropy.mean()
-                + self.ppo_cfg["feasibility_lambda"] * feasibility_loss
-                + self.ppo_cfg["projection_lambda"] * projection_loss
+                # + self.ppo_cfg["feasibility_lambda"] * feasibility_loss
+                # + self.ppo_cfg["projection_lambda"] * projection_loss
         ).mean()
+        assert total_loss.requires_grad, "Total loss should require gradients"
         check_for_nans(total_loss, "total_loss")
 
         # Compute relevant violations for metrics
@@ -470,14 +486,14 @@ class Projection_Nstep_PPO(RL4COLitModule):
             "clipped_ratios": clipped_ratios.mean().detach(),
             "adv": adv.detach(),
             "value_pred": value_preds.detach(),
-            # Violation metrics
-            "mean_violation":violation.sum(dim=(1, 2)).mean(),
-            "violation": relevant_violation.sum(dim=(1, 2)).mean().detach(),
-            "violation_demand": relevant_violation[..., 0].sum(dim=1).mean().detach(),
-            "violation_lcg_ub": relevant_violation[..., 1].sum(dim=1).mean().detach(),
-            "violation_lcg_lb": relevant_violation[..., 2].sum(dim=1).mean().detach(),
-            "violation_vcg_ub": relevant_violation[..., 3].sum(dim=1).mean().detach(),
-            "violation_vcg_lb": relevant_violation[..., 4].sum(dim=1).mean().detach(),
+            # # Violation metrics
+            # "mean_violation":violation.sum(dim=(1, 2)).mean(),
+            # "violation": relevant_violation.sum(dim=(1, 2)).mean().detach(),
+            # "violation_demand": relevant_violation[..., 0].sum(dim=1).mean().detach(),
+            # "violation_lcg_ub": relevant_violation[..., 1].sum(dim=1).mean().detach(),
+            # "violation_lcg_lb": relevant_violation[..., 2].sum(dim=1).mean().detach(),
+            # "violation_vcg_ub": relevant_violation[..., 3].sum(dim=1).mean().detach(),
+            # "violation_vcg_lb": relevant_violation[..., 4].sum(dim=1).mean().detach(),
             # Additional metrics for debugging or logging
             "total_loaded": td["state"]["total_loaded"].mean().detach(),
             "total_profit": (
