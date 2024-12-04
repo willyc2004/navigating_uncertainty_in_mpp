@@ -75,7 +75,7 @@ def get_log_likelihood(logprobs, actions, mask=None, return_sum: bool = True,):
         else:
             return logprobs  # [batch, decode_len]
     else:
-        raise ValueError(f"actions.dtype should be torch.float16 or torch.int32. It is however {actions.dtype}.")
+        raise ValueError(f"actions.dtype should be torch.float16/32 or torch.int64. It is however {actions.dtype}.")
 
 def decode_logprobs(logprobs, mask, decode_type="sampling"):
     """Decode log probabilities to select actions with mask.
