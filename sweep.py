@@ -36,6 +36,7 @@ if __name__ == "__main__":
             config['ppo']['ppo_epochs'] = sweep_config.ppo_epochs
             config['ppo']['mini_batch_size'] = sweep_config.mini_batch_size
             config['ppo']['feasibility_lambda'] = sweep_config.feasibility_lambda
+            config['ppo']['entropy_lambda'] = sweep_config.entropy_lambda
             # config['ppo']['kl_threshold'] = sweep_config.kl_threshold
             # config['ppo']['clip_range'] = sweep_config.clip_range
             # config['ppo']['gamma'] = sweep_config.gamma
