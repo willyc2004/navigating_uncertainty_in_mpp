@@ -78,7 +78,7 @@ am_ppo:
   #None, convex_program, worst_case_violation, linear_violation, linear_program
   projection_kwargs:
     iters: 5
-    project_per_port: True
+    project_per_port: False
   optimizer: "Adam"
   #AdamW, Adam
   train_data_size: 400000  #5_000_000 # 3_000_000
