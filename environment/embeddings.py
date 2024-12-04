@@ -29,7 +29,7 @@ class MPPInitEmbedding(nn.Module):
         self.ex_demand = nn.Linear(1, embed_dim)
         self.stdx_demand = nn.Linear(1, embed_dim)
         # Final projection and positional encoding
-        num_embeddings = 8  # Number of embeddings
+        num_embeddings = 2 #8  # Number of embeddings
         self.fc = nn.Linear(num_embeddings * embed_dim, embed_dim)
         self.positional_encoding = DynamicSinusoidalPositionalEncoding(embed_dim)
 
@@ -61,37 +61,36 @@ class MPPInitEmbedding(nn.Module):
         norm_cargo = (self.env.teus[self.env.k[:-1]] / self.env.total_capacity).view(1, -1, 1)
         # todo: clean-up code!
         if td["obs"]["expected_demand"].dim() == 2:
-            e_x = reorder_demand(td["obs"]["expected_demand"], self.env.tau, self.env.k, self.env.T, self.env.K,batch_size)
-            std_x = reorder_demand(td["obs"]["std_demand"], self.env.tau, self.env.k, self.env.T, self.env.K,batch_size)
-            expected_demand = self.ex_demand(e_x.view(*batch_size, -1, 1) * norm_cargo)
-            std_demand = self.stdx_demand(std_x.view(*batch_size, -1, 1) * norm_cargo)
+            expected_demand = self.ex_demand(td["obs"]["expected_demand"].unsqueeze(-1) * norm_cargo)
+            std_demand = self.stdx_demand(td["obs"]["std_demand"].unsqueeze(-1) * norm_cargo)
         elif td["obs"]["expected_demand"].dim() == 3:
-            e_x = reorder_demand(td["obs"]["expected_demand"][:,0], self.env.tau, self.env.k, self.env.T, self.env.K,batch_size)
-            std_x = reorder_demand(td["obs"]["std_demand"][:,0], self.env.tau, self.env.k, self.env.T, self.env.K,batch_size)
-            expected_demand = self.ex_demand(e_x.view(*batch_size, -1, 1) * norm_cargo)
-            std_demand = self.stdx_demand(std_x.view(*batch_size, -1, 1) * norm_cargo)
+            expected_demand = self.ex_demand(td["obs"]["expected_demand"][:,0].unsqueeze(-1))
+            std_demand = self.stdx_demand(td["obs"]["std_demand"][:,0].unsqueeze(-1))
         else:
-            raise ValueError("Invalid shape for POL")
+            raise ValueError("Invalid shape for expected_demand")
 
         # # Initialize cache if not done yet
         # if not self.cache_initialized:
-        # todo: check if this works properly!
-        self.initialize_cache()
+        # self.initialize_cache()
 
         # Concatenate all embeddings (using cached values for fixed ones)
+        # todo: not working properly; initialize cache disguises fact there is no gradient tracking!
         combined_emb = torch.cat([
             expected_demand,
             std_demand,
-            self.origin_emb_cache.expand(*batch_size, -1, -1),
-            self.destination_emb_cache.expand(*batch_size, -1, -1),
-            self.class_embed_cache.expand(*batch_size, -1, -1),
-            self.weight_emb_cache.expand(*batch_size, -1, -1),
-            self.teu_emb_cache.expand(*batch_size, -1, -1),
-            self.revenue_emb_cache.expand(*batch_size, -1, -1),
+            # self.origin_emb_cache.expand(*batch_size, -1, -1),
+            # self.destination_emb_cache.expand(*batch_size, -1, -1),
+            # self.class_embed_cache.expand(*batch_size, -1, -1),
+            # self.weight_emb_cache.expand(*batch_size, -1, -1),
+            # self.teu_emb_cache.expand(*batch_size, -1, -1),
+            # self.revenue_emb_cache.expand(*batch_size, -1, -1),
         ], dim=-1)
+
         # Final projection
+        # todo: check if positional encoding helpful
         positional_emb = self.fc(combined_emb)
-        initial_embedding = self.positional_encoding(positional_emb)
+        initial_embedding = positional_emb
+        # initial_embedding = self.positional_encoding(positional_emb)
         return initial_embedding
 
 class MPPContextEmbedding(nn.Module):
@@ -112,7 +111,7 @@ class MPPContextEmbedding(nn.Module):
         self.current_demand = nn.Linear(1, embed_dim)
         self.residual_capacity = nn.Linear(action_dim, embed_dim)
         self.long_crane_capacity = nn.Linear(self.env.B - 1, embed_dim)
-        self.project_context = nn.Linear(embed_dim * 9, embed_dim, )
+        self.project_context = nn.Linear(embed_dim * 3, embed_dim, ) # 9
 
         # Self-attention layer
         self.demand_aggregation = demand_aggregation
@@ -177,20 +176,21 @@ class MPPContextEmbedding(nn.Module):
 
         # Extract demand
         # todo: add sum and self-attention aggregation
-        current_demand = self.current_demand(td["obs"]["current_demand"]) # * norm_cargo_t)
+        current_demand = self.current_demand(td["obs"]["current_demand"] * norm_cargo_t)
         expected_demand = self.expected_demand(td["obs"]["expected_demand"]) # * norm_cargo)
         std_demand = self.std_demand(td["obs"]["std_demand"]) # * norm_cargo)
         observed_demand = self.observed_demand(td["obs"]["observed_demand"]) # * norm_cargo)
 
         # Extract vessel and location embeddings
-        residual_capacity = self.residual_capacity(td["obs"]["residual_capacity"]) # * norm_cargo_t)
+        residual_capacity = self.residual_capacity(td["obs"]["residual_capacity"] * norm_cargo_t)
         residual_lc_capacity = self.long_crane_capacity(td["obs"]["residual_lc_capacity"]) # * norm_cargo_t)
         origin_embed = self.origin_location(td["obs"]["agg_pol_location"]/self.env.P)
         destination_embed = self.destination_location(td["obs"]["agg_pod_location"]/self.env.P)
 
         # Concatenate all embeddings
         state_embed = torch.cat([current_demand, expected_demand, std_demand, observed_demand,
-                                 residual_capacity, residual_lc_capacity, origin_embed, destination_embed], dim=-1)
+                                 residual_capacity, residual_lc_capacity, origin_embed, destination_embed
+        ], dim=-1)
         return state_embed
 
 def reorder_demand(demand, tau, k, T, K, batch_size):
