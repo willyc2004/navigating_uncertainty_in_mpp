@@ -343,7 +343,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
         memory.clear_memory()
         for i in range(self.ppo_cfg["n_step"]):
             # Store observation in memory
-            td_obs = td.select(*self.select_obs_td).clone()
+            td_obs = td.select(*self.select_obs_td)
             memory.tds_obs.append(td_obs.clone())
 
             # Generate actions, perform step in environment and store results
