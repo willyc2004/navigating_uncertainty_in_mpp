@@ -436,7 +436,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
         returns = out["returns"]  # Returns
 
         # Compute the ratios for PPO clipping
-        log_ratios = old_ll.detach() - ll  # Detach old log-likelihoods
+        log_ratios = ll - old_ll.detach()  # Detach old log-likelihoods
         ratios = torch.exp(log_ratios.sum(dim=-1, keepdims=True))  # Calculate importance sampling ratios
         clipped_ratios = torch.clamp(ratios, 1 - self.ppo_cfg["clip_range"], 1 + self.ppo_cfg["clip_range"])
         surrogate_loss = -torch.min(ratios * adv, clipped_ratios * adv).mean()  # Surrogate loss
