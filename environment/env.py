@@ -208,11 +208,6 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Compute total loaded
         sum_action = action.sum(dim=(-2, -1)).unsqueeze(-1)
         total_metrics["total_loaded"] += sum_action
-        # total_metrics["total_loaded"] += th.min(sum_action, demand_obs["current_demand"])
-        # print("act", sum_action.T)
-        # print("dem", demand_obs["current_demand"].T)
-        # print("min", th.min(sum_action, demand_obs["current_demand"]).T)
-        # print("relu(sum - dem).mean()", th.relu(sum_action - demand_obs["current_demand"]).mean())
 
         ## Reward
         # revenue = sum_action * self.revenues[t[0]]
