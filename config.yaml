@@ -36,35 +36,36 @@ model:
   num_decoder_layers: 2
   num_heads: 8
   dropout_rate: 0.1
-  normalization: "layer"
+  normalization: "batch"
   out_bias_pointer_attn: False
   temperature: 1.0
-  critic_temperature: 0.1
+  critic_temperature: 1.0
   tanh_clipping: 0
   train_decode_type: "continuous_sampling"
   val_decode_type: "continuous_projection"
   test_decode_type: "continuous_projection"
   phase: "train" # train, test
+  encoder_type: "mlp" # mlp, attention
   decoder_type: "mlp" # mlp, attention
-  demand_aggregation: "self_attn" # sum, self_attn
-  logger: "wandb" # None, wandb
+  demand_aggregation: "full" # sum, self_attn, full
+  logger: "wandb" #"wandb" # None, wandb
 
 # PPO parameters
 ppo:
   clip_range: 0.2
   ppo_epochs: 5 # 2, 3, 5, 7, 10
   mini_batch_size: 0.5
-  normalize_adv: False
-  normalize_return: False
+  normalize_adv: True
+  normalize_return: True
   max_grad_norm: 1.0
   kl_threshold: None #0.01 - 0.1
   kl_penalty_lambda: None # 1.0
   gamma: 0.999
   gae_lambda: 0.95
-  vf_lambda: 0.01
-  entropy_lambda: 0.1
-  feasibility_lambda: 5.0 #0.7
-  demand_lambda: 10.0
+  vf_lambda: 0.5
+  entropy_lambda: 0.3
+  feasibility_lambda: 0.2
+  demand_lambda: 1.0
   stability_lambda: 1.0
   projection_lambda: 0.01
   adaptive_feasibility_lambda: False
@@ -77,7 +78,7 @@ am_ppo:
   #None, convex_program, worst_case_violation, linear_violation, linear_program
   projection_kwargs:
     iters: 5
-    project_per_port: False
+    project_per_port: True
   optimizer: "Adam"
   #AdamW, Adam
   train_data_size: 400000  #5_000_000 # 3_000_000
