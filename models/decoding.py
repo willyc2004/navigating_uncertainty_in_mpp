@@ -213,7 +213,7 @@ def process_logits(
             e_x = torch.clamp(e_x, max=clip_max)
 
         # Ensure std_x is positive but not too big
-        std_x = torch.clamp(std_x, min=eps, max=1.5)
+        std_x = torch.clamp(std_x, min=eps)
         return e_x, std_x
 
 def random_policy(td):
