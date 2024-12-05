@@ -569,7 +569,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             # Logprob correction for tanh squashing based on https://arxiv.org/abs/1812.05905
             logprobs = logprobs - torch.log(1 - tanh_selected**2 + eps)
             # Linear rescaling to range [clip_min, clip_max]: no impact on logprobs.
-            selected = clip_min + (clip_max - clip_min) * (tanh_selected + 1)
+            selected = clip_min + (clip_max - clip_min) * (tanh_selected + 1) / 2
 
         # mask logprobs
         if mask is not None:
