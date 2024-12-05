@@ -199,18 +199,17 @@ def process_logits(
         # For continuous action space, we have logits and std_x
         e_x, std_x = logits[..., 0], logits[..., 1]
 
-        # Apply lower bound - todo: not sure if this is general
-        if clip_min is not None:
-            e_x = torch.clamp(e_x, min=clip_min)
-
-        # Scale `e_x` to match `constant_sum` if necessary
-        if constant_sum is not None:
-            e_x_sum = e_x.sum(dim=-1, keepdim=True)
-            e_x = torch.where(e_x_sum > constant_sum, e_x / e_x_sum * constant_sum, e_x)
-
-        # Apply clipping
-        if clip_max is not None:
-            e_x = torch.clamp(e_x, max=clip_max)
+        # # Apply lower bound - todo: not sure if this is general
+        # if clip_min is not None:
+        #     e_x = torch.clamp(e_x, min=clip_min)
+        #
+        # # Scale `e_x` to match `constant_sum` if necessary
+        # if constant_sum is not None:
+        #     e_x_sum = e_x.sum(dim=-1, keepdim=True)
+        #     e_x = torch.where(e_x_sum > constant_sum, e_x / e_x_sum * constant_sum, e_x)
+        # # Apply clipping
+        # if clip_max is not None:
+        #     e_x = torch.clamp(e_x, max=clip_max)
 
         # Ensure std_x is positive but not too big
         std_x = torch.clamp(std_x, min=eps)
@@ -325,6 +324,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
         self.top_k = top_k
         self.mask_logits = mask_logits
         self.tanh_clipping = tanh_clipping
+        self.tanh_squashing = kwargs.get("tanh_squashing", False)
         self.multistart = multistart
         self.num_starts = num_starts
         self.select_start_nodes_fn = select_start_nodes_fn
@@ -448,13 +448,13 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             # Process logits (output is scaled
             mean_logits, std_logits = process_logits(
                 logits,
-                mask=None,
                 mask_logits=False,
+                mask=None,
                 # mask=mask, # Change to None to avoid masking logits
                 clip_min=clip_min,
                 clip_max=clip_max,
-                constant_sum=td["obs"].get("current_demand", None),
-                # constant_sum=None,
+                # constant_sum=td["obs"].get("current_demand", None),
+                constant_sum=None,
                 temperature=self.temperature,
                 top_p=self.top_p,
                 top_k=self.top_k,
@@ -547,16 +547,31 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
 
     @staticmethod
     def continuous_sampling(mean_logits: torch.Tensor, std_logits: torch.Tensor, selected: torch.Tensor = None,
-                            mask: torch.Tensor = None, clip_min: torch.Tensor = None, clip_max: torch.Tensor = None):
+                            mask: torch.Tensor = None, tanh_squashing=True, eps=1e-6, **kwargs):
         """Sample from Normal distribution given by mean and std logits.
         Get logprobs based on sampled action."""
-        if clip_min is not None and clip_max is not None:
-            dist = ClippedGaussian(mean_logits, std_logits, clip_min, clip_max)
-        else:
-            dist = Normal(mean_logits, std_logits)
+        clip_min = kwargs.get("clip_min", None)
+        clip_max = kwargs.get("clip_max", None)
+        # define dist
+        # if clip_min is not None and clip_max is not None:
+        #     dist = ClippedGaussian(mean_logits, std_logits, clip_min, clip_max)
+        # else:
+        dist = Normal(mean_logits, std_logits)
+
+        # sample and get log probs
         if selected is None:
             selected = dist.sample()
         logprobs = dist.log_prob(selected)
+
+        # apply squashing
+        if tanh_squashing:
+            tanh_selected = torch.tanh(selected)
+            # Logprob correction for tanh squashing based on https://arxiv.org/abs/1812.05905
+            logprobs = logprobs - torch.log(1 - tanh_selected**2 + eps)
+            # Linear rescaling to range [clip_min, clip_max]: no impact on logprobs.
+            selected = clip_min + (clip_max - clip_min) * (tanh_selected + 1)
+
+        # mask logprobs
         if mask is not None:
             logprobs = logprobs.masked_fill(~mask, 0)
         return selected, logprobs
@@ -739,7 +754,6 @@ class BeamSearch(DecodingStrategy):
 
 ## Continuous action Decoding strategies
 # todo: create continuous beam search + epsilon greedy
-
 class ContinuousSampling(DecodingStrategy):
     name = "continuous_sampling"
 
@@ -749,9 +763,7 @@ class ContinuousSampling(DecodingStrategy):
     ) -> Tuple[torch.Tensor, torch.Tensor, TensorDict]:
         """Sample an action with a multinomial distribution given by the log probabilities.
         Get logprobs based on sampled action."""
-        clip_min = kwargs.get("clip_min", None)
-        clip_max = kwargs.get("clip_max", None)
-        selected, logprobs = self.continuous_sampling(mean_logits, std_logits, action, mask, clip_min, clip_max)
+        selected, logprobs = self.continuous_sampling(mean_logits, std_logits, action, mask, **kwargs)
         return logprobs, selected, td
 
 class ContinuousProjection(DecodingStrategy):
@@ -767,9 +779,7 @@ class ContinuousProjection(DecodingStrategy):
         **kwargs,
     ) -> Tuple[torch.Tensor, torch.Tensor, TensorDict]:
         """Project logits to feasible space using projection layer."""
-        clip_min = kwargs.get("clip_min", None)
-        clip_max = kwargs.get("clip_max", None)
-        selected, logprobs = self.continuous_sampling(mean_logits, std_logits, action, mask, clip_min, clip_max)
+        selected, logprobs = self.continuous_sampling(mean_logits, std_logits, action, mask, **kwargs)
         selected = self.projection_layer(selected, td["lhs_A"], td["rhs"], )
         return logprobs, selected, td
 
@@ -786,7 +796,5 @@ class ContinuousEvaluate(DecodingStrategy):
         **kwargs,
     ) -> Tuple[torch.Tensor, torch.Tensor, TensorDict]:
         """Get logprobs based on action provided externally."""
-        clip_min = kwargs.get("clip_min", None)
-        clip_max = kwargs.get("clip_max", None)
-        selected, logprobs = self.continuous_sampling(mean_logits, std_logits, action, mask, clip_min, clip_max)
+        selected, logprobs = self.continuous_sampling(mean_logits, std_logits, action, mask, **kwargs)
         return logprobs, selected, td
