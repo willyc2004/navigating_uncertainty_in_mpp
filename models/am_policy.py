@@ -77,8 +77,9 @@ class AttentionModelPolicy4PPO(AttentionModelPolicy):
             **unused_kwargs,
         )
         # Projection layer
-        self.projection_type = unused_kwargs.pop("projection_type", None) # pop before passing to super
-        self.projection_kwargs = unused_kwargs.pop("projection_kwargs", None) # pop before passing to super
+        self.projection_type = unused_kwargs.pop("projection_type", None)
+        self.projection_kwargs = unused_kwargs.pop("projection_kwargs", None)
+        self.tanh_squashing = unused_kwargs.pop("tanh_squashing", None)
         # Decode kwargs
         self.temperature = temperature
         self.tanh_clipping = tanh_clipping
@@ -101,6 +102,7 @@ class AttentionModelPolicy4PPO(AttentionModelPolicy):
             decode_type,
             temperature=self.temperature,
             tanh_clipping=self.tanh_clipping,
+            tanh_squashing=self.tanh_squashing,
             mask_logits=self.mask_logits,
             projection_type = self.projection_type,
             projection_kwargs = self.projection_kwargs,

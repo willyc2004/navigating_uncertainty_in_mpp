@@ -41,6 +41,7 @@ model:
   temperature: 1.0
   critic_temperature: 1.0
   tanh_clipping: 0
+  tanh_squashing: False
   train_decode_type: "continuous_sampling"
   val_decode_type: "continuous_projection"
   test_decode_type: "continuous_projection"
@@ -55,6 +56,10 @@ ppo:
   clip_range: 0.2
   ppo_epochs: 5 # 2, 3, 5, 7, 10
   mini_batch_size: 0.5
+  # todo: ratio goes to 1.0; not due to:
+  #  - normalization in adv/return, gamma, gae_lambda, lr, batch_size, feasibility loss, max_grad_norm, lr_end_factor,
+  #  - encoder batch/layer normalization, dropout rate, attention/mlp encoder, ppo_epochs
+  # todo: check decoder normalization!
   normalize_adv: True
   normalize_return: True
   max_grad_norm: 1.0
@@ -73,8 +78,8 @@ ppo:
 
 # AM PPO parameters
 am_ppo:
-  lr: 0.0003
-  projection_type: "linear_violation"
+  lr: 0.0001
+  projection_type: None #"linear_violation"
   #None, convex_program, worst_case_violation, linear_violation, linear_program
   projection_kwargs:
     iters: 5

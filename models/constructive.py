@@ -153,6 +153,7 @@ class ConstructivePolicyMPP(nn.Module):
         # Decoding strategies
         self.temperature = temperature
         self.tanh_clipping = tanh_clipping
+        self.tanh_squashing = unused_kw.get("tanh_squashing", False)
         self.mask_logits = mask_logits
         self.train_decode_type = train_decode_type
         self.val_decode_type = val_decode_type
@@ -223,6 +224,7 @@ class ConstructivePolicyMPP(nn.Module):
             decode_type,
             temperature=decoding_kwargs.pop("temperature", self.temperature),
             tanh_clipping=decoding_kwargs.pop("tanh_clipping", self.tanh_clipping),
+            tanh_squashing=decoding_kwargs.pop("tanh_squashing", self.tanh_squashing),
             mask_logits=decoding_kwargs.pop("mask_logits", self.mask_logits),
             store_all_logp=decoding_kwargs.pop("store_all_logp", return_entropy),
             env=env,
@@ -232,6 +234,7 @@ class ConstructivePolicyMPP(nn.Module):
             decode_type,
             temperature=decoding_kwargs.pop("temperature", self.temperature),
             tanh_clipping=decoding_kwargs.pop("tanh_clipping", self.tanh_clipping),
+            tanh_squashing=decoding_kwargs.pop("tanh_squashing", self.tanh_squashing),
             mask_logits=decoding_kwargs.pop("mask_logits", self.mask_logits),
             store_all_logp=decoding_kwargs.pop("store_all_logp", return_entropy),
             env=env,
