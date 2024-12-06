@@ -28,6 +28,7 @@ if __name__ == "__main__":
             config['model']['num_decoder_layers'] = sweep_config.num_decoder_layers
             config['model']['num_heads'] = sweep_config.num_heads
             config['model']['batch_size'] = sweep_config.batch_size
+            config['model']['normalization'] = sweep_config.normalization
             # config['model']['embed_dim'] = sweep_config.embed_dim
             # config['model']['dropout_rate'] = sweep_config.dropout_rate
             # config['model']['lr_end_factor'] = sweep_config.lr_end_factor
@@ -37,6 +38,8 @@ if __name__ == "__main__":
             config['ppo']['mini_batch_size'] = sweep_config.mini_batch_size
             config['ppo']['feasibility_lambda'] = sweep_config.feasibility_lambda
             config['ppo']['entropy_lambda'] = sweep_config.entropy_lambda
+            config['ppo']['normalize_adv'] = sweep_config.normalize_adv
+            config['ppo']['normalize_return'] = sweep_config.normalize_return
             # config['ppo']['kl_threshold'] = sweep_config.kl_threshold
             # config['ppo']['clip_range'] = sweep_config.clip_range
             # config['ppo']['gamma'] = sweep_config.gamma

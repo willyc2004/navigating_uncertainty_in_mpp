@@ -27,3 +27,9 @@ parameters:
   entropy_lambda:
     min: 0.01
     max: 0.2
+  normalization:
+    values: ["batch", "layer"]
+  normalize_adv:
+    values: [False, True]
+  normalize_return:
+    values: [False, True]
