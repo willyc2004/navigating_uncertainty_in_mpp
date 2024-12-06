@@ -35,13 +35,13 @@ class MPPInitEmbedding(nn.Module):
 
     def forward(self, td: TensorDict):
         # Normalize demand (based on teu and total capacity)
-        norm_cargo = (self.env.teus[self.env.k[:-1]] / self.env.total_capacity).view(1, -1, 1)
+        # norm_cargo = (self.env.teus[self.env.k[:-1]] / self.env.total_capacity).view(1, -1, 1)
         if td["obs"]["expected_demand"].dim() == 2:
-            expected_demand = td["obs"]["expected_demand"].unsqueeze(-1) * norm_cargo
-            std_demand = td["obs"]["std_demand"].unsqueeze(-1) * norm_cargo
+            expected_demand = td["obs"]["expected_demand"].unsqueeze(-1) #* norm_cargo
+            std_demand = td["obs"]["std_demand"].unsqueeze(-1) #* norm_cargo
         elif td["obs"]["expected_demand"].dim() == 3:
-            expected_demand = td["obs"]["expected_demand"][:,0].unsqueeze(-1) * norm_cargo
-            std_demand = td["obs"]["std_demand"][:,0].unsqueeze(-1) * norm_cargo
+            expected_demand = td["obs"]["expected_demand"][:,0].unsqueeze(-1) #* norm_cargo
+            std_demand = td["obs"]["std_demand"][:,0].unsqueeze(-1) #* norm_cargo
         else:
             raise ValueError("Invalid shape for expected_demand")
 
@@ -120,18 +120,18 @@ class MPPContextEmbedding(nn.Module):
             shape_t = (batch_size, -1, 1)
         else:
             raise ValueError(f"Unsupported number of dimensions: {dims}")
-        norm_cargo = (self.env.teus[self.env.k[:-1]] / self.env.total_capacity).view(*shape)
-        norm_cargo_t = norm_cargo[:, td["timestep"]].view(*shape_t)
+        # norm_cargo = (self.env.teus[self.env.k[:-1]] / self.env.total_capacity).view(*shape)
+        # norm_cargo_t = norm_cargo[:, td["timestep"]].view(*shape_t)
 
         # Extract demand
-        current_demand = td["obs"]["current_demand"] * norm_cargo_t
-        expected_demand = td["obs"]["expected_demand"] * norm_cargo
-        std_demand = td["obs"]["std_demand"] * norm_cargo
-        observed_demand = td["obs"]["observed_demand"] * norm_cargo
+        current_demand = td["obs"]["current_demand"] #* norm_cargo_t
+        expected_demand = td["obs"]["expected_demand"] #* norm_cargo
+        std_demand = td["obs"]["std_demand"] #* norm_cargo
+        observed_demand = td["obs"]["observed_demand"] #* norm_cargo
 
         # Extract vessel and location embeddings
-        residual_capacity = td["obs"]["residual_capacity"] * norm_cargo_t
-        residual_lc_capacity = td["obs"]["residual_lc_capacity"] * norm_cargo_t
+        residual_capacity = td["obs"]["residual_capacity"] #* norm_cargo_t
+        residual_lc_capacity = td["obs"]["residual_lc_capacity"] #* norm_cargo_t
         origin_embed = td["obs"]["agg_pol_location"]/self.env.P
         destination_embed = td["obs"]["agg_pod_location"]/self.env.P
 
