@@ -76,6 +76,7 @@ class LinearViolationAdaption(th.nn.Module):
         Good settings (project per t): alpha=0.005, delta=0.01, tolerance=0.01
         """
         # Determine the shape based on dimensionality of b
+        # todo: clean-up code!
         x_ = x.clone()
         if b.dim() == 2 and A.dim() == 3:
             batch_size, m = b.shape
@@ -97,7 +98,7 @@ class LinearViolationAdaption(th.nn.Module):
             return x_
 
         count = 0
-        while th.any(active_mask) or count < max_iter:
+        while th.any(active_mask):
             # Compute current violation for each batch and step
             violation_new = th.clamp(th.matmul(x_.unsqueeze(2), A.transpose(-2, -1)).squeeze(2) - b, min=0)
             # Shape: [batch_size, n_step, m]
@@ -120,12 +121,13 @@ class LinearViolationAdaption(th.nn.Module):
             # Apply penalty gradient update only for active batches/steps
             x_ = th.where(active_mask.unsqueeze(2), x_ - alpha * penalty_gradient, x_)
             x_ = th.clamp(x_, min=0) # Ensure non-negativity
-
+            # print("count", count, "total_violation", total_violation.mean(),
+            #       "diff", th.abs(total_violation - th.sum(violation_old, dim=-1)).mean())
             # Update violation_old for the next iteration
             violation_old = violation_new.clone()
             count += 1
-            # print("count", count, "total_violation", total_violation.mean(),
-            #       "diff", th.abs(total_violation - th.sum(violation_old, dim=-1)).mean())
+            if count > max_iter:
+                break
         # print("tot_count", count)
         # Return the adjusted x_, reshaped to remove n_step dimension if it was initially 2D
         if n_step == 1:
