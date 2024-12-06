@@ -17,6 +17,7 @@ from rl4co.models.nn.attention import PointerAttention, PointerAttnMoE
 from environment.embeddings import MPPInitEmbedding, StaticEmbedding, MPPContextEmbedding
 from torch.cuda.amp import autocast
 from models.projection_n_step_ppo import check_for_nans, recursive_check_for_nans
+from models.common.ffn_block import ResidualBlock, add_normalization_layer
 
 @dataclass
 class PrecomputedCache:
@@ -190,23 +191,17 @@ class MLPDecoderWithCache(nn.Module):
 
         # Create policy MLP
         ffn_activation = nn.LeakyReLU()
-        norm_dict = {
-            "layer": nn.LayerNorm,
-            "batch": nn.BatchNorm1d,
-        }
-        norm_fn = norm_dict.get(normalization, nn.Identity)
-
+        norm_fn_input = add_normalization_layer(normalization, embed_dim)
+        norm_fn_hidden = add_normalization_layer(normalization, hidden_dim)
         # Build the layers
-        # todo: add batch normalization; need to permute as batchnorm uses [batch, feature, seq] shape
         layers = [
-            # norm_fn,
+            norm_fn_input,
             nn.Linear(embed_dim, hidden_dim),
             ffn_activation,
         ]
-
         # Add residual blocks
         for _ in range(num_hidden_layers - 1):
-            layers.append(ResidualBlock(hidden_dim, norm_fn, ffn_activation, dropout_rate))
+            layers.append(ResidualBlock(hidden_dim, ffn_activation, norm_fn_hidden, dropout_rate,))
 
         # Output layer
         layers.append(nn.Linear(hidden_dim, hidden_dim))
@@ -279,20 +274,3 @@ class FP32Attention(nn.MultiheadAttention):
         attn_output = attn_output_fp32.to(query.dtype)
         attn_weights = attn_weights_fp32.to(query.dtype)
         return attn_output, attn_weights
-
-class ResidualBlock(nn.Module):
-    def __init__(self, dim, norm_fn, activation, dropout_rate=None):
-        super().__init__()
-        self.norm = norm_fn(dim)
-        self.linear = nn.Linear(dim, dim)
-        self.activation = activation
-        self.dropout = nn.Dropout(dropout_rate) if dropout_rate else nn.Identity()
-
-    def forward(self, x):
-        # Residual connection: Norm -> Linear -> Activation -> Dropout -> Residual
-        residual = x
-        # x = self.norm(x)  # Normalize input
-        x = self.linear(x)  # First linear transformation
-        x = self.activation(x)  # Apply activation
-        x = self.dropout(x)  # Optional dropout
-        return x + residual  # Add residual connection

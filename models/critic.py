@@ -6,7 +6,7 @@ from rl4co.utils.pylogger import get_pylogger
 log = get_pylogger(__name__)
 
 # Custom imports
-from models.decoder import ResidualBlock
+from models.common.ffn_block import ResidualBlock, add_normalization_layer
 
 class CriticNetwork(nn.Module):
     """Create a critic network with an encoder and a value head to transform the embeddings to a scalar value."""
@@ -41,22 +41,17 @@ class CriticNetwork(nn.Module):
 
             # Create value head with residual connections
             ffn_activation = nn.LeakyReLU() # nn.ReLU()
-            norm_dict = {
-                'layer': nn.LayerNorm,
-                'batch': nn.BatchNorm1d,
-            }
-            norm_fn = norm_dict.get(normalization, nn.Identity)
-
-            # Build the value head
+            norm_fn_input = add_normalization_layer(normalization, embed_dim)
+            norm_fn_hidden = add_normalization_layer(normalization, hidden_dim)
+            # Build the layers
             layers = [
-                # norm_fn(embed_dim),
+                norm_fn_input,
                 nn.Linear(embed_dim, hidden_dim),
                 ffn_activation,
             ]
-
             # Add residual blocks
             for _ in range(num_layers - 1):
-                layers.append(ResidualBlock(hidden_dim, norm_fn, ffn_activation, dropout_rate))
+                layers.append(ResidualBlock(hidden_dim, ffn_activation, norm_fn_hidden, dropout_rate, ))
 
             # Output layer
             layers.append(nn.Linear(hidden_dim, 1))
