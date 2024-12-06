@@ -209,8 +209,10 @@ class MLPDecoderWithCache(nn.Module):
             layers.append(ResidualBlock(hidden_dim, norm_fn, ffn_activation, dropout_rate))
 
         # Output layer
-        layers.append(nn.Linear(hidden_dim, action_size*2))
+        layers.append(nn.Linear(hidden_dim, hidden_dim))
         self.policy_mlp = nn.Sequential(*layers)
+        self.mean_head = nn.Linear(hidden_dim, action_size)
+        self.std_head = nn.Linear(hidden_dim, action_size)
 
     def forward(self, td: TensorDict, cached: PrecomputedCache, num_starts: int = 0, noise=1e-3) -> Tuple[Tensor,Tensor]:
         # Get precomputed (cached) embeddings
@@ -218,17 +220,10 @@ class MLPDecoderWithCache(nn.Module):
         # Compute step context
         step_context = self.context_embedding(init_embeds_cache, td)
         # Compute mask and logits
-        logits = self.policy_mlp(step_context)
-
-        # Project logits to mean and log_std logits (use softplus)
-        if td["done"].dim() == 2:
-            view_transform = lambda x: x.view(td.batch_size[0], self.action_size, 2)
-        elif td["done"].dim() == 3:
-            view_transform = lambda x: x.view(td.batch_size[0], -1, self.action_size, 2)
-        else:
-            raise ValueError("Invalid dimension for done tensor.")
-        logits = view_transform(logits)
-        output_logits = F.softplus(logits)
+        hidden = self.policy_mlp(step_context)
+        mean = F.leaky_relu(self.mean_head(hidden))
+        std = F.softplus(self.std_head(hidden))
+        output_logits = torch.stack([mean, std], dim=-1)
         return output_logits, td["action_mask"]
 
     def pre_decoder_hook(self, td, env, embeddings, num_starts: int = 0):
