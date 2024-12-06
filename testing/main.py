@@ -34,13 +34,14 @@ from models.am_policy import AttentionModelPolicy4PPO
 from models.projection_n_step_ppo import Projection_Nstep_PPO
 from models.projection_ppo import Projection_PPO
 from rl4co.models.zoo.am.encoder import AttentionModelEncoder
-from models.decoder2 import AttentionModelDecoder
+from models.examples.decoder2 import AttentionModelDecoder
 from models.constructive import ConstructivePolicyMPP
 from rl4co.models.common.constructive.autoregressive import AutoregressivePolicy
 from environment.env import MasterPlanningEnv
 # AMPPO.__bases__ = (StepwisePPO,)  # Adapt base class
 # AMPPO.__bases__ = (Projection_Nstep_PPO,)  # Adapt base class
 AMPPO.__bases__ = (Projection_PPO,)  # Adapt base class
+from environment.embeddings import MPPContextEmbedding, MPPInitEmbedding
 
 import yaml
 from dotmap import DotMap
@@ -162,7 +163,6 @@ def main(config: Optional[DotMap] = None):
 
     # Model: default is AM with REINFORCE and greedy rollout baseline
     # check out `RL4COLitModule` and `REINFORCE` for more details
-    from environment.embeddings import MPPContextEmbedding, MPPInitEmbedding
     # init_embedding = MPPInitEmbedding(emb_dim, env.action_spec.shape[0], env)
     # context_embedding = MPPContextEmbedding(env.action_spec.shape[0], emb_dim, env)
     # policy = AttentionModelPolicy4PPO(env_name=env.name,
