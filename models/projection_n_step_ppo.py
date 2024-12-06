@@ -281,30 +281,6 @@ class Projection_Nstep_PPO(RL4COLitModule):
         sch = self.lr_schedulers()
         sch.step()
 
-    def update_running_return_stats(self, returns):
-        """
-        Update running mean and variance for return normalization.
-        """
-        batch_count = returns.numel()
-        batch_mean = returns.mean()
-        batch_var = returns.var(unbiased=False)
-
-        # Welford's algorithm for numerically stable mean and variance
-        delta = batch_mean - self.return_mean
-        total_count = self.return_count + batch_count
-        self.return_mean += delta * batch_count / total_count
-        self.return_var += batch_var * batch_count + delta ** 2 * (batch_count * self.return_count / total_count)
-        self.return_count = total_count
-
-    def normalize_returns(self, returns):
-        """
-        Normalize returns using running mean and variance.
-        """
-        if self.return_count < 2:  # Avoid division by zero in early stages
-            return returns
-        running_std = torch.sqrt(self.return_var / (self.return_count - 1 + self.epsilon))
-        return (returns - self.return_mean) / (running_std + self.epsilon)
-
     def shared_step(
         self, batch: Any, batch_idx: int, phase: str, dataloader_idx: int = None
     ):
