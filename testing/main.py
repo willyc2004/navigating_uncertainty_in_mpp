@@ -153,6 +153,7 @@ def main(config: Optional[DotMap] = None):
     env_kwargs = config.env
     # env = make_env(env_kwargs, device)
     env = DenseRewardTSPEnv(generator_params=dict(num_loc=100),)
+    # env = SDVRPEnv(generator_params=dict(num_loc=100),)
     check_env_specs(env)
     td = env.reset(batch_size=32)
 
