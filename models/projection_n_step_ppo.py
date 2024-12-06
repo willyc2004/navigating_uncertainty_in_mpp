@@ -383,22 +383,6 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 )
                 out["adv"] = self._normalize_if_enabled(adv, self.ppo_cfg["normalize_adv"])
                 out["returns"] = self._normalize_if_enabled(returns, self.ppo_cfg["normalize_return"])
-                # print(f"Adv: {out['adv'].mean(dim=0).T}")
-                # print(f"Returns: {out['returns'].mean(dim=0).T}")
-                # print(f"Values: {batch['values'].mean(dim=0).T}")
-                # print(f"Rewards: {batch['rewards'].mean(dim=0).T}")
-                # print("#" * 50)
-                # print(f"Actions requires_grad: {batch['actions'].requires_grad}")
-                # print(f"Old log probs requires_grad: {batch['logprobs'].requires_grad}")
-                # print(f"Values requires_grad: {batch['values'].requires_grad}")
-                # print(f"Rewards requires_grad: {batch['rewards'].requires_grad}")
-                # print(f"Adv requires_grad: {out['adv'].requires_grad}")
-                # print(f"Returns requires_grad: {out['returns'].requires_grad}")
-                # print("-" * 50)
-                # print(f"Log probs requires_grad: {out['logprobs'].requires_grad}")
-                # print(f"Value preds requires_grad: {out['value_preds'].requires_grad}")
-                # print(f"logits requires_grad: {out['mean_logits'].requires_grad}")
-                # print(f"Projected logits requires_grad: {out['proj_mean_logits'].requires_grad}")
 
                 # with torch.autograd.set_detect_anomaly(True):
                 # Compute losses
@@ -427,19 +411,33 @@ class Projection_Nstep_PPO(RL4COLitModule):
         """Compute the PPO loss, value loss, entropy loss, feasibility loss, and projection loss."""
         # Extract from memory/out
         old_ll = batch["logprobs"] # Old log probabilities
-        value_preds = out["value_preds"]  # Current value predictions
         ll = out["logprobs"]  # Current log probabilities
+        value_preds = out["value_preds"]  # Current value predictions
         entropy = out["entropy"]  # Policy entropy
         mean_logits = out["mean_logits"]  # Current logits
         proj_mean_logits = out["proj_mean_logits"]  # Projected logits
         adv = out["adv"]  # Advantages
         returns = out["returns"]  # Returns
 
+        # # Check for NaNs in tensors
+        # check_for_nans(adv, "adv")
+        # check_for_nans(returns, "returns")
+        # check_for_nans(value_preds, "value_preds")
+        # check_for_nans(entropy, "entropy")
+        # check_for_nans(mean_logits, "mean_logits")
+        # check_for_nans(proj_mean_logits, "proj_mean_logits")
+        # check_for_nans(ll, "ll")
+        # check_for_nans(old_ll, "old_ll")
+
         # Compute the ratios for PPO clipping
         log_ratios = ll - old_ll.detach()  # Detach old log-likelihoods
         ratios = torch.exp(log_ratios.sum(dim=-1, keepdims=True))  # Calculate importance sampling ratios
         clipped_ratios = torch.clamp(ratios, 1 - self.ppo_cfg["clip_range"], 1 + self.ppo_cfg["clip_range"])
         surrogate_loss = -torch.min(ratios * adv, clipped_ratios * adv).mean()  # Surrogate loss
+        # check_for_nans(log_ratios, "log_ratios")
+        # check_for_nans(ratios, "ratios")
+        # check_for_nans(clipped_ratios, "clipped_ratios")
+        # check_for_nans(surrogate_loss, "surrogate_loss")
 
         # Compute the value loss using Huber loss
         value_loss = F.huber_loss(value_preds, returns.detach(), reduction="mean")
