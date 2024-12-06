@@ -7,7 +7,7 @@ from torch import Tensor
 from tensordict import TensorDict
 from torch.cuda.amp import autocast
 from rl4co.utils.ops import gather_by_index
-from models.projection_n_step_ppo import check_for_nans
+from models.projection_n_step_ppo import check_for_nans, recursive_check_for_nans
 
 class MPPInitEmbedding(nn.Module):
     def __init__(self, embed_dim, action_dim, env, num_constraints=5):
@@ -15,91 +15,45 @@ class MPPInitEmbedding(nn.Module):
         # Store environment and sequence size
         self.env = env
         self.seq_size = self.env.T * self.env.K
-        self.cache_initialized = False  # Flag to check if cache has been created
 
-        # Categorical embeddings
-        self.cargo_class = nn.Embedding(self.env.K, embed_dim)
-        # Ordinal embeddings
-        self.origin_port = nn.Linear(1, embed_dim)
-        self.destination_port = nn.Linear(1, embed_dim)
-        # Continuous embeddings
-        self.weight = nn.Linear(1, embed_dim)
-        self.teu = nn.Linear(1, embed_dim)
-        self.revenue = nn.Linear(1, embed_dim)
-        self.ex_demand = nn.Linear(1, embed_dim)
-        self.stdx_demand = nn.Linear(1, embed_dim)
-        # Final projection and positional encoding
-        num_embeddings = 8 # Number of embeddings
-        self.fc = nn.Linear(num_embeddings * embed_dim, embed_dim)
+        # Embedding layers
+        num_embeddings = 7  # Number of embeddings
+        self.fc = nn.Linear(num_embeddings, embed_dim)
         self.positional_encoding = DynamicSinusoidalPositionalEncoding(embed_dim)
 
-    def _cargo_parameters_embedding(self, batch_size):
-        """Get the cargo parameters embedding"""
-        # Clone environment parameters to avoid modification
-        cargo_class = self.env.k[:-1].clone().to(torch.int64)
+    def _combine_cargo_parameters(self, batch_size):
+        """Prepare cargo parameters for init embedding"""
         norm_features = {
-            "pol": (self.env.pol[:-1].clone() / self.env.P).view(-1, 1),
-            "pod": (self.env.pod[:-1].clone() / self.env.P).view(-1, 1),
-            "weights": (self.env.weights[self.env.k[:-1]].clone() / self.env.weights[self.env.k[:-1]].max()).view(-1, 1),
-            "teus": (self.env.teus[self.env.k[:-1]].clone() / self.env.teus[self.env.k[:-1]].max()).view(-1, 1),
-            "revenues": (self.env.revenues[:-1].clone() / self.env.revenues[:-1].max()).view(-1, 1),
+            "pol": (self.env.pol[:-1].clone() / self.env.P).view(1, -1, 1).expand(batch_size, -1, -1),
+            "pod": (self.env.pod[:-1].clone() / self.env.P).view(1, -1, 1).expand(batch_size, -1, -1),
+            "weights": (self.env.weights[self.env.k[:-1]].clone() / self.env.weights[self.env.k[:-1]].max()).view(1, -1, 1).expand(batch_size, -1, -1),
+            "teus": (self.env.teus[self.env.k[:-1]].clone() / self.env.teus[self.env.k[:-1]].max()).view(1, -1, 1).expand(batch_size, -1, -1),
+            "revenues": (self.env.revenues[:-1].clone() / self.env.revenues[:-1].max()).view(1, -1, 1).expand(batch_size, -1, -1),
         }
+        return norm_features
 
-        # Cache category embeddings
-        class_embed = self.cargo_class(cargo_class).view(1, self.seq_size, -1).expand(batch_size, -1, -1)
-
-        # Cache ordinal embeddings
-        origin_emb = self.origin_port(norm_features["pol"]).view(1, self.seq_size, -1).expand(batch_size, -1, -1)
-        destination_emb = self.destination_port(norm_features["pod"]).view(1, self.seq_size, -1).expand(batch_size, -1, -1)
-
-        # Cache continuous embeddings
-        weight_emb = self.weight(norm_features["weights"]).view(1, self.seq_size, -1).expand(batch_size, -1, -1)
-        teu_emb = self.teu(norm_features["teus"]).view(1, self.seq_size, -1).expand(batch_size, -1, -1)
-        revenue_emb = self.revenue(norm_features["revenues"]).view(1, self.seq_size, -1).expand(batch_size,-1,-1)
-
-        return {
-            "class_embed": class_embed,
-            "origin_emb": origin_emb,
-            "destination_emb": destination_emb,
-            "weight_emb": weight_emb,
-            "teu_emb": teu_emb,
-            "revenue_emb": revenue_emb,
-        }
 
     def forward(self, td: TensorDict):
-        # Get batch size and cargo normalization (based on teu and total capacity)
+        # Normalize demand (based on teu and total capacity)
         norm_cargo = (self.env.teus[self.env.k[:-1]] / self.env.total_capacity).view(1, -1, 1)
-        # todo: clean-up code!
         if td["obs"]["expected_demand"].dim() == 2:
-            expected_demand = self.ex_demand(td["obs"]["expected_demand"].unsqueeze(-1) * norm_cargo)
-            std_demand = self.stdx_demand(td["obs"]["std_demand"].unsqueeze(-1) * norm_cargo)
+            expected_demand = td["obs"]["expected_demand"].unsqueeze(-1) * norm_cargo
+            std_demand = td["obs"]["std_demand"].unsqueeze(-1) * norm_cargo
         elif td["obs"]["expected_demand"].dim() == 3:
-            expected_demand = self.ex_demand(td["obs"]["expected_demand"][:,0].unsqueeze(-1))
-            std_demand = self.stdx_demand(td["obs"]["std_demand"][:,0].unsqueeze(-1))
+            expected_demand = td["obs"]["expected_demand"][:,0].unsqueeze(-1) * norm_cargo
+            std_demand = td["obs"]["std_demand"][:,0].unsqueeze(-1) * norm_cargo
         else:
             raise ValueError("Invalid shape for expected_demand")
 
-        # Initialize for parameter embeddings
-        # todo: test if this works properly
-        out = self._cargo_parameters_embedding(batch_size=td.batch_size[0])
+        # Concatenate demand and cargo_parameters and pass through linear layer
+        cargo_parameters  = self._combine_cargo_parameters(batch_size=td.batch_size[0])
+        combined_input = torch.cat([expected_demand, std_demand, *cargo_parameters.values(),], dim=-1)
+        combined_emb = self.fc(combined_input)
 
-        # Concatenate all embeddings (using cached values for fixed ones)
-        combined_emb = torch.cat([
-            expected_demand,
-            std_demand,
-            out["origin_emb"],
-            out["destination_emb"],
-            out["class_embed"],
-            out["weight_emb"],
-            out["teu_emb"],
-            out["revenue_emb"],
-        ], dim=-1)
-
-        # Final projection
-        # todo: check if positional encoding helpful
-        positional_emb = self.fc(combined_emb)
-        initial_embedding = positional_emb
+        # Positional encoding
+        # todo: add positional encoding
         # initial_embedding = self.positional_encoding(positional_emb)
+        initial_embedding = combined_emb
         return initial_embedding
 
 class MPPContextEmbedding(nn.Module):
@@ -112,17 +66,9 @@ class MPPContextEmbedding(nn.Module):
         super(MPPContextEmbedding, self).__init__()
         self.env = env
         self.seq_size = self.env.T * self.env.K
+        self.project_context = nn.Linear(embed_dim + 286, embed_dim, )
 
-        # Ordinal embeddings with linear layers
-        self.origin_location = nn.Linear(action_dim, embed_dim)
-        self.destination_location = nn.Linear(action_dim, embed_dim)
-        # Continuous embeddings
-        self.current_demand = nn.Linear(1, embed_dim)
-        self.residual_capacity = nn.Linear(action_dim, embed_dim)
-        self.long_crane_capacity = nn.Linear(self.env.B - 1, embed_dim)
-        self.project_context = nn.Linear(embed_dim * 9, embed_dim, )
-
-        # Self-attention layer
+        # todo: give options for different demand aggregation methods; e.g. sum, self-attention
         self.demand_aggregation = demand_aggregation
         if self.demand_aggregation == "sum":
             self.observed_demand = nn.Linear(1, embed_dim)
@@ -145,20 +91,15 @@ class MPPContextEmbedding(nn.Module):
         """Embed the context for the MPP"""
         # Get init embedding and state embedding
         select_init_embedding = gather_by_index(init_embeddings, td["timestep"])
-
         state_embedding = self._state_embedding(td)
-        check_for_nans(select_init_embedding, "select_init_embedding")
-        check_for_nans(state_embedding, "state_embedding")
+        # check_for_nans(select_init_embedding, "select_init_embedding")
+        # check_for_nans(state_embedding, "state_embedding")
 
         # Project state, concat embeddings, and project concat to output
-        if state_embedding.dim() < select_init_embedding.dim():
-            state_embedding = state_embedding.unsqueeze(1)
-
         context_embedding = torch.cat([select_init_embedding, state_embedding], dim=-1)
-        check_for_nans(context_embedding, "context_embedding")
-
+        # check_for_nans(context_embedding, "context_embedding")
         output = self.project_context(context_embedding)
-        check_for_nans(output, "output")
+        # check_for_nans(output, "output")
         return output
 
     def _state_embedding(self, td):
@@ -179,27 +120,24 @@ class MPPContextEmbedding(nn.Module):
             shape_t = (batch_size, -1, 1)
         else:
             raise ValueError(f"Unsupported number of dimensions: {dims}")
-
         norm_cargo = (self.env.teus[self.env.k[:-1]] / self.env.total_capacity).view(*shape)
         norm_cargo_t = norm_cargo[:, td["timestep"]].view(*shape_t)
 
         # Extract demand
-        # todo: add sum and self-attention aggregation
-        current_demand = self.current_demand(td["obs"]["current_demand"] * norm_cargo_t)
-        expected_demand = self.expected_demand(td["obs"]["expected_demand"]) # * norm_cargo)
-        std_demand = self.std_demand(td["obs"]["std_demand"]) # * norm_cargo)
-        observed_demand = self.observed_demand(td["obs"]["observed_demand"]) # * norm_cargo)
+        current_demand = td["obs"]["current_demand"] * norm_cargo_t
+        expected_demand = td["obs"]["expected_demand"] * norm_cargo
+        std_demand = td["obs"]["std_demand"] * norm_cargo
+        observed_demand = td["obs"]["observed_demand"] * norm_cargo
 
         # Extract vessel and location embeddings
-        residual_capacity = self.residual_capacity(td["obs"]["residual_capacity"] * norm_cargo_t)
-        residual_lc_capacity = self.long_crane_capacity(td["obs"]["residual_lc_capacity"]) # * norm_cargo_t)
-        origin_embed = self.origin_location(td["obs"]["agg_pol_location"]/self.env.P)
-        destination_embed = self.destination_location(td["obs"]["agg_pod_location"]/self.env.P)
+        residual_capacity = td["obs"]["residual_capacity"] * norm_cargo_t
+        residual_lc_capacity = td["obs"]["residual_lc_capacity"] * norm_cargo_t
+        origin_embed = td["obs"]["agg_pol_location"]/self.env.P
+        destination_embed = td["obs"]["agg_pod_location"]/self.env.P
 
         # Concatenate all embeddings
         state_embed = torch.cat([current_demand, expected_demand, std_demand, observed_demand,
-                                 residual_capacity, residual_lc_capacity, origin_embed, destination_embed
-        ], dim=-1)
+                                 residual_capacity, residual_lc_capacity, origin_embed, destination_embed], dim=-1)
         return state_embed
 
 def reorder_demand(demand, tau, k, T, K, batch_size):
