@@ -354,7 +354,7 @@ class ConstructivePolicyMPP(nn.Module):
             #  - check if stability is correctly computed
             proj_actions = projection_layer(port_actions[:, port].view(-1, self.features_action*self.features_class_pod),
                                             port_A[:, port], port_rhs[:, port],
-                                            alpha=1e-4, delta=1e-3, tolerance=1e-3, max_iter=100,)
+                                            alpha=1e-4, delta=1e-2, tolerance=1e-2, max_iter=1000,)
             proj_actions = proj_actions.view(batch_size, self.features_class_pod, self.features_action)
 
             ## Decode with projected actions
