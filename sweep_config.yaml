@@ -26,4 +26,4 @@ parameters:
     max: 1.0
   entropy_lambda:
     min: 0.01
-    max: 0.5
+    max: 0.2
