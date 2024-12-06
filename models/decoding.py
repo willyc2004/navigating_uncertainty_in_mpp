@@ -177,8 +177,7 @@ def process_logits(
         logits = torch.tanh(logits) * tanh_clipping
 
     # In RL, we want to mask the logits to prevent the agent from selecting infeasible actions
-    # todo: allow for continuous as well
-    if mask_logits and discrete:
+    if mask_logits and discrete: # todo: allow for continuous as well
         assert mask is not None, "mask must be provided if mask_logits is True"
         logits[~mask] = float("-inf")
 
@@ -199,16 +198,17 @@ def process_logits(
         # For continuous action space, we have logits and std_x
         e_x, std_x = logits[..., 0], logits[..., 1]
 
-        # Apply lower bound - todo: not sure if this is general
+        # Apply lower bound
         if clip_min is not None:
             e_x = torch.clamp(e_x, min=clip_min)
 
         # Scale `e_x` to match `constant_sum` if necessary
+        # todo: consider to remove, because it changes the logits
         if constant_sum is not None:
             e_x_sum = e_x.sum(dim=-1, keepdim=True)
             e_x = torch.where(e_x_sum > constant_sum, e_x / e_x_sum * constant_sum, e_x)
 
-        # Apply clipping
+        # Apply upper bound
         if clip_max is not None:
             e_x = torch.clamp(e_x, max=clip_max)
 
@@ -560,7 +560,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             selected = dist.sample()
         logprobs = dist.log_prob(selected)
 
-        # todo: argument passing of tanh_squashing
+        # # todo: argument passing of tanh_squashing
         # # apply squashing
         # if tanh_squashing:
         #     tanh_selected = torch.tanh(selected)
@@ -569,9 +569,9 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
         #     # Linear rescaling to range [clip_min, clip_max]: no impact on logprobs.
         #     selected = clip_min + (clip_max - clip_min) * (tanh_selected + 1) / 2
 
-        # # mask logprobs
-        # if mask is not None:
-        #     logprobs = logprobs.masked_fill(~mask, 0)
+        # mask logprobs
+        if mask is not None:
+            logprobs = logprobs.masked_fill(~mask, 0)
         return selected, logprobs
 
 class Greedy(DecodingStrategy):
