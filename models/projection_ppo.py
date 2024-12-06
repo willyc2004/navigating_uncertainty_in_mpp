@@ -339,7 +339,7 @@ class Projection_PPO(RL4COLitModule):
                 collate_fn=dataset.collate_fn,
             )
 
-            for _ in range(self.ppo_cfg["ppo_epochs"]):  # PPO inner epoch, K
+            for k in range(self.ppo_cfg["ppo_epochs"]):  # PPO inner epoch, K
                 for sub_td in dataloader:
                     sub_td = sub_td.to(td.device)
                     previous_reward = sub_td["reward"].view(-1, 1)
@@ -360,11 +360,11 @@ class Projection_PPO(RL4COLitModule):
                         # print("mean ll ", ll.mean(dim=(0,1)), ll.mean(dim=0))
                         # breakpoint()
                         # print("mean sub_td[logprobs]", sub_td["logprobs"].mean(), sub_td["logprobs"].shape)
-                        ratio = torch.exp(log_ratio.sum(dim=(-1,-2)))
+                        ratio = torch.exp(log_ratio.mean(dim=(1,2)))
                         # print("shape", ratio.shape)
                         # print("ratio", ratio.mean())
                     else:
-                        ratio = torch.exp(ll.sum(dim=-1) - sub_td["logprobs"]).view(-1, 1)  # [batch, 1]
+                        ratio = torch.exp(ll.sum(dim=-1) - sub_td["logprobs"].sum(dim=-1)).view(-1, 1)  # [batch, 1]
 
                     # Compute the advantage
                     value_pred = self.critic(sub_td)  # [batch, 1]
