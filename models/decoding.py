@@ -545,7 +545,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
 
     @staticmethod
     def continuous_sampling(mean_logits: torch.Tensor, std_logits: torch.Tensor, selected: torch.Tensor = None,
-                            mask: torch.Tensor = None, tanh_squashing=True, eps=1e-6, **kwargs):
+                            mask: torch.Tensor = None, tanh_squashing=False, eps=1e-6, **kwargs):
         """Sample from Normal distribution given by mean and std logits.
         Get logprobs based on sampled action."""
         clip_min = kwargs.get("clip_min", None)
@@ -560,14 +560,13 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             selected = dist.sample()
         logprobs = dist.log_prob(selected)
 
-        # # todo: argument passing of tanh_squashing
-        # # apply squashing
-        # if tanh_squashing:
-        #     tanh_selected = torch.tanh(selected)
-        #     # Logprob correction for tanh squashing based on https://arxiv.org/abs/1812.05905
-        #     logprobs = logprobs - torch.log(1 - tanh_selected**2 + eps)
-        #     # Linear rescaling to range [clip_min, clip_max]: no impact on logprobs.
-        #     selected = clip_min + (clip_max - clip_min) * (tanh_selected + 1) / 2
+        # todo: fix proper argument passing of tanh_squashing
+        if tanh_squashing:
+            # Logprob correction for tanh squashing based on https://arxiv.org/abs/1812.05905
+            tanh_selected = torch.tanh(selected)
+            logprobs = logprobs - torch.log(1 - tanh_selected**2 + eps)
+            # Linear rescaling to range [clip_min, clip_max]: no impact on logprobs.
+            selected = clip_min + (clip_max - clip_min) * (tanh_selected + 1) / 2
 
         # mask logprobs
         if mask is not None:
