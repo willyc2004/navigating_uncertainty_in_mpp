@@ -108,32 +108,20 @@ class MPPContextEmbedding(nn.Module):
         - The state embedding size should not depend on e.g. voyage length and cargo types.
         - todo: We have dependency on ports and bays, which is not ideal for generalization.
         """
-        # Normalize demand based on teu and cargo capacity
-        # todo: improve this code:
-        batch_size = td["obs"]["current_demand"].shape[0]
-        dims = td["obs"]["current_demand"].dim()
-        if dims == 2:
-            shape = (1, self.seq_size,)
-            shape_t = (batch_size, 1)
-        elif dims == 3:
-            shape = (1, self.seq_size, 1)
-            shape_t = (batch_size, -1, 1)
-        else:
-            raise ValueError(f"Unsupported number of dimensions: {dims}")
-        # norm_cargo = (self.env.teus[self.env.k[:-1]] / self.env.total_capacity).view(*shape)
-        # norm_cargo_t = norm_cargo[:, td["timestep"]].view(*shape_t)
-
         # Extract demand
         current_demand = td["obs"]["current_demand"] #* norm_cargo_t
         expected_demand = td["obs"]["expected_demand"] #* norm_cargo
         std_demand = td["obs"]["std_demand"] #* norm_cargo
         observed_demand = td["obs"]["observed_demand"] #* norm_cargo
 
-        # Extract vessel and location embeddings
-        residual_capacity = td["obs"]["residual_capacity"] #* norm_cargo_t
-        residual_lc_capacity = td["obs"]["residual_lc_capacity"] #* norm_cargo_t
+        # Extract vessel and location embeddings (all in range [0,1])
+        residual_capacity = td["obs"]["residual_capacity"]
+        residual_lc_capacity = td["obs"]["residual_lc_capacity"]
         origin_embed = td["obs"]["agg_pol_location"]/self.env.P
         destination_embed = td["obs"]["agg_pod_location"]/self.env.P
+        # print("t", td["timestep"][0])
+        # print("residual_capacity", residual_capacity.mean(dim=0))
+        # print("residual_lc_capacity", residual_lc_capacity.mean(dim=0))
 
         # Concatenate all embeddings
         state_embed = torch.cat([current_demand, expected_demand, std_demand, observed_demand,
