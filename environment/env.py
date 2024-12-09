@@ -111,7 +111,6 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Capacity in TEU per location (bay,deck)
         c = kwargs.get("capacity")
         self.capacity = th.full((self.B, self.D,), c[0], device=self.generator.device, dtype=self.float_type)
-        self.norm_capacity = self.capacity
         self.total_capacity = th.sum(self.capacity)
         self.teus = th.arange(1, self.K // (self.CC * self.W) + 1, device=self.generator.device, dtype=self.float_type) \
             .repeat_interleave(self.W).repeat(self.CC)
@@ -234,11 +233,11 @@ class MasterPlanningEnv(RL4COEnvBase):
             # Update feasibility: lhs_A, rhs, clip_max based on next state
             lhs_A = self.create_lhs_A(lhs_A, t)
             rhs = self.create_rhs(next_state_dict["utilization"], next_state_dict["current_demand"], batch_size)
-            # Express residual capacity in number of containers for next step
-            residual_capacity = th.clamp(self.norm_capacity - next_state_dict["utilization"].sum(dim=-2)
-                                         @ self.teus, min=self.zero) / self.teus_episode[t].view(-1, 1, 1)
+            # Express residual capacity in teu
+            residual_capacity = th.clamp(self.capacity - next_state_dict["utilization"].sum(dim=-2)
+                                         @ self.teus, min=self.zero)
         else:
-            residual_capacity = th.zeros_like(td["clip_max"], dtype=self.float_type)
+            residual_capacity = th.zeros_like(td["clip_max"], dtype=self.float_type).view(-1, self.B, self.D)
 
         # # Update action mask
         # # action_mask[t] = 0
@@ -259,6 +258,8 @@ class MasterPlanningEnv(RL4COEnvBase):
             profit -= lc_cost_
             cost += lc_cost_
             lc_costs += lc_cost_
+            # set t back to fit clip max
+            t -= 1
 
         # Track metrics
         total_metrics["total_rc"] += residual_capacity.view(*batch_size, -1)
@@ -273,6 +274,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Normalize reward: r_t = revenue_norm - cost_norm
         # We have spikes over delayed costs at specific time steps.
         reward = (revenue.clone() / normalize_revenue) - (cost.clone() / normalize_cost)
+        # print("next_t", t[0], "teu", self.teus_episode[t][0])
 
         # Update td output
         td.update({
@@ -293,8 +295,8 @@ class MasterPlanningEnv(RL4COEnvBase):
                 "observed_demand": next_state_dict["observed_demand"].view(*batch_size, self.T*self.K),
                 "expected_demand": next_state_dict["expected_demand"].view(*batch_size, self.T*self.K),
                 "std_demand": next_state_dict["std_demand"].view(*batch_size, self.T*self.K),
-                # Vessel
-                "residual_capacity": residual_capacity.view(*batch_size, self.B * self.D),
+                # Vessel (in range [0, 1])
+                "residual_capacity": (residual_capacity/self.capacity.unsqueeze(0)).view(*batch_size, self.B * self.D),
                 "residual_lc_capacity": next_state_dict["residual_lc_capacity"].view(*batch_size, self.B-1),
                 "pol_location": pol_locations.view(*batch_size, -1).to(self.float_type),
                 "pod_location": pod_locations.view(*batch_size, -1).to(self.float_type),
@@ -306,7 +308,8 @@ class MasterPlanningEnv(RL4COEnvBase):
             "lhs_A": lhs_A,
             "rhs": rhs,
             "violation": violation,
-            "clip_max": residual_capacity.view(*batch_size, self.B*self.D),
+            # in containers # todo: check if this clip_max is correct for next step
+            "clip_max": (residual_capacity / self.teus_episode[t].view(-1, 1, 1)).view(*batch_size, self.B*self.D),
             # Action, reward, done and step
             "action": action.view(*batch_size, self.B*self.D),
             "reward": reward,
@@ -331,10 +334,10 @@ class MasterPlanningEnv(RL4COEnvBase):
         device = td.device
         t = th.zeros(*batch_size, dtype=th.int64)
         pol, pod, tau, k, rev = self._extract_cargo_parameters_for_step(t[0])
-        # Action mask and clipping
-        residual_capacity = (self.norm_capacity / self.teus[t[0]]).unsqueeze(0).repeat(*batch_size, 1, 1)
+        # Action mask
         action_mask = th.ones((*batch_size, self.B*self.D), dtype=th.bool, device=device)
         # Vessel state
+        residual_capacity = (self.capacity / self.teus[t[0]]).unsqueeze(0).repeat(*batch_size, 1, 1)
         target_long_crane = self._compute_target_long_crane(td["realized_demand"].view(*batch_size, self.T, self.K),
                                                             self.moves_idx[t[0]])
         utilization = th.zeros((*batch_size, self.B, self.D, self.T, self.K), device=device, dtype=self.float_type)
@@ -370,8 +373,9 @@ class MasterPlanningEnv(RL4COEnvBase):
             "expected_demand": td["expected_demand"].view(*batch_size, self.T*self.K),
             "std_demand": td["std_demand"].view(*batch_size, self.T*self.K),
             # Vessel
-            "residual_capacity": residual_capacity.view(*batch_size, self.B*self.D),
-            "residual_lc_capacity": target_long_crane.unsqueeze(-1).expand(-1, self.B-1),
+            "residual_capacity": th.ones_like(residual_capacity).view(*batch_size, self.B*self.D),
+            "residual_lc_capacity": th.ones_like(target_long_crane).unsqueeze(-1).expand(-1, self.B-1),
+                # target_long_crane.unsqueeze(-1).expand(-1, self.B-1),
             "pol_location": th.zeros_like(port_locations, dtype=self.float_type),
             "pod_location": th.zeros_like(port_locations, dtype=self.float_type),
             "agg_pol_location": th.zeros_like(locations_utilization),
@@ -523,7 +527,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Calculate optimal crane moves based per adjacent bay based on loading and discharging
         total_crane_moves = realized_demand[:, moves, :].sum(dim=(1,2))
         # Compute adjacent capacity and max capacity
-        max_capacity = ((self.norm_capacity[:-1] + self.norm_capacity[1:]).sum(dim=-1)).max()
+        max_capacity = ((self.capacity[:-1] + self.capacity[1:]).sum(dim=-1)).max()
         # Compute element-wise minimum of crane moves and target long crane
         optimal_crane_moves_per_adj_bay = 2 * total_crane_moves / self.B
         return self.CI_target * th.minimum(optimal_crane_moves_per_adj_bay, max_capacity)
@@ -610,7 +614,8 @@ class MasterPlanningEnv(RL4COEnvBase):
         demand_obs["std_demand"][:, tau, k] = 0
 
         # Update residual lc capacity: target - actual load and discharge moves
-        residual_lc_capacity = target_long_crane.unsqueeze(-1) - long_crane_moves
+        # todo: make residual lc capacity work properly!
+        residual_lc_capacity = (target_long_crane.unsqueeze(-1) - long_crane_moves) / target_long_crane.unsqueeze(-1)
 
         # Get output
         return {
