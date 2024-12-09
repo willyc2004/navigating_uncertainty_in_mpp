@@ -161,7 +161,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 # performance metrics
                 "total_loaded", "total_profit", "total_revenue", "total_cost",
                 # policy dist
-                "e_x_logit", "std_x_logit", "x", "min(x)",
+                "e_x_logit", "std_x_logit", "x", "min(x)", "max(x)", "std(x)",
             ]
         },
         gamma: float = 0.99,  # gamma
@@ -444,7 +444,9 @@ class Projection_Nstep_PPO(RL4COLitModule):
             "e_x_logit": proj_mean_logits.mean().detach(),
             "std_x_logit": out["std_logits"].mean().detach(),
             "x": out["action"].mean().detach(),
+            "std(x)": out["action"].std().detach(),
             "min(x)": out["action"].min().detach(),
+            "max(x)": out["action"].max().detach(),
         }
         return total_loss, metrics
 
