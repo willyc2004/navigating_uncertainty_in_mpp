@@ -1,6 +1,6 @@
 method: bayes
 metric:
-  name: val/total_profit_and_feas
+  name: val/reward
   goal: maximize
 run_cap: 100
 parameters:
