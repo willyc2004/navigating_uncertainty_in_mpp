@@ -19,7 +19,14 @@ from torchrl.data.replay_buffers import (
     ListStorage,
     SamplerWithoutReplacement,
     TensorDictReplayBuffer,
+    LazyTensorStorage
 )
+from torchrl.collectors import SyncDataCollector
+from torchrl.data.replay_buffers import ReplayBuffer
+from torchrl.objectives import ClipPPOLoss
+from torchrl.objectives.value import GAE
+from torchrl.modules import ProbabilisticActor, TanhNormal, ValueOperator
+from tensordict.nn import TensorDictModule
 
 from rl4co.envs.common.base import RL4COEnvBase
 from rl4co.models.rl.common.base import RL4COLitModule
@@ -48,52 +55,6 @@ class Memory:
         self.rewards = self.rewards.new_zeros(self.rewards.size())
         self.values = self.values.new_zeros(self.values.size())
         self.profit = self.profit.new_zeros(self.profit.size())
-
-class ObservationNormalizer(nn.Module):
-    def __init__(self, obs_spec, epsilon=1e-5, momentum=0.1):
-        super().__init__()
-        self.epsilon = epsilon
-        self.momentum = momentum
-
-        # Ensure mean and std shapes match the non-batch dimensions of obs_spec
-        self.mean = nn.ParameterDict({
-            key: nn.Parameter(torch.zeros(spec.shape[1:], device=spec.device), requires_grad=False)
-            for key, spec in obs_spec.items()
-        })
-        self.std = nn.ParameterDict({
-            key: nn.Parameter(torch.ones(spec.shape[1:], device=spec.device), requires_grad=False)
-            for key, spec in obs_spec.items()
-        })
-
-    def forward(self, obs):
-        # Normalize each entry in the TensorDict
-        normalized_obs = {
-            key: (obs[key] - self.mean[key]) / (self.std[key] + self.epsilon)
-            for key in obs.keys()
-        }
-        # give example
-
-        return TensorDict(normalized_obs, batch_size=obs.batch_size, device=obs.device)
-
-    def update_stats(self, new_obs):
-        # Update running mean and std for each entry in the TensorDict along the batch dimension
-        for key, value in new_obs.items():
-            # Move mean and std to the same device as new_obs for compatibility
-            self.mean[key].data = self.mean[key].data.to(value.device)
-            self.std[key].data = self.std[key].data.to(value.device)
-
-            # Calculate batch mean and std along the batch dimension
-            batch_mean = value.mean(dim=0)  # Calculate mean across batch
-            batch_std = value.std(dim=0)  # Calculate std across batch
-
-            if torch.isnan(batch_mean).any() or torch.isnan(batch_std).any():
-                print(f"Warning: NaNs detected in batch statistics for '{key}'. Replacing with zero mean and min_std.")
-                batch_mean = torch.nan_to_num(batch_mean, nan=0.0)
-                batch_std = torch.nan_to_num(batch_std, nan=self.epsilon)
-
-            # Update running statistics with momentum for stability
-            self.mean[key].data = self.momentum * batch_mean + (1 - self.momentum) * self.mean[key].data
-            self.std[key].data = self.momentum * batch_std + (1 - self.momentum) * self.std[key].data
 
 class BatchDataset(Dataset):
     def __init__(self, td, memory):
@@ -199,6 +160,8 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 "violation_demand", "violation_lcg_ub", "violation_lcg_lb", "violation_vcg_ub", "violation_vcg_lb",
                 # performance metrics
                 "total_loaded", "total_profit", "total_revenue", "total_cost",
+                # policy dist
+                "e_x_logit", "std_x_logit", "x", "min(x)",
             ]
         },
         gamma: float = 0.99,  # gamma
@@ -349,14 +312,16 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 out["value_preds"] = self.critic(batch["tds"]).clone()
 
                 # Advantage and return computation
-                adv, returns = generalized_advantage_estimate(
-                    gamma=self.ppo_cfg["gamma"],
-                    lmbda=self.ppo_cfg["gae_lambda"],
-                    state_value=batch["values"],
-                    next_state_value=out["value_preds"].detach(),
-                    reward=batch["rewards"],
-                    done=out["done"].bool(),
-                )
+                returns = torch.cumsum(batch['rewards'], dim=1)
+                adv = returns - out["value_preds"].detach()
+                # adv, returns = generalized_advantage_estimate(
+                #     gamma=self.ppo_cfg["gamma"],
+                #     lmbda=self.ppo_cfg["gae_lambda"],
+                #     state_value=batch["values"],
+                #     next_state_value=out["value_preds"].detach(),
+                #     reward=batch["rewards"],
+                #     done=out["done"].bool(),
+                # )
                 out["adv"] = self._normalize_if_enabled(adv, self.ppo_cfg["normalize_adv"])
                 out["returns"] = self._normalize_if_enabled(returns, self.ppo_cfg["normalize_return"])
 
@@ -408,7 +373,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
         # Compute the ratios for PPO clipping
         log_ratios = ll - old_ll.detach()  # Detach old log-likelihoods
         ratios = torch.exp(log_ratios.sum(dim=-1, keepdims=True))  # Calculate importance sampling ratios
-        clipped_ratios = torch.clamp(ratios, 1 - self.ppo_cfg["clip_range"], 1 + self.ppo_cfg["clip_range"])
+        clipped_ratios = torch.clamp(ratios, min=1 - self.ppo_cfg["clip_range"], max=1 + self.ppo_cfg["clip_range"])
         surrogate_loss = -torch.min(ratios * adv, clipped_ratios * adv).mean()  # Surrogate loss
         # check_for_nans(log_ratios, "log_ratios")
         # check_for_nans(ratios, "ratios")
@@ -428,8 +393,8 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 lambda_values,
             )
         feasibility_loss = F.mse_loss(lambda_values * violation, torch.zeros_like(violation), reduction="mean")  # Feasibility loss
-        proj_mean_logits_detached = proj_mean_logits.detach()
-        projection_loss = F.mse_loss(mean_logits, proj_mean_logits_detached, reduction="mean")  # Projection loss
+        # proj_mean_logits_detached = proj_mean_logits.detach()
+        # projection_loss = F.mse_loss(mean_logits, proj_mean_logits_detached, reduction="mean")  # Projection loss
 
         # Combine losses into the total loss
         total_loss = (
@@ -437,7 +402,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 + self.ppo_cfg["vf_lambda"] * value_loss
                 - self.ppo_cfg["entropy_lambda"] * entropy.mean()
                 + self.ppo_cfg["feasibility_lambda"] * feasibility_loss
-                + self.ppo_cfg["projection_lambda"] * projection_loss
+                # + self.ppo_cfg["projection_lambda"] * projection_loss
         ).mean()
         assert total_loss.requires_grad, "Total loss should require gradients"
         check_for_nans(total_loss, "total_loss")
@@ -453,7 +418,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
             "value_loss": (self.ppo_cfg["vf_lambda"] * value_loss).detach(),
             "entropy": (-self.ppo_cfg["entropy_lambda"] * entropy.mean()).detach(),
             "feasibility_loss": (self.ppo_cfg["feasibility_lambda"] * feasibility_loss).detach(),
-            "projection_loss": (self.ppo_cfg["projection_lambda"] * projection_loss).detach(),
+            # "projection_loss": (self.ppo_cfg["projection_lambda"] * projection_loss).detach(),
             # Performance metrics
             "return": returns.mean().detach(),
             "ratios": ratios.mean().detach(),
@@ -461,7 +426,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
             "adv": adv.detach(),
             "value_pred": value_preds.detach(),
             # Violation metrics
-            "mean_violation":violation.sum(dim=(1, 2)).mean(),
+            "mean_violation":violation.sum(dim=(1, 2)).mean().detach(),
             "violation": relevant_violation.sum(dim=(1, 2)).mean().detach(),
             "violation_demand": relevant_violation[..., 0].sum(dim=1).mean().detach(),
             "violation_lcg_ub": relevant_violation[..., 1].sum(dim=1).mean().detach(),
@@ -475,6 +440,11 @@ class Projection_Nstep_PPO(RL4COLitModule):
             ).detach(),
             "total_revenue": td["state"]["total_revenue"].mean().detach(),
             "total_cost": td["state"]["total_cost"].mean().detach(),
+            # Logits
+            "e_x_logit": proj_mean_logits.mean().detach(),
+            "std_x_logit": out["std_logits"].mean().detach(),
+            "x": out["action"].mean().detach(),
+            "min(x)": out["action"].min().detach(),
         }
         return total_loss, metrics
 
