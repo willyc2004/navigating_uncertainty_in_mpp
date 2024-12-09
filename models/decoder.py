@@ -216,7 +216,7 @@ class MLPDecoderWithCache(nn.Module):
         step_context = self.context_embedding(init_embeds_cache, td)
         # Compute mask and logits
         hidden = self.policy_mlp(step_context)
-        mean = F.leaky_relu(self.mean_head(hidden))
+        mean = self.mean_head(hidden)
         std = F.softplus(self.std_head(hidden))
         output_logits = torch.stack([mean, std], dim=-1)
         return output_logits, td["action_mask"]
