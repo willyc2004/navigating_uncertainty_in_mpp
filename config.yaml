@@ -36,10 +36,10 @@ model:
   num_decoder_layers: 2
   num_heads: 8
   dropout_rate: 0.1
-  normalization: "batch"
+  normalization: "layer"
   out_bias_pointer_attn: False
   temperature: 1.0
-  critic_temperature: 1.0
+  critic_temperature: 0.10
   tanh_clipping: 0
   tanh_squashing: False
   train_decode_type: "continuous_sampling"
@@ -58,7 +58,7 @@ ppo:
   mini_batch_size: 0.5
   normalize_adv: False
   normalize_return: False
-  max_grad_norm: 1.0
+  max_grad_norm: 0.5
   kl_threshold: None #0.01 - 0.1
   kl_penalty_lambda: None # 1.0
   gamma: 0.999
