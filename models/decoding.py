@@ -195,9 +195,11 @@ def process_logits(
         return F.log_softmax(logits, dim=-1)
     else:
         # For continuous action space, we have logits and std_x
-        # e_x, std_x = logits[..., 0], logits[..., 1]
-        e_x = logits
-        std_x = torch.ones_like(logits)
+        if logits.dim() == 2:
+            e_x = logits
+            std_x = torch.ones_like(logits)
+        elif logits.dim() == 3:
+            e_x, std_x = logits[..., 0], logits[..., 1]
 
         # Apply lower bound
         if clip_min is not None:
@@ -327,10 +329,12 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
         self.projection_kwargs = kwargs.get("projection_kwargs", None)
         self.projection_layer = ProjectionFactory.create_class(
             self.projection_type, kwargs=self.projection_kwargs)
+        self.select_obs_td = kwargs.get("select_obs_td", None)
         # initialize buffers
         self.actions = []
         self.action_masks = []
         self.logprobs = []
+        self.tds = []
         self.logits = []
         self.proj_mean_logits = []
         self.std_logits = []
@@ -408,6 +412,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             "actions":torch.stack(self.actions, 1),
         }
         if self.name.startswith("continuous") and self.projection_layer is not None:
+            dict_out["tds"] = self.tds
             dict_out["proj_mean_logits"] = torch.stack(self.proj_mean_logits, 1)
             dict_out["std_logits"] = torch.stack(self.std_logits, 1)
             dict_out["lhs_A"] = torch.stack(self.lhs_A, 1)
@@ -469,6 +474,8 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             self.std_logits.append(std_logits)
             self.utilization.append(td["state"]["utilization"])
             self.action_masks.append(mask)
+            if self.select_obs_td is not None:
+                self.tds.append(td[self.select_obs_td])
             td.update({"mean_logits": mean_logits,
                        "std_logits": std_logits,
                        "proj_mean_logits": proj_mean_logits,
