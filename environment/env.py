@@ -397,7 +397,7 @@ class MasterPlanningEnv(RL4COEnvBase):
             "rhs":  rhs,
             "violation": th.zeros_like(rhs, dtype=self.float_type),
             # Reward, done and step
-            "reward": th.zeros_like(t, dtype=self.float_type),
+            "reward": th.zeros_like(t, dtype=self.float_type).unsqueeze(-1),
             "profit": th.zeros_like(t, dtype=self.float_type),
             "revenue": th.zeros_like(t, dtype=self.float_type),
             "cost": th.zeros_like(t, dtype=self.float_type),
