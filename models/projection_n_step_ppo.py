@@ -441,10 +441,10 @@ class Projection_Nstep_PPO(RL4COLitModule):
             # Logits
             "e_x_logit": mean_logits.mean().detach(),
             "std_x_logit": out["std_logits"].mean().detach(),
-            "x": out["action"].mean().detach(),
-            "std(x)": out["action"].std().detach(),
-            "min(x)": out["action"].min().detach(),
-            "max(x)": out["action"].max().detach(),
+            "x": out["actions"].mean().detach(),
+            "std(x)": out["actions"].std().detach(),
+            "min(x)": out["actions"].min().detach(),
+            "max(x)": out["actions"].max().detach(),
         }
         return total_loss, metrics
 
