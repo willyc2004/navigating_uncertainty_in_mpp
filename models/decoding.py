@@ -143,7 +143,6 @@ def process_logits(
     mask: torch.Tensor = None,
     clip_min: torch.Tensor = None,
     clip_max: torch.Tensor = None,
-    constant_sum: torch.Tensor = None,
     temperature: float = 1.0,
     top_p: float = 0.0,
     top_k: int = 0,
@@ -196,24 +195,17 @@ def process_logits(
         return F.log_softmax(logits, dim=-1)
     else:
         # For continuous action space, we have logits and std_x
-        e_x, std_x = logits[..., 0], logits[..., 1]
+        # e_x, std_x = logits[..., 0], logits[..., 1]
+        e_x = logits
+        std_x = torch.ones_like(logits)
 
         # Apply lower bound
         if clip_min is not None:
             e_x = torch.clamp(e_x, min=clip_min)
 
-        # Scale `e_x` to match `constant_sum` if necessary
-        # todo: consider to remove, because it changes the logits
-        if constant_sum is not None:
-            e_x_sum = e_x.sum(dim=-1, keepdim=True)
-            e_x = torch.where(e_x_sum > constant_sum, e_x / e_x_sum * constant_sum, e_x)
-
         # Apply upper bound
         if clip_max is not None:
             e_x = torch.clamp(e_x, max=clip_max)
-
-        # Ensure std_x is positive but not too big
-        std_x = torch.clamp(std_x, min=eps)
         return e_x, std_x
 
 def random_policy(td):
@@ -453,7 +445,6 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 mask=None, # mask=mask
                 clip_min=clip_min,
                 clip_max=clip_max,
-                constant_sum=None, # constant_sum=td["obs"].get("current_demand", None),
                 temperature=self.temperature,
                 top_p=self.top_p,
                 top_k=self.top_k,
@@ -557,6 +548,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
 
         # sample and get log probs
         if selected is None:
+            # think about rsample (reparamerization trick)
             selected = dist.sample()
         logprobs = dist.log_prob(selected)
 
