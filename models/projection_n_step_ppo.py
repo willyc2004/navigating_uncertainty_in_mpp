@@ -73,14 +73,13 @@ class BatchDataset(Dataset):
 
     def __getitem__(self, index):
         """Return data for a single index."""
-        stacked_obs = torch.stack(self.memory.tds_obs, dim=0).permute(1,0)
         return {
             "actions": self.memory.actions[index],
             "values": self.memory.values[index],
             "logprobs": self.memory.logprobs[index],
             "rewards": self.memory.rewards[index],
             "profit": self.memory.profit[index],
-            "tds": stacked_obs[index],
+            "tds": self.memory.tds_obs[index],
         }
 
 def recursive_tensordict_collate(batch):
@@ -229,8 +228,6 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
         self.lambda_violations = torch.tensor([demand_lambda] + [stability_lambda] * env.n_stability,
                                               device='cuda', dtype=torch.float32)
-        self.select_obs_td = ["obs", "done", "timestep", "action_mask", "lhs_A", "rhs", "clip_min", "clip_max",
-                              ("state", "utilization")]
 
     def configure_optimizers(self):
         parameters = list(self.policy.parameters()) + list(self.critic.parameters())
@@ -252,7 +249,6 @@ class Projection_Nstep_PPO(RL4COLitModule):
             out = self.policy.generate(td, env=self.env, phase=phase, return_feasibility=True,
                                        projection_type=self.projection_type, projection_kwargs=self.projection_kwargs)
             # Log metrics
-            # self.log("val/reward", out["reward"].mean(), on_epoch=True, prog_bar=True, logger=True)
             self.log("val/total_revenue", out["total_revenue"].mean(), on_epoch=True, prog_bar=True, logger=True)
             self.log("val/total_cost", out["total_cost"].mean(), on_epoch=True, prog_bar=True, logger=True)
             self.log("val/total_loaded", out["total_loaded"].mean(), on_epoch=True, prog_bar=True, logger=True)
@@ -284,11 +280,11 @@ class Projection_Nstep_PPO(RL4COLitModule):
         with torch.no_grad():
             td = self.env.reset(batch)
             out = self.policy(td.clone(), self.env, phase=phase, return_actions=True, return_sum_log_likelihood=True,
-                              return_entropy=False, return_feasibility=True, return_tds=True,)
+                              return_entropy=False, return_feasibility=True, return_tds=True, max_steps=self.ppo_cfg["n_step"])
             memory.actions = out["actions"].clone()
             memory.logprobs = out["log_likelihood"].clone()
             memory.rewards = out["reward"].clone()
-            memory.tds_obs = out["tds"]
+            memory.tds_obs = out["tds"].clone()
             # todo: old value preds for whole episode
             #  old_values = self.critic().view(-1, 1).detach()
 
@@ -300,20 +296,22 @@ class Projection_Nstep_PPO(RL4COLitModule):
         for k in range(self.ppo_cfg["ppo_epochs"]):
             for batch in dataloader:
                 # Forward pass based on mini-batch actions
-                print("batch['actions'].shape", batch["actions"].shape)
-                print("batch['rewards'].shape", batch['rewards'].shape)
                 out = self.policy(
-                    batch["tds"],
+                    batch['tds'][:,0],
                     action=batch["actions"],
                     env=self.env,
                     phase=phase,
                     return_actions=True,
+                    return_sum_log_likelihood=True,
+                    return_entropy=True,
+                    max_steps=self.ppo_cfg["n_step"],
                 )
                 out["value_preds"] = self.critic(batch["tds"]).clone()
 
                 # Advantage and return computation
                 returns = torch.cumsum(batch['rewards'], dim=1)
                 adv = returns - out["value_preds"].detach()
+                # todo: add n-step advantage
                 # adv, returns = generalized_advantage_estimate(
                 #     gamma=self.ppo_cfg["gamma"],
                 #     lmbda=self.ppo_cfg["gae_lambda"],
@@ -352,11 +350,11 @@ class Projection_Nstep_PPO(RL4COLitModule):
         """Compute the PPO loss, value loss, entropy loss, feasibility loss, and projection loss."""
         # Extract from memory/out
         old_ll = batch["logprobs"] # Old log probabilities
-        ll = out["logprobs"]  # Current log probabilities
+        ll = out["log_likelihood"]  # Current log probabilities
         value_preds = out["value_preds"]  # Current value predictions
         entropy = out["entropy"]  # Policy entropy
-        mean_logits = out["mean_logits"]  # Current logits
-        proj_mean_logits = out["proj_mean_logits"]  # Projected logits
+        mean_logits = out["mean_logits"]  # Projected logits
+        # old_mean_logits = out["unproj_mean_logits"]  # Current logits
         adv = out["adv"]  # Advantages
         returns = out["returns"]  # Returns
 
@@ -384,7 +382,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
         value_loss = F.huber_loss(value_preds, returns.detach(), reduction="mean")
 
         # Compute feasibility and projection losses
-        violation = compute_violation(proj_mean_logits.unsqueeze(-2), out["lhs_A"], out["rhs"])  # Feasibility violation
+        violation = compute_violation(mean_logits.unsqueeze(-2), out["lhs_A"], out["rhs"])  # Feasibility violation
         if self.ppo_cfg["adaptive_feasibility_lambda"]:
             # Adapt lambda values for feasibility constraints
             lambda_values = torch.where(
@@ -393,8 +391,8 @@ class Projection_Nstep_PPO(RL4COLitModule):
                 lambda_values,
             )
         feasibility_loss = F.mse_loss(lambda_values * violation, torch.zeros_like(violation), reduction="mean")  # Feasibility loss
-        # proj_mean_logits_detached = proj_mean_logits.detach()
-        # projection_loss = F.mse_loss(mean_logits, proj_mean_logits_detached, reduction="mean")  # Projection loss
+        # old_mean_logits_detached = old_mean_logits.detach()
+        # projection_loss = F.mse_loss(mean_logits, old_mean_logits_detached, reduction="mean")  # Projection loss
 
         # Combine losses into the total loss
         total_loss = (
@@ -408,7 +406,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
         check_for_nans(total_loss, "total_loss")
 
         # Compute relevant violations for metrics
-        real_violation = compute_violation(out["action"].unsqueeze(-2), out["lhs_A"], out["rhs"])
+        real_violation = compute_violation(out["actions"].unsqueeze(-2), out["lhs_A"], out["rhs"])
         relevant_violation = self._get_relevant_violations(real_violation.detach(), self.env)
         # Collect metrics for logging
         metrics = {
@@ -441,7 +439,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
             "total_revenue": td["state"]["total_revenue"].mean().detach(),
             "total_cost": td["state"]["total_cost"].mean().detach(),
             # Logits
-            "e_x_logit": proj_mean_logits.mean().detach(),
+            "e_x_logit": mean_logits.mean().detach(),
             "std_x_logit": out["std_logits"].mean().detach(),
             "x": out["action"].mean().detach(),
             "std(x)": out["action"].std().detach(),
