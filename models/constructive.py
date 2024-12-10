@@ -158,6 +158,7 @@ class ConstructivePolicyMPP(nn.Module):
         self.train_decode_type = train_decode_type
         self.val_decode_type = val_decode_type
         self.test_decode_type = test_decode_type
+        self.select_obs_td = unused_kw.get("select_obs_td", None)
 
     def forward(
         self,
@@ -173,7 +174,7 @@ class ConstructivePolicyMPP(nn.Module):
         return_init_embeds: bool = False,
         return_sum_log_likelihood: bool = True,
         actions=None,
-        max_steps=1_000_000,
+        max_steps=1_000,
         **decoding_kwargs,
     ) -> dict:
         """Forward pass of the policy.
@@ -251,10 +252,13 @@ class ConstructivePolicyMPP(nn.Module):
             self._portwise_decoding(td, env, actions=actions, hidden=hidden, num_starts=num_starts,
                                     decode_strategy=decode_strategy, decode_strategy_=decode_strategy_,max_steps=max_steps,
                                     **decoding_kwargs)
+            # todo: make same as main decoding
+            raise NotImplementedError("Portwise decoding not yet implemented")
         else:
             # Perform main decoding to construct the solution
-            self._main_decoding(td, env, actions=actions, hidden=hidden, num_starts=num_starts,
-                                decode_strategy=decode_strategy, max_steps=max_steps,)
+            out = self._main_decoding(td, env, actions=actions, hidden=hidden, num_starts=num_starts,
+                                      decode_strategy=decode_strategy, max_steps=max_steps, **decoding_kwargs)
+            tds = torch.stack(out["tds"], dim=1)
 
         # Post-decoding hook: used for the final step(s) of the decoding strategy
         dictout, td, env = decode_strategy.post_decoder_hook(td, env)
@@ -268,62 +272,81 @@ class ConstructivePolicyMPP(nn.Module):
 
         outdict = {
             "return": td["return"],
-            "reward": torch.stack([x["reward"] for x in dictout["tds"]], dim=0).permute(1, 0, 2),
+            "reward": out["rewards"],
             "log_likelihood": get_log_likelihood(
                 dictout["logprobs"], dictout["actions"],
-                mask=dictout["action_masks"],
+                # mask=dictout["action_masks"],
                 return_sum=return_sum_log_likelihood),
             "utilization": dictout["utilization"],
             "total_loaded": td["state"].get("total_loaded", None),
             "total_revenue": td["state"].get("total_revenue", None),
             "total_cost": td["state"].get("total_cost", None),
         }
-
+        if return_tds:
+            outdict["tds"] = tds
         if return_actions:
             outdict["actions"] = actions
-            outdict["action_masks"] = dictout["action_masks"]
+            # todo: add action masks
+            # outdict["action_masks"] = dictout["action_masks"]
         if return_entropy:
             if decode_type.startswith("continuous"):
-                outdict["entropy"] = calculate_gaussian_entropy((dictout["proj_mean_logits"], dictout["std_logits"]))
+                outdict["entropy"] = calculate_gaussian_entropy((out["mean_logits"], out["std_logits"]))
             else:
                 outdict["entropy"] = calculate_entropy(logprobs)
         if return_feasibility:
-            outdict["lhs_A"], outdict["rhs"] = dictout["lhs_A"], dictout["rhs"]
-            outdict["violation"] = compute_violation(dictout["actions"].unsqueeze(-2), dictout["lhs_A"], dictout["rhs"])
+            # Add to outdict
+            outdict["mean_logits"] = out["mean_logits"]
+            outdict["std_logits"] = out["std_logits"]
+            outdict["unproj_mean_logits"] = out["unproj_mean_logits"]
+            outdict["lhs_A"] = tds["lhs_A"]
+            outdict["rhs"] = tds["rhs"]
+
+            # outdict["unprojected_mean_logits"] = torch.stack(out["unproj_mean_logits"]).permute(1, 0, 2)
+            outdict["violation"] = compute_violation(dictout["actions"].unsqueeze(-2), tds["lhs_A"], tds["rhs"])
             outdict["return"] -= outdict["violation"].sum(dim=(-1, -2)).view(td.batch_size[0], 1)
         if return_hidden:
             outdict["hidden"] = hidden
         if return_init_embeds:
             outdict["init_embeds"] = init_embeds
-        if return_tds:
-            outdict["tds"] = dictout["tds"]
         return outdict
 
     def _main_decoding(self, td: TensorDict, env: RL4COEnvBase, actions=None, hidden: Any = None, num_starts: int = 0,
-                       decode_strategy: DecodingStrategy = None, max_steps=1_000_000, use_lp_solver=False,
+                       decode_strategy: DecodingStrategy = None, max_steps=1_000, use_lp_solver=False,
                        **decoding_kwargs):
         # Main decoding: loop until all sequences are done
         step = 0
+        rewards = torch.zeros(td.batch_size[0], max_steps, 1, device="cuda")
+        mean_logits = torch.zeros(td.batch_size[0], max_steps, *env.action_spec.shape, device="cuda")
+        std_logits = torch.zeros(td.batch_size[0], max_steps, *env.action_spec.shape, device="cuda")
+        unproj_mean_logits = torch.zeros(td.batch_size[0], max_steps, *env.action_spec.shape, device="cuda")
+        tds = []
         while not td["done"].all():
             logits, mask = self.decoder(td, hidden, num_starts)
+            tds.append(td.select(*self.select_obs_td).clone())
             td = decode_strategy.step(
                 logits,
                 mask,
                 td,
                 action=actions[:, step, ] if actions is not None else None,
             )
+            mean_logits[:, step] = td["mean_logits"].clone()
+            std_logits[:, step] = td["std_logits"].clone()
+            unproj_mean_logits[:, step] = td["unproj_mean_logits"].clone()
             td = env.step(td)["next"]
-
+            rewards[:, step] = td["reward"].clone()
             step += 1
             if step > max_steps:
                 log.error(
                     f"Exceeded maximum number of steps ({max_steps}) during decoding"
                 )
                 break
+        out = {"rewards": rewards, "mean_logits": mean_logits, "std_logits": std_logits,
+                "unproj_mean_logits": unproj_mean_logits, "tds": tds}
+        return out
 
     def _portwise_decoding(self, td: TensorDict, env: RL4COEnvBase, actions=None, hidden: Any = None, num_starts: int = 0,
                            decode_strategy: DecodingStrategy = None, decode_strategy_: DecodingStrategy = None,
-                           max_steps=1_000_000, use_lp_solver=False, **decoding_kwargs):
+                           max_steps=1_000, use_lp_solver=False, **decoding_kwargs):
         # Setup projection layer
         batch_size = td.batch_size[0]
         projection_layer = ProjectionFactory.create_class(decoding_kwargs.get("projection_type", {}),
