@@ -195,6 +195,12 @@ def main(config=None):
         "dynamic_embedding": dynamic_embed,
         "projection_type": config.am_ppo.projection_type,
         "projection_kwargs": config.am_ppo.projection_kwargs,
+        "select_obs_td":["obs", "done", "timestep", "action_mask", "lhs_A", "rhs", "clip_min", "clip_max",
+                              "reward",
+                              ("state", "utilization"), ("state", "target_long_crane"), ("state", "total_loaded"),
+                              ("state", "total_revenue"), ("state", "total_cost"), ("state", "total_rc"),
+                              "realized_demand",
+                              ],
         **config.model
     }
     # AM PPO initialization
