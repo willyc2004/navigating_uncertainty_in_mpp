@@ -262,12 +262,12 @@ class ConstructivePolicyMPP(nn.Module):
         # Output dictionary construction
         if calc_reward:
             if env.name == "mpp":
-                td.set("reward", env.get_reward(td, dictout["utilization"]))
+                td.set("return", env.get_reward(td, dictout["utilization"]))
             else:
-                td.set("reward", env.get_reward(td, actions))
+                td.set("return", env.get_reward(td, actions))
 
         outdict = {
-            "reward": td["reward"],
+            "reward": torch.stack([x["reward"] for x in dictout["tds"]], dim=0).permute(1, 0, 2),
             "log_likelihood": get_log_likelihood(
                 dictout["logprobs"], dictout["actions"],
                 mask=dictout["action_masks"],
@@ -277,6 +277,8 @@ class ConstructivePolicyMPP(nn.Module):
             "total_revenue": td["state"].get("total_revenue", None),
             "total_cost": td["state"].get("total_cost", None),
         }
+        print(outdict["reward"].shape)
+        breakpoint()
 
         if return_actions:
             outdict["actions"] = actions
@@ -289,7 +291,7 @@ class ConstructivePolicyMPP(nn.Module):
         if return_feasibility:
             outdict["lhs_A"], outdict["rhs"] = dictout["lhs_A"], dictout["rhs"]
             outdict["violation"] = compute_violation(dictout["actions"].unsqueeze(-2), dictout["lhs_A"], dictout["rhs"])
-            outdict["reward"] -= outdict["violation"].sum(dim=(-1, -2)).view(td.batch_size[0], 1)
+            outdict["return"] -= outdict["violation"].sum(dim=(-1, -2)).view(td.batch_size[0], 1)
         if return_hidden:
             outdict["hidden"] = hidden
         if return_init_embeds:
