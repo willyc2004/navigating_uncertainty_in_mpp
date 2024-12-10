@@ -354,15 +354,8 @@ class Projection_PPO(RL4COLitModule):
 
                     # Compute the ratio of probabilities of new and old actions
                     if self.env.name == "mpp":
-                        # todo: work on logprobs in this algorithm
                         log_ratio = ll - sub_td["logprobs"]
-                        # print("mean ll ", ll.mean(), ll.shape)
-                        # print("mean ll ", ll.mean(dim=(0,1)), ll.mean(dim=0))
-                        # breakpoint()
-                        # print("mean sub_td[logprobs]", sub_td["logprobs"].mean(), sub_td["logprobs"].shape)
-                        ratio = torch.exp(log_ratio.mean(dim=(1,2)))
-                        # print("shape", ratio.shape)
-                        # print("ratio", ratio.mean())
+                        ratio = torch.exp(log_ratio.sum(dim=(1,2)))
                     else:
                         ratio = torch.exp(ll.sum(dim=-1) - sub_td["logprobs"].sum(dim=-1)).view(-1, 1)  # [batch, 1]
 
