@@ -266,13 +266,12 @@ class Projection_Nstep_PPO(RL4COLitModule):
             self.log("val/violation_vcg_lb", relevant_violation[...,4].sum(dim=1).mean(), on_epoch=True, prog_bar=True, logger=True)
             self.log("val/violation", relevant_violation.sum(dim=(1,2)).mean(), on_epoch=True, prog_bar=True, logger=True)
         else:
-            td = self.env.reset(batch)
             memory = Memory(batch, self.ppo_cfg["n_step"], self.env)
-            out = self.update(td, memory, phase)
+            out = self.update(batch, memory, phase)
         metrics = self.log_metrics(out, phase, dataloader_idx=dataloader_idx)
         return {"loss": out.get("loss", None), **metrics}
 
-    def update(self, td, memory, phase,):
+    def update(self, batch, memory, phase,):
         assert (
                 self.ppo_cfg["T_train"] % self.ppo_cfg["n_step"] == 0
         ), "T_train should be divided by n_step with no remainder"
@@ -280,19 +279,18 @@ class Projection_Nstep_PPO(RL4COLitModule):
 
         # Gather n_steps in memory
         memory.clear_memory()
-        for i in range(self.ppo_cfg["n_step"]):
-            # Store observation in memory
-            td_obs = td.select(*self.select_obs_td)
-            memory.tds_obs.append(td_obs.clone())
 
-            # Generate actions, perform step in environment and store results
-            memory.values[:, i] = self.critic(td_obs).view(-1, 1).detach()
-            td = self.policy.act(td.clone(), self.env, phase=phase).detach()
-            td = self.env.step(td.clone())["next"]
-            memory.actions[:, i] = td["action"].clone()
-            memory.logprobs[:, i] = td["logprobs"].clone()
-            memory.rewards[:, i] = td["reward"].view(-1, 1).clone()
-            memory.profit[:, i] = td["profit"].view(-1, 1).clone()
+        # Evaluate old actions, log probabilities, and rewards
+        with torch.no_grad():
+            td = self.env.reset(batch)
+            out = self.policy(td.clone(), self.env, phase=phase, return_actions=True, return_sum_log_likelihood=True,
+                              return_entropy=False, return_feasibility=True, return_tds=True,)
+            memory.actions = out["actions"].clone()
+            memory.logprobs = out["log_likelihood"].clone()
+            memory.rewards = out["reward"].clone()
+            memory.tds_obs = out["tds"]
+            # todo: old value preds for whole episode
+            #  old_values = self.critic().view(-1, 1).detach()
 
         # Create DataLoader for mini-batch sampling
         dataset = BatchDataset(td, memory)
@@ -302,7 +300,9 @@ class Projection_Nstep_PPO(RL4COLitModule):
         for k in range(self.ppo_cfg["ppo_epochs"]):
             for batch in dataloader:
                 # Forward pass based on mini-batch actions
-                out = self.policy.act(
+                print("batch['actions'].shape", batch["actions"].shape)
+                print("batch['rewards'].shape", batch['rewards'].shape)
+                out = self.policy(
                     batch["tds"],
                     action=batch["actions"],
                     env=self.env,
