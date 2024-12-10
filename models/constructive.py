@@ -277,8 +277,6 @@ class ConstructivePolicyMPP(nn.Module):
             "total_revenue": td["state"].get("total_revenue", None),
             "total_cost": td["state"].get("total_cost", None),
         }
-        print(outdict["reward"].shape)
-        breakpoint()
 
         if return_actions:
             outdict["actions"] = actions
