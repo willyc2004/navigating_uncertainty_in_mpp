@@ -422,7 +422,7 @@ class Projection_PPO(RL4COLitModule):
                     # "violation_lcg_lb": relevant_violation[..., 2].sum(dim=1).mean().detach(),
                     # "violation_vcg_ub": relevant_violation[..., 3].sum(dim=1).mean().detach(),
                     # "violation_vcg_lb": relevant_violation[..., 4].sum(dim=1).mean().detach(),
-                    # Additional metrics for debugging or logging
+                    # Additional metrics for debugging or logging # todo: fix logging
                     "total_loaded": td["state"]["total_loaded"].mean().detach(),
                     "total_profit": (
                             td["state"]["total_revenue"].mean() - td["state"]["total_cost"].mean()
