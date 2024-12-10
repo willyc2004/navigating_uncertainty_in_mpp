@@ -334,13 +334,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
         self.select_obs_td = kwargs.get("select_obs_td", None)
         # initialize buffers
         self.actions = []
-        self.action_masks = []
         self.logprobs = []
-        self.logits = []
-        self.proj_mean_logits = []
-        self.std_logits = []
-        self.lhs_A = []
-        self.rhs = []
         if self.env.name == "mpp":
             self.utilization = []
 
@@ -409,15 +403,9 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             "No logprobs were collected because all environments were done. Check your initial state"
         dict_out = {
             "logprobs":torch.stack(self.logprobs, 1),
-            "logits":torch.stack(self.logits, 1),
             "actions":torch.stack(self.actions, 1),
         }
         if self.name.startswith("continuous") and self.projection_layer is not None:
-            dict_out["proj_mean_logits"] = torch.stack(self.proj_mean_logits, 1)
-            dict_out["std_logits"] = torch.stack(self.std_logits, 1)
-            dict_out["lhs_A"] = torch.stack(self.lhs_A, 1)
-            dict_out["rhs"] = torch.stack(self.rhs, 1)
-            dict_out["action_masks"] = torch.stack(self.action_masks, 1)
             if self.env.name == "mpp":
                 dict_out["utilization"] = torch.stack(self.utilization, 1)
         return dict_out, td, env
@@ -444,7 +432,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             clip_max = td.get("clip_max", None)
 
             # Process logits (output is scaled
-            mean_logits, std_logits = process_logits(
+            unproj_mean_logits, std_logits = process_logits(
                 logits,
                 mask_logits=False,
                 mask=None, # mask=mask
@@ -457,28 +445,23 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 discrete=False,
             )
 
-            proj_mean_logits = mean_logits.clone()
+            mean_logits = unproj_mean_logits.clone()
             # proj_mean_logits = self.projection_layer(mean_logits, td["lhs_A"], td["rhs"], )
             # check_for_nans(proj_mean_logits, "proj_mean_logits")
 
             # Get logprobs and actions from policy
             logprobs, selected_action, _ = self._step(
-                proj_mean_logits, std_logits, mask=None, # mask=mask # Change to None to avoid masking logits
+                mean_logits, std_logits, mask=None, # mask=mask # Change to None to avoid masking logits
                 td=td, clip_min=clip_min, clip_max=clip_max, action=action, **kwargs
             )
-
-            # Update logprobs and actions
-            self.lhs_A.append(td["lhs_A"])
-            self.rhs.append(td["rhs"])
-            self.proj_mean_logits.append(proj_mean_logits)
-            self.std_logits.append(std_logits)
+            # Track logits, logprobs and actions
             self.utilization.append(td["state"]["utilization"])
-            self.action_masks.append(mask)
-            td.update({"mean_logits": mean_logits,
+            td.update({"unproj_mean_logits": unproj_mean_logits,
+                       "mean_logits": mean_logits,
                        "std_logits": std_logits,
-                       "proj_mean_logits": proj_mean_logits,
                        "logprobs":logprobs,
-                       "action":selected_action,})
+                       "action":selected_action,
+                       "mask":mask})
         else:
             # Discrete action space
             logprobs = process_logits(
@@ -495,12 +478,11 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 logprobs, mask, td, action=action,
                 **kwargs
             )
+            # Track logprobs and actions
             td.set("action", selected_action)
-            td.update({"logits": logits,
-                       "logprobs":logprobs})
+            td.update({"logprobs":logprobs})
         self.actions.append(selected_action)
         self.logprobs.append(logprobs)
-        self.logits.append(logits)
         return td
 
     @staticmethod
