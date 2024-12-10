@@ -212,9 +212,12 @@ class Projection_PPO(RL4COLitModule):
                 "loss", "surrogate_loss", "value_loss", "entropy", "feasibility_loss", "projection_loss",
                 "return", "ratios", "clipped_ratios", "adv", "value_pred",
                 # violation logging
-                "violation", "violation_demand", "violation_lcg_ub", "violation_lcg_lb", "violation_vcg_ub", "violation_vcg_lb",
+                "mean_violation", "violation",
+                "violation_demand", "violation_lcg_ub", "violation_lcg_lb", "violation_vcg_ub", "violation_vcg_lb",
                 # performance metrics
                 "total_loaded", "total_profit", "total_revenue", "total_cost",
+                # policy dist
+                "e_x_logit", "std_x_logit", "x", "min(x)", "max(x)", "std(x)",
             ]
         },
         gamma: float = 0.99,  # gamma
@@ -342,12 +345,13 @@ class Projection_PPO(RL4COLitModule):
             for k in range(self.ppo_cfg["ppo_epochs"]):  # PPO inner epoch, K
                 for sub_td in dataloader:
                     sub_td = sub_td.to(td.device)
-                    previous_reward = sub_td["reward"].view(-1, 1)
+                    returns = sub_td["reward"].view(-1, 1)
                     out = self.policy(  # note: remember to clone to avoid in-place replacements!
                         sub_td.clone(),
                         actions=sub_td["action"],
                         env=self.env,
                         return_entropy=True,
+                        return_actions=True,
                         return_sum_log_likelihood=False,
                     )
                     ll, entropy = out["log_likelihood"], out["entropy"]
@@ -355,31 +359,24 @@ class Projection_PPO(RL4COLitModule):
                     # Compute the ratio of probabilities of new and old actions
                     if self.env.name == "mpp":
                         log_ratio = ll - sub_td["logprobs"]
-                        ratio = torch.exp(log_ratio.sum(dim=(1,2)))
+                        ratios = torch.exp(log_ratio.sum(dim=(1,2)))
                     else:
-                        ratio = torch.exp(ll.sum(dim=-1) - sub_td["logprobs"].sum(dim=-1)).view(-1, 1)  # [batch, 1]
+                        ratios = torch.exp(ll.sum(dim=-1) - sub_td["logprobs"].sum(dim=-1)).view(-1, 1)  # [batch, 1]
 
                     # Compute the advantage
-                    value_pred = self.critic(sub_td)  # [batch, 1]
-                    adv = previous_reward - value_pred.detach()
+                    value_preds = self.critic(sub_td)  # [batch, 1]
+                    adv = returns - value_preds.detach()
 
                     # Normalize advantage
                     if self.ppo_cfg["normalize_adv"]:
                         adv = (adv - adv.mean()) / (adv.std() + 1e-8)
 
                     # Compute the surrogate loss
-                    surrogate_loss = -torch.min(
-                        ratio * adv,
-                        torch.clamp(
-                            ratio,
-                            1 - self.ppo_cfg["clip_range"],
-                            1 + self.ppo_cfg["clip_range"],
-                        )
-                        * adv,
-                    ).mean()
+                    clipped_ratios = torch.clamp(ratios, 1 - self.ppo_cfg["clip_range"], 1 + self.ppo_cfg["clip_range"])
+                    surrogate_loss = -torch.min(ratios * adv, clipped_ratios * adv,).mean()
 
                     # compute value function loss
-                    value_loss = F.huber_loss(value_pred, previous_reward)
+                    value_loss = F.huber_loss(value_preds, returns)
 
                     # compute total loss
                     loss = (
@@ -404,14 +401,41 @@ class Projection_PPO(RL4COLitModule):
 
             out.update(
                 {
-                    "loss": loss,
-                    "surrogate_loss": surrogate_loss,
-                    "value_loss": value_loss,
-                    "entropy": entropy.mean(),
-                    "value_pred": value_pred,
-                    "previous_reward": previous_reward.mean(),
-                    "ratios": ratio.mean(),
-
+                    # Losses
+                    "loss": loss.detach(),
+                    "surrogate_loss": surrogate_loss.detach(),
+                    "value_loss": (self.ppo_cfg["vf_lambda"] * value_loss).detach(),
+                    "entropy": (-self.ppo_cfg["entropy_lambda"] * entropy.mean()).detach(),
+                    # "feasibility_loss": (self.ppo_cfg["feasibility_lambda"] * feasibility_loss).detach(),
+                    # "projection_loss": (self.ppo_cfg["projection_lambda"] * projection_loss).detach(),
+                    # Performance metrics
+                    "return": returns.mean().detach(),
+                    "ratios": ratios.mean().detach(),
+                    "clipped_ratios": clipped_ratios.mean().detach(),
+                    "adv": adv.detach(),
+                    "value_pred": value_preds.detach(),
+                    # # Violation metrics
+                    # "mean_violation": violation.sum(dim=(1, 2)).mean().detach(),
+                    # "violation": relevant_violation.sum(dim=(1, 2)).mean().detach(),
+                    # "violation_demand": relevant_violation[..., 0].sum(dim=1).mean().detach(),
+                    # "violation_lcg_ub": relevant_violation[..., 1].sum(dim=1).mean().detach(),
+                    # "violation_lcg_lb": relevant_violation[..., 2].sum(dim=1).mean().detach(),
+                    # "violation_vcg_ub": relevant_violation[..., 3].sum(dim=1).mean().detach(),
+                    # "violation_vcg_lb": relevant_violation[..., 4].sum(dim=1).mean().detach(),
+                    # Additional metrics for debugging or logging
+                    "total_loaded": td["state"]["total_loaded"].mean().detach(),
+                    "total_profit": (
+                            td["state"]["total_revenue"].mean() - td["state"]["total_cost"].mean()
+                    ).detach(),
+                    "total_revenue": td["state"]["total_revenue"].mean().detach(),
+                    "total_cost": td["state"]["total_cost"].mean().detach(),
+                    # Logits
+                    # "e_x_logit": out["proj_mean_logits"].mean().detach(),
+                    # "std_x_logit": out["std_logits"].mean().detach(),
+                    "x": out["actions"].mean().detach(),
+                    "std(x)": out["actions"].std().detach(),
+                    "min(x)": out["actions"].min().detach(),
+                    "max(x)": out["actions"].max().detach(),
                 }
             )
 
