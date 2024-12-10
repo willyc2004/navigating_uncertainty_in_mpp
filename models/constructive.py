@@ -267,6 +267,7 @@ class ConstructivePolicyMPP(nn.Module):
                 td.set("return", env.get_reward(td, actions))
 
         outdict = {
+            "return": td["return"],
             "reward": torch.stack([x["reward"] for x in dictout["tds"]], dim=0).permute(1, 0, 2),
             "log_likelihood": get_log_likelihood(
                 dictout["logprobs"], dictout["actions"],
