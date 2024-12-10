@@ -1,5 +1,6 @@
 import time
 import torch
+import os
 
 from lightning.pytorch.callbacks import ModelCheckpoint, RichModelSummary
 from lightning.pytorch.loggers import WandbLogger
@@ -241,8 +242,8 @@ def main(config: Optional[DotMap] = None):
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
-    file_path = "/mnt/c/Users/jaiv/PycharmProjects/DRL_master_planning_problem/"
-    with open(file_path + 'config.yaml', 'r') as file:
+    file_path = os.getcwd()
+    with open(f'{file_path}/config.yaml', 'r') as file:
         config = yaml.safe_load(file)
         config = DotMap(config)
         config = adapt_env_kwargs(config)
