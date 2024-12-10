@@ -167,6 +167,7 @@ class ConstructivePolicyMPP(nn.Module):
         calc_reward: bool = True,
         return_actions: bool = False,
         return_entropy: bool = False,
+        return_tds: bool = False,
         return_feasibility: bool = True,
         return_hidden: bool = False,
         return_init_embeds: bool = False,
@@ -293,7 +294,8 @@ class ConstructivePolicyMPP(nn.Module):
             outdict["hidden"] = hidden
         if return_init_embeds:
             outdict["init_embeds"] = init_embeds
-
+        if return_tds:
+            outdict["tds"] = dictout["tds"]
         return outdict
 
     def _main_decoding(self, td: TensorDict, env: RL4COEnvBase, actions=None, hidden: Any = None, num_starts: int = 0,
