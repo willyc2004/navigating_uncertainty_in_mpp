@@ -231,7 +231,7 @@ def main(config=None):
 
     # Define metrics and their respective configurations
     metrics = {
-        "val/reward": {"filename": "best_val_reward", "mode": "max"},
+        "val/return": {"filename": "best_val_reward", "mode": "max"},
         "val/total_revenue": {"filename": "best_val_total_revenue", "mode": "max"},
         "val/total_cost": {"filename": "best_val_total_cost", "mode": "min"},
         "val/total_loaded": {"filename": "best_val_total_loaded", "mode": "max"},
@@ -260,7 +260,7 @@ def main(config=None):
     # Additional callbacks
     rich_model_summary = RichModelSummary(max_depth=3)
     early_stopping = EarlyStopping(
-        monitor="val/reward",
+        monitor="val/return",
         patience=3,
         mode="max",
         verbose=False,
