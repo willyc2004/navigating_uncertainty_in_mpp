@@ -204,7 +204,7 @@ def main(config: Optional[DotMap] = None):
         filename="epoch_{epoch:03d}",  # save as epoch_XXX.ckpt
         save_top_k=1,  # save only the best model
         save_last=True,  # save the last model
-        monitor="val/reward",  # monitor validation reward
+        monitor="val/return",  # monitor validation reward
         mode="max",
     )  # maximize validation reward
     rich_model_summary = RichModelSummary(max_depth=3)  # model summary callback
