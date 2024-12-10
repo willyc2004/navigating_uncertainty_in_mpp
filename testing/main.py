@@ -152,8 +152,8 @@ def main(config: Optional[DotMap] = None):
     ## Environment initialization
     emb_dim = 128
     env_kwargs = config.env
-    # env = make_env(env_kwargs, device)
-    env = DenseRewardTSPEnv(generator_params=dict(num_loc=100),)
+    env = make_env(env_kwargs, device)
+    # env = DenseRewardTSPEnv(generator_params=dict(num_loc=100),)
     # env = SDVRPEnv(generator_params=dict(num_loc=100),)
     check_env_specs(env)
     td = env.reset(batch_size=32)
@@ -163,24 +163,23 @@ def main(config: Optional[DotMap] = None):
 
     # Model: default is AM with REINFORCE and greedy rollout baseline
     # check out `RL4COLitModule` and `REINFORCE` for more details
-    # init_embedding = MPPInitEmbedding(emb_dim, env.action_spec.shape[0], env)
-    # context_embedding = MPPContextEmbedding(env.action_spec.shape[0], emb_dim, env)
+    init_embedding = MPPInitEmbedding(emb_dim, env.action_spec.shape[0], env)
+    context_embedding = MPPContextEmbedding(env.action_spec.shape[0], emb_dim, env)
     # policy = AttentionModelPolicy4PPO(env_name=env.name,
     policy = AttentionModelPolicy(env_name=env.name,
-
-                                      # encoder=AttentionModelEncoder(emb_dim, init_embedding=init_embedding,),
-                                      #   decoder=AttentionModelDecoder(emb_dim, context_embedding=context_embedding, mask_inner=False),
+                                      encoder=AttentionModelEncoder(emb_dim, init_embedding=init_embedding,),
+                                        decoder=AttentionModelDecoder(emb_dim, context_embedding=context_embedding, mask_inner=False),
                                   # this is actually not needed since we are initializing the embeddings!
                                   embed_dim=emb_dim,
-                                  # init_embedding=init_embedding,
-                                  #     context_embedding=context_embedding,
+                                  init_embedding=init_embedding,
+                                      context_embedding=context_embedding,
                                       mask_inner=False,
-                                      train_decode_type="sampling",
-                                      val_decode_type="greedy",
-                                      test_decode_type="beam_search",
-                                    # train_decode_type="continuous_sampling",
-                                    # val_decode_type="continuous_projection",
-                                    # test_decode_type="continuous_projection",
+                                      # train_decode_type="sampling",
+                                      # val_decode_type="greedy",
+                                      # test_decode_type="beam_search",
+                                    train_decode_type="continuous_sampling",
+                                    val_decode_type="continuous_projection",
+                                    test_decode_type="continuous_projection",
                                     )
 
     # model = AttentionModel(
@@ -242,8 +241,8 @@ def main(config: Optional[DotMap] = None):
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
-    with open('config.yaml', 'r') as file:
-    # with open('test_config.yaml', 'r') as file:
+    file_path = "/mnt/c/Users/jaiv/PycharmProjects/DRL_master_planning_problem/"
+    with open(file_path + 'config.yaml', 'r') as file:
         config = yaml.safe_load(file)
         config = DotMap(config)
         config = adapt_env_kwargs(config)
