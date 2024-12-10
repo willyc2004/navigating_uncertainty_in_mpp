@@ -66,7 +66,7 @@ class MPPContextEmbedding(nn.Module):
         super(MPPContextEmbedding, self).__init__()
         self.env = env
         self.seq_size = self.env.T * self.env.K
-        self.project_context = nn.Linear(embed_dim + 286, embed_dim, )
+        self.project_context = nn.Linear(embed_dim + 20, embed_dim, ) # 286, 217
 
         # todo: give options for different demand aggregation methods; e.g. sum, self-attention
         self.demand_aggregation = demand_aggregation
@@ -124,8 +124,10 @@ class MPPContextEmbedding(nn.Module):
         # print("residual_lc_capacity", residual_lc_capacity.mean(dim=0))
 
         # Concatenate all embeddings
-        state_embed = torch.cat([current_demand, expected_demand, std_demand, observed_demand,
-                                 residual_capacity, residual_lc_capacity, origin_embed, destination_embed], dim=-1)
+        state_embed = torch.cat([
+            current_demand, expected_demand, std_demand, observed_demand,
+            residual_capacity, residual_lc_capacity, origin_embed, destination_embed
+        ], dim=-1)
         return state_embed
 
 def reorder_demand(demand, tau, k, T, K, batch_size):
