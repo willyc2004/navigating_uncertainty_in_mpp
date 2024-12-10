@@ -188,8 +188,8 @@ def main(config: Optional[DotMap] = None):
         policy=policy,
         # n_step = 100,
         # baseline="rollout",
-        train_data_size=1_000_000,  # really small size for demo
-        val_data_size=100_000,
+        train_data_size=config.am_ppo.train_data_size,  #1_000_000; really small size for demo
+        val_data_size=config.am_ppo.val_data_size,  #100_000
         policy_kwargs={  # we can specify the decode types using the policy_kwargs
             "train_decode_type": "continuous_sampling",
             "val_decode_type": "continuous_projection",
