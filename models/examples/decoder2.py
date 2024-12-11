@@ -3,6 +3,7 @@ from typing import Tuple, Union
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from einops import rearrange
 from tensordict import TensorDict
@@ -122,7 +123,17 @@ class AttentionModelDecoder(AutoregressiveDecoder):
             )
 
         self.pointer = pointer
-        self.layer = nn.Linear(72, 20, bias=linear_bias)
+
+        # create MLPs for mean and std
+        hidden_dim = 128
+        self.mlp = nn.Sequential(
+            nn.Linear(embed_dim, hidden_dim, bias=linear_bias),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim, bias=linear_bias),
+            nn.ReLU(),
+        )
+        self.mean_head = nn.Linear(hidden_dim, 20, bias=linear_bias)
+        self.std_head = nn.Linear(hidden_dim, 20, bias=linear_bias)
 
         # For each node we compute (glimpse key, glimpse value, logit key) so 3 * embed_dim
         self.project_node_embeddings = nn.Linear(
@@ -187,15 +198,18 @@ class AttentionModelDecoder(AutoregressiveDecoder):
 
         # Compute logits
         mask = td["action_mask"]
-        logits = self.pointer(glimpse_q, glimpse_k, glimpse_v, logit_k, mask)
-        logits = self.layer(logits)
+        # logits = self.pointer(glimpse_q, glimpse_k, glimpse_v, logit_k, mask)
+        logits = self.mlp(glimpse_q)
+        mean = self.mean_head(logits).squeeze()
+        std = F.softplus(self.std_head(logits)).squeeze()
+        output_logits = torch.stack([mean, std], dim=-1)
 
         # Now we need to reshape the logits and mask to [B*S,N,...] is num_starts > 1 without dynamic embeddings
         # note that rearranging order is important here
         if num_starts > 1 and not has_dyn_emb_multi_start:
             logits = rearrange(logits, "b s l -> (s b) l", s=num_starts)
             mask = rearrange(mask, "b s l -> (s b) l", s=num_starts)
-        return logits, mask
+        return output_logits, mask
 
     def pre_decoder_hook(
         self, td, env, embeddings, num_starts: int = 0
