@@ -471,9 +471,10 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 td=td, clip_min=clip_min, clip_max=clip_max, action=action, **kwargs
             )
             # Track logits, logprobs and actions
-            td.update({"unproj_mean_logits": unproj_mean_logits.clone(),
-                       "mean_logits": mean_logits.clone(),
-                       "std_logits": std_logits.clone(),
+            # todo: allow for efficient passing of unproj_mean_logits
+            logits = torch.stack([mean_logits, std_logits], dim=-1)
+            td.update({#"unproj_mean_logits": unproj_mean_logits.clone(),
+                       "logits": logits.clone(),
                        "logprobs":logprobs.clone(),
                        "action":selected_action.clone(),
                        "mask":mask.clone()})
