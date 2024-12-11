@@ -228,10 +228,11 @@ class MasterPlanningEnv(EnvBase):
     def _step(self, td: TensorDict) -> TensorDict:
         """Perform a step in the environment and return the next state."""
         ## Extraction and precompute
-        action, realized_demand, t = self._extract_from_td(td) #  lhs_A, rhs,
+        batch_size = td.batch_size
+        action, realized_demand, t = self._extract_from_td(td, batch_size) #  lhs_A, rhs,
         pol, pod, tau, k, rev = self._extract_cargo_parameters_for_step(t[0])
-        utilization, target_long_crane, total_metrics = self._extract_from_state(td["state"])
-        demand_obs = self._extract_from_obs(td["observation"])
+        utilization, target_long_crane, total_metrics = self._extract_from_state(td["state"], batch_size)
+        demand_obs = self._extract_from_obs(td["observation"], batch_size)
         print("---")
         print("shapes", action.shape, realized_demand.shape, t.shape)
         print("shapes", utilization.shape, target_long_crane.shape,
@@ -310,6 +311,7 @@ class MasterPlanningEnv(EnvBase):
 
         # # Track metrics
         # total_metrics["total_rc"] += residual_capacity.view(*batch_size, -1)
+        print("total_metrics", total_metrics["total_revenue"].shape, revenue.shape)
         total_metrics["total_revenue"] += revenue
         # total_metrics["total_cost"] += cost
         # # Normalize revenue \in [0,1]:
@@ -338,24 +340,24 @@ class MasterPlanningEnv(EnvBase):
             },
             "observation":{
                 # Demand
-                "current_demand": next_state_dict["current_demand"].view(-1, 1),
-                "observed_demand": next_state_dict["observed_demand"].view(-1, self.T*self.K),
-                "expected_demand": next_state_dict["expected_demand"].view(-1, self.T*self.K),
-                "std_demand": next_state_dict["std_demand"].view(-1, self.T*self.K),
+                "current_demand": next_state_dict["current_demand"].view(*batch_size, 1),
+                "observed_demand": next_state_dict["observed_demand"].view(*batch_size, self.T*self.K),
+                "expected_demand": next_state_dict["expected_demand"].view(*batch_size, self.T*self.K),
+                "std_demand": next_state_dict["std_demand"].view(*batch_size, self.T*self.K),
                 # Vessel (in range [0, 1])
-                "residual_capacity": residual_capacity.view(-1, self.B*self.D),
-                "residual_lc_capacity": next_state_dict["residual_lc_capacity"].view(-1, self.B-1),
-                "pol_location": pol_locations.view(-1, self.B * self.D * self.P).to(self.float_type),
-                "pod_location": pod_locations.view(-1, self.B * self.D * self.P).to(self.float_type),
-                "agg_pol_location": agg_pol_location.view(-1, self.B * self.D),
-                "agg_pod_location": agg_pod_location.view(-1, self.B * self.D),
+                "residual_capacity": residual_capacity.view(*batch_size, self.B*self.D),
+                "residual_lc_capacity": next_state_dict["residual_lc_capacity"].view(*batch_size, self.B-1),
+                "pol_location": pol_locations.view(*batch_size, self.B * self.D * self.P).to(self.float_type),
+                "pod_location": pod_locations.view(*batch_size, self.B * self.D * self.P).to(self.float_type),
+                "agg_pol_location": agg_pol_location.view(*batch_size, self.B * self.D),
+                "agg_pod_location": agg_pod_location.view(*batch_size, self.B * self.D),
             },
 
-            "realized_demand": realized_demand.view(-1, self.T * self.K),
-            "observed_demand": next_state_dict["observed_demand"].view(-1, self.T*self.K),
-            "expected_demand": next_state_dict["expected_demand"].view(-1, self.T*self.K),
-            "std_demand": next_state_dict["std_demand"].view(-1, self.T*self.K),
-            "init_expected_demand": td["init_expected_demand"].view(-1, self.T * self.K),
+            "realized_demand": realized_demand.view(*batch_size, self.T * self.K),
+            "observed_demand": next_state_dict["observed_demand"].view(*batch_size, self.T*self.K),
+            "expected_demand": next_state_dict["expected_demand"].view(*batch_size, self.T*self.K),
+            "std_demand": next_state_dict["std_demand"].view(*batch_size, self.T*self.K),
+            "init_expected_demand": td["init_expected_demand"].view(*batch_size, self.T * self.K),
             "batch_updates": td["batch_updates"] + 1,
 
             # # Feasibility and constraints
@@ -363,26 +365,23 @@ class MasterPlanningEnv(EnvBase):
             # "rhs": rhs,
             # # "violation": violation,
             # # # in containers # todo: check if this clip_max is correct for next step
-            # "clip_max": (residual_capacity / self.teus_episode[t].view(-1, 1, 1)).view(*batch_size, self.B*self.D),
+            # "clip_max": (residual_capacity / self.teus_episode[t].view(*batch_size, 1, 1)).view(*batch_size, self.B*self.D),
             # # Profit metrics
             # "profit": profit,
             # "revenue": revenue,
             # "cost": cost,
             # Action, reward, done and step
-            "action": action.view(-1, self.B*self.D),
+            "action": action.view(*batch_size, self.B*self.D),
             "reward": reward,
             "done": done,
             "timestep":t,
-        })
+        }, td.shape)
         print("td_set", out)
         return out
 
     def _reset(self,  td: Optional[TensorDict] = None,) -> TensorDict:
         """Reset the environment to the initial state."""
         batch_size = self.batch_size
-        if batch_size == th.Size([]):
-            batch_size = [1]
-
         if td is None or td.is_empty():
             td = self.generator(batch_size=batch_size)
 
@@ -395,14 +394,21 @@ class MasterPlanningEnv(EnvBase):
         # Initialize
         # Parameters
         device = td.device
-        t = th.zeros(*batch_size, dtype=th.int64)
+        if batch_size == torch.Size([]):
+            t = th.zeros(1, dtype=th.int64)
+            residual_capacity = self.capacity / self.teus[t[0]]
+            target_long_crane = self._compute_target_long_crane(
+                td["realized_demand"].view(*batch_size, self.T, self.K).to(self.float_type), self.moves_idx[t[0]]).view(1)
+        else:
+            t = th.zeros(*batch_size, dtype=th.int64)
+            residual_capacity = (self.capacity / self.teus[t[0]]).unsqueeze(0).repeat(*batch_size, 1, 1)
+            target_long_crane = self._compute_target_long_crane(
+                td["realized_demand"].view(*batch_size, self.T, self.K).to(self.float_type), self.moves_idx[t[0]])
+
         pol, pod, tau, k, rev = self._extract_cargo_parameters_for_step(t[0])
         # Action mask
         action_mask = th.ones((*batch_size, self.B*self.D), dtype=th.bool, device=device)
         # Vessel state
-        residual_capacity = (self.capacity / self.teus[t[0]]).unsqueeze(0).repeat(*batch_size, 1, 1)
-        target_long_crane = self._compute_target_long_crane(td["realized_demand"].view(*batch_size, self.T, self.K).to(self.float_type),
-                                                            self.moves_idx[t[0]])
         utilization = th.zeros((*batch_size, self.B, self.D, self.T, self.K), device=device, dtype=self.float_type)
         locations_utilization = th.zeros_like(action_mask, dtype=self.float_type)
         port_locations = th.zeros((*batch_size, self.B*self.D*self.P), dtype=self.float_type)
@@ -417,8 +423,6 @@ class MasterPlanningEnv(EnvBase):
         rhs = self.create_rhs(utilization.to(self.float_type), current_demand, batch_size)
 
         # Init tds - state: internal state
-        if batch_size == [1]: batch_td = []
-        else: batch_td = batch_size
         initial_state = TensorDict({
             # Vessel
             "utilization": utilization,
@@ -428,7 +432,7 @@ class MasterPlanningEnv(EnvBase):
             "total_revenue": th.zeros_like(current_demand, dtype=self.float_type),
             "total_cost": th.zeros_like(current_demand, dtype=self.float_type),
             "total_rc": th.zeros_like(locations_utilization),
-        }, batch_size=batch_td, device=device,)
+        }, batch_size=batch_size, device=device,)
 
         # Init tds - obs: observed by embeddings
         initial_obs = TensorDict({
@@ -439,13 +443,13 @@ class MasterPlanningEnv(EnvBase):
             "std_demand": td["std_demand"].view(*batch_size, self.T*self.K),
             # Vessel
             "residual_capacity": th.ones_like(residual_capacity).view(*batch_size, self.B*self.D),
-            "residual_lc_capacity": th.ones_like(target_long_crane).unsqueeze(-1).expand(-1, self.B-1),
+            "residual_lc_capacity": th.ones_like(target_long_crane).unsqueeze(-1).expand(-1, self.B-1).view(*batch_size, self.B-1),
                 # target_long_crane.unsqueeze(-1).expand(-1, self.B-1),
             "pol_location": th.zeros_like(port_locations, dtype=self.float_type),
             "pod_location": th.zeros_like(port_locations, dtype=self.float_type),
             "agg_pol_location": th.zeros_like(locations_utilization),
             "agg_pod_location": th.zeros_like(locations_utilization),
-        }, batch_size=batch_td, device=device,)
+        }, batch_size=batch_size, device=device,)
 
         # Init tds - full td
         td.update({
@@ -499,13 +503,13 @@ class MasterPlanningEnv(EnvBase):
 
 
     # Extraction functions
-    def _extract_from_td(self, td) -> Tuple:
+    def _extract_from_td(self, td, batch_size) -> Tuple:
         """Extract action, reward and step from the TensorDict."""
         # Must clone to avoid in-place operations!
         timestep = td["timestep"]
-        action = td["action"].view(-1, self.B, self.D,)
+        action = td["action"].view(*batch_size, self.B, self.D,)
         # action_mask = td["action_mask"].clone()
-        realized_demand = td["realized_demand"].view(-1, self.T, self.K)
+        realized_demand = td["realized_demand"].view(*batch_size, self.T, self.K)
         # lhs_A = td["lhs_A"]
         # rhs = td["rhs"]
         return action, realized_demand,timestep
@@ -519,28 +523,28 @@ class MasterPlanningEnv(EnvBase):
         rev_t = self.revenues[t]
         return pol, pod, tau, k, rev_t
 
-    def _extract_from_state(self, state) -> Tuple:
+    def _extract_from_state(self, state, batch_size) -> Tuple:
         """Extract and clone state variables from the state TensorDict."""
         # Vessel-related variables
-        utilization = state["utilization"]
-        target_long_crane = state["target_long_crane"]
+        utilization = state["utilization"].view(*batch_size, self.B, self.D, self.T, self.K)
+        target_long_crane = state["target_long_crane"].view(*batch_size, 1)
         # Additional variables
         total_metrics = {
-            "total_loaded": state["total_loaded"],
-            "total_revenue": state["total_revenue"],
-            "total_cost": state["total_cost"],
-            "total_rc": state["total_rc"],
+            "total_loaded": state["total_loaded"].view(*batch_size, 1),
+            "total_revenue": state["total_revenue"].view(*batch_size, 1),
+            "total_cost": state["total_cost"].view(*batch_size, 1),
+            "total_rc": state["total_rc"].view(*batch_size, self.B * self.D),
         }
         return utilization, target_long_crane, total_metrics
 
-    def _extract_from_obs(self, obs,) -> Dict:
+    def _extract_from_obs(self, obs, batch_size) -> Dict:
         """Extract and clone state variables from the obs TensorDict."""
         output = {
             # clones are needed to prevent in-place
-            "current_demand": obs["current_demand"],
-            "observed_demand": obs["observed_demand"].view(-1, self.T, self.K),
-            "expected_demand": obs["expected_demand"].view(-1, self.T, self.K),
-            "std_demand": obs["std_demand"].view(-1, self.T, self.K),
+            "current_demand": obs["current_demand"].view(*batch_size, -1),
+            "observed_demand": obs["observed_demand"].view(*batch_size, self.T, self.K),
+            "expected_demand": obs["expected_demand"].view(*batch_size, self.T, self.K),
+            "std_demand": obs["std_demand"].view(*batch_size, self.T, self.K),
         }
         return output
 
@@ -557,7 +561,12 @@ class MasterPlanningEnv(EnvBase):
 
     def _compute_pol_pod_locations(self, utilization: Tensor) -> Tuple[Tensor, Tensor]:
         """Compute POL and POD locations based on utilization"""
-        util = utilization.permute(0, 1, 2, 4, 3)
+        if utilization.dim() == 4:
+            util = utilization.permute(0, 1, 3, 2)
+        elif utilization.dim() == 5:
+            util = utilization.permute(0, 1, 2, 4, 3)
+        else:
+            raise ValueError("Utilization tensor has wrong dimensions.")
         pol_locations = (util @ self.transform_tau_to_pol).sum(dim=-2) != 0
         pod_locations = (util @ self.transform_tau_to_pod).sum(dim=-2) != 0
         return pol_locations, pod_locations
@@ -616,7 +625,7 @@ class MasterPlanningEnv(EnvBase):
 
         Return element-wise minimum of optimal crane moves and max capacity"""
         # Calculate optimal crane moves based per adjacent bay based on loading and discharging
-        total_crane_moves = realized_demand[..., moves, :].sum(dim=(1,2))
+        total_crane_moves = realized_demand[..., moves, :].sum(dim=(-1,-2))
         # Compute adjacent capacity and max capacity
         max_capacity = ((self.capacity[:-1] + self.capacity[1:]).sum(dim=-1)).max()
         # Compute element-wise minimum of crane moves and target long crane
@@ -674,7 +683,7 @@ class MasterPlanningEnv(EnvBase):
     def _update_state_loading(self, action: Tensor, utilization: Tensor,
                               tau:Tensor, k:Tensor,) -> Tensor:
         """Transition to the next state based on the action."""
-        new_utilization = utilization.view(-1, self.B, self.D, self.T, self.K).clone()
+        new_utilization = utilization.clone()
         new_utilization[..., tau, k] = action
         return new_utilization
 

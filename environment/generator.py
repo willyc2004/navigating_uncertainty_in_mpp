@@ -123,15 +123,15 @@ class MPP_Generator(Generator):
             observed_demand[:, load_tr, :] = demand[:, load_tr, :]
         else:
             observed_demand = demand
+
         # Return demand matrix
-        return TensorDict({"realized_demand": demand.view(batch_size[0], self.T*self.K),
-                           "observed_demand": observed_demand.view(batch_size[0], self.T*self.K),
-                           "expected_demand": e_x.view(batch_size[0], self.T*self.K),
-                           "std_demand":std_x.view(batch_size[0], self.T*self.K),
-                           "init_expected_demand": e_x_init_demand.view(batch_size[0], self.T*self.K),
-                           "batch_updates":batch_updates + 1,
-                           },
-                          batch_size=batch_size, device=self.device,)
+        return TensorDict({"realized_demand": demand.view(*batch_size, self.T*self.K),
+                               "observed_demand": observed_demand.view(*batch_size, self.T*self.K),
+                               "expected_demand": e_x.view(*batch_size, self.T*self.K),
+                               "std_demand":std_x.view(*batch_size, self.T*self.K),
+                               "init_expected_demand": e_x_init_demand.view(*batch_size, self.T*self.K),
+                               "batch_updates":batch_updates + 1,
+                               }, batch_size=batch_size, device=self.device,)
 
     ## Initial demand
     def _initial_contract_demand(self, batch_size,) -> Tuple[th.Tensor,th.Tensor]:
@@ -174,7 +174,7 @@ class MPP_Generator(Generator):
         - E[X] = Uniform sample * bound
         - V[X] = (E[X] * cv)^2"""
         # Sample uniformly from 0 to bound (inclusive) using torch.rand
-        expected = th.rand(batch_size[0], self.T, self.K, dtype=bound.dtype, device=self.device,) * bound.unsqueeze(0)
+        expected = th.rand(*batch_size, self.T, self.K, dtype=bound.dtype, device=self.device,) * bound.unsqueeze(0)
         variance = (expected * cv.view(1, 1, self.K,)) ** 2
         return th.where(expected < eps, eps, expected), variance
 
