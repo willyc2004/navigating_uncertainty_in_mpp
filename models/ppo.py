@@ -13,6 +13,8 @@ from rl4co.utils.pylogger import get_pylogger
 
 log = get_pylogger(__name__)
 
+from environment.utils import compute_violation
+
 
 class ProjectionPPO(RL4COLitModule):
     """
@@ -64,19 +66,46 @@ class ProjectionPPO(RL4COLitModule):
         policy: nn.Module,
         critic: CriticNetwork = None,
         critic_kwargs: dict = {},
-        clip_range: float = 0.2,  # epsilon of PPO
-        ppo_epochs: int = 2,  # inner epoch, K
-        mini_batch_size: Union[int, float] = 0.25,  # 0.25,
+        update_timestep: int = 1,
+        clip_range: float = 0.1,  # epsilon of PPO
+        ppo_epochs: int = 3,  # inner epoch, K
         vf_lambda: float = 0.5,  # lambda of Value function fitting
         entropy_lambda: float = 0.0,  # lambda of entropy bonus
+        feasibility_lambda: float = 1.0,  # lambda of feasibility loss
+        demand_lambda: float = 1.0,  # lambda of demand violations
+        stability_lambda: float = 1.0,  # lambda of stability violations
+        adaptive_feasibility_lambda: bool = False,  # whether to adapt feasibility lambda
+        projection_lambda: float = 1.0,  # lambda of projection loss
         normalize_adv: bool = False,  # whether to normalize advantage
+        normalize_return: bool = False,  # whether to normalize return
         max_grad_norm: float = 0.5,  # max gradient norm
+        kl_threshold: float = 0.03,  # KL threshold
+        kl_penalty_lambda: float = 1.0,  # KL penalty coefficient
+        batch_size: int = 512,  # batch size
+        mini_batch_size: Union[int, float] = 0.25,  # mini batch size,
+        gamma: float = 0.99,  # gamma
+        gae_lambda: float = 0.95,  # lambda of GAE
+        n_step: float = 72,  # n-step for n-step PPO
+        T_train: int = 72,  # the maximum inference T used for training
+        T_test: int = 72,  # the maximum inference T used for test
+        lr: float = 1e-4,  # learning rate of policy network
+        lr_scheduler=torch.optim.lr_scheduler.ExponentialLR,
+        lr_scheduler_kwargs: dict = {
+            "gamma": 0.985,  # the learning decay per epoch,
+            },
+            lr_scheduler_interval: str = "epoch",
+            lr_scheduler_monitor=None,
         metrics: dict = {
             "train": ["reward", "loss", "surrogate_loss", "value_loss", "entropy",
                       "ratio", "adv", "value_pred", "return"],
         },
         **kwargs,
     ):
+        self.projection_type = kwargs.pop("projection_type", None)  # pop before passing to super
+        self.projection_kwargs = kwargs.pop("projection_kwargs", None)  # pop before passing to super
+        self.decoder_type = kwargs.pop("decoder_type", None)  # pop before passing to super
+        self.env_kwargs = kwargs.pop("env_kwargs", None)  # pop before passing to super
+        self.model_kwargs = kwargs.pop("model_kwargs", None)  # pop before passing to super
         super().__init__(env, policy, metrics=metrics, **kwargs)
         self.automatic_optimization = False  # PPO uses custom optimization routine
 
@@ -104,13 +133,29 @@ class ProjectionPPO(RL4COLitModule):
         self.ppo_cfg = {
             "clip_range": clip_range,
             "ppo_epochs": ppo_epochs,
-            "mini_batch_size": mini_batch_size,
             "vf_lambda": vf_lambda,
-            "entropy_lambda": entropy_lambda,
             "normalize_adv": normalize_adv,
+            "normalize_return": normalize_return,
             "max_grad_norm": max_grad_norm,
-        }
+            "mini_batch_size": mini_batch_size,
+            "gamma": gamma,
+            "gae_lambda": gae_lambda,
+            "n_step": n_step,
+            "T_train": T_train,
+            "T_test": T_test,
+            "lr": lr,
+            "entropy_lambda": entropy_lambda,
+            "adaptive_feasibility_lambda": adaptive_feasibility_lambda,
+            "feasibility_lambda": feasibility_lambda,
+            "projection_lambda": projection_lambda,
+            "update_timestep": update_timestep,
+            "kl_threshold": kl_threshold,
+            }
         self.action_dtype = "discrete" if env.action_spec.dtype == torch.int64 else "continuous"
+        if env.name == "mpp":
+            self.lambda_violations = torch.tensor([demand_lambda] + [stability_lambda] * env.n_stability,
+                                              device='cuda', dtype=torch.float32)
+
 
     def configure_optimizers(self):
         parameters = list(self.policy.parameters()) + list(self.critic.parameters())
@@ -127,8 +172,13 @@ class ProjectionPPO(RL4COLitModule):
         if isinstance(sch, torch.optim.lr_scheduler.MultiStepLR):
             sch.step()
 
+    def _normalize_if_enabled(self, tensor, enabled):
+        """Normalize tensors if enabled in configuration"""
+        return (tensor - tensor.mean()) / (tensor.std() + 1e-8) if enabled else tensor
+
     def shared_step(
-        self, batch: Any, batch_idx: int, phase: str, dataloader_idx: int = None
+        self, batch: Any, batch_idx: int, phase: str, dataloader_idx: int = None,
+        tolerance = 1e-4, alpha = 0.5,
     ):
         # Evaluate old actions, log probabilities, and rewards
         with torch.no_grad():
@@ -167,12 +217,13 @@ class ProjectionPPO(RL4COLitModule):
             for _ in range(self.ppo_cfg["ppo_epochs"]):  # PPO inner epoch, K
                 for sub_td in dataloader:
                     sub_td = sub_td.to(td.device)
-                    previous_reward = sub_td["reward"].view(-1, 1)
+                    returns = sub_td["reward"].view(-1, 1)
                     out = self.policy(  # note: remember to clone to avoid in-place replacements!
                         sub_td.clone(),
                         actions=sub_td["action"],
                         env=self.env,
                         return_entropy=True,
+                        return_feasibility= self.env.name == "mpp",
                         return_sum_log_likelihood=False,
                         action_dtype=self.action_dtype,
                     )
@@ -182,15 +233,15 @@ class ProjectionPPO(RL4COLitModule):
                     if self.action_dtype == "continuous":
                         ratio = torch.exp(ll.sum(dim=(-2,-1)) - sub_td["logprobs"].sum(dim=(-2,-1))).view(-1, 1)
                     else:
-                        ratio = torch.exp(ll.sum(dim=-1) - sub_td["logprobs"]).view(-1, 1)  # [batch, 1]
+                        ratio = torch.exp(ll.sum(dim=-1) - sub_td["logprobs"].sum(dim=-1)).view(-1, 1)  # [batch, 1]
 
                     # Compute the advantage
                     value_pred = self.critic(sub_td)  # [batch, 1]
-                    adv = previous_reward - value_pred.detach()
+                    adv = returns - value_pred.detach()
 
                     # Normalize advantage
-                    if self.ppo_cfg["normalize_adv"]:
-                        adv = (adv - adv.mean()) / (adv.std() + 1e-8)
+                    adv = self._normalize_if_enabled(adv, self.ppo_cfg["normalize_adv"])
+                    returns = self._normalize_if_enabled(returns, self.ppo_cfg["normalize_return"])
 
                     # Compute the surrogate loss
                     surrogate_loss = -torch.min(
@@ -204,14 +255,39 @@ class ProjectionPPO(RL4COLitModule):
                     ).mean()
 
                     # compute value function loss
-                    value_loss = F.huber_loss(value_pred, previous_reward)
+                    value_loss = F.huber_loss(value_pred, returns)
 
                     # compute total loss
                     loss = (
-                        surrogate_loss
-                        + self.ppo_cfg["vf_lambda"] * value_loss
-                        - self.ppo_cfg["entropy_lambda"] * entropy.mean()
+                            surrogate_loss
+                            + self.ppo_cfg["vf_lambda"] * value_loss
+                            - self.ppo_cfg["entropy_lambda"] * entropy.mean()
                     )
+
+                    # Compute feasibility and projection losses
+                    if self.env.name == "mpp":
+                        mean_logits = out["logits"][..., 0]
+                        violation = compute_violation(mean_logits.unsqueeze(-2), out["lhs_A"], out["rhs"]) # Feas. violation
+                        if self.ppo_cfg["adaptive_feasibility_lambda"]:
+                            # Adapt lambda values for feasibility constraints
+                            self.lambda_violations = torch.where(
+                                violation > tolerance,
+                                self.lambda_violations * (1 + alpha * violation),
+                                self.lambda_violations,
+                            )
+                        feasibility_loss = F.mse_loss(self.lambda_violations * violation, torch.zeros_like(violation),
+                                                      reduction="mean")  # Feasibility loss
+                        # old_mean_logits_detached = old_mean_logits.detach()
+                        # projection_loss = F.mse_loss(mean_logits, old_mean_logits_detached, reduction="mean")  # Projection loss
+
+                        # compute total loss
+                        loss = (
+                            surrogate_loss
+                            + self.ppo_cfg["vf_lambda"] * value_loss
+                            - self.ppo_cfg["entropy_lambda"] * entropy.mean()
+                            + self.ppo_cfg["feasibility_lambda"] * feasibility_loss
+                            # + self.ppo_cfg["projection_lambda"] * projection_loss
+                        )
 
                     # perform manual optimization following the Lightning routine
                     # https://lightning.ai/docs/pytorch/stable/common/optimization.html
@@ -237,9 +313,17 @@ class ProjectionPPO(RL4COLitModule):
                     "ratio": ratio.mean(),
                     "adv": adv.mean(),
                     "value_pred": value_pred.mean(),
-                    "return": previous_reward.mean(),
+                    "return": returns.mean(),
                 }
             )
+            if self.env.name == "mpp":
+                out.update(
+                    {
+                        "feasibility_loss": feasibility_loss,
+                        # "projection_loss": projection_loss,
+                        # todo: add violations tracking
+                    }
+                )
 
         metrics = self.log_metrics(out, phase, dataloader_idx=dataloader_idx)
         return {"loss": out.get("loss", None), **metrics}
