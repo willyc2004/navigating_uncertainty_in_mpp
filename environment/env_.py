@@ -175,36 +175,36 @@ class MasterPlanningEnv(EnvBase):
         """Define the specs for observations, actions, rewards, and done flags."""
         # todo: use this as overview and clean-up this messiness!
         observation_spec = CompositeSpec(
-            current_demand=UnboundedContinuousTensorSpec(shape=(), dtype=torch.float32),
-            observed_demand=UnboundedContinuousTensorSpec(shape=(), dtype=torch.float32),
-            expected_demand=UnboundedContinuousTensorSpec(shape=(), dtype=torch.float32),
-            std_demand=UnboundedContinuousTensorSpec(shape=(), dtype=torch.float32),
-            residual_capacity=UnboundedContinuousTensorSpec(shape=(), dtype=self.float_type),
-            residual_lc_capacity=UnboundedContinuousTensorSpec(shape=(), dtype=self.float_type),
-            pol_location=UnboundedContinuousTensorSpec(shape=(), dtype=self.float_type),
-            pod_location=UnboundedContinuousTensorSpec(shape=(), dtype=self.float_type),
-            agg_pol_location=UnboundedContinuousTensorSpec(shape=(), dtype=self.float_type),
-            agg_pod_location=UnboundedContinuousTensorSpec(shape=(), dtype=self.float_type),
+            current_demand=UnboundedContinuousTensorSpec(shape=(1), dtype=torch.float32),
+            observed_demand=UnboundedContinuousTensorSpec(shape=(self.T*self.K), dtype=torch.float32),
+            expected_demand=UnboundedContinuousTensorSpec(shape=(self.T*self.K), dtype=torch.float32),
+            std_demand=UnboundedContinuousTensorSpec(shape=(self.T*self.K), dtype=torch.float32),
+            residual_capacity=UnboundedContinuousTensorSpec(shape=(self.B*self.D), dtype=self.float_type),
+            residual_lc_capacity=UnboundedContinuousTensorSpec(shape=(self.B-1), dtype=self.float_type),
+            pol_location=UnboundedContinuousTensorSpec(shape=(self.B*self.D*self.P), dtype=self.float_type),
+            pod_location=UnboundedContinuousTensorSpec(shape=(self.B*self.D*self.P), dtype=self.float_type),
+            agg_pol_location=UnboundedContinuousTensorSpec(shape=(self.B*self.D), dtype=self.float_type),
+            agg_pod_location=UnboundedContinuousTensorSpec(shape=(self.B*self.D), dtype=self.float_type),
         )
         state_spec = CompositeSpec(
-            utilization=UnboundedContinuousTensorSpec(shape=(), dtype=self.float_type),
-            target_long_crane=UnboundedContinuousTensorSpec(shape=(), dtype=self.float_type),
-            total_loaded=UnboundedContinuousTensorSpec(shape=(), dtype=self.float_type),
-            total_revenue=UnboundedContinuousTensorSpec(shape=(), dtype=self.float_type),
-            total_cost=UnboundedContinuousTensorSpec(shape=(), dtype=self.float_type),
-            total_rc=UnboundedContinuousTensorSpec(shape=(), dtype=self.float_type),
+            utilization=UnboundedContinuousTensorSpec(shape=(self.B*self.D*self.T*self.K), dtype=self.float_type),
+            target_long_crane=UnboundedContinuousTensorSpec(shape=(1), dtype=self.float_type),
+            total_loaded=UnboundedContinuousTensorSpec(shape=(1), dtype=self.float_type),
+            total_revenue=UnboundedContinuousTensorSpec(shape=(1), dtype=self.float_type),
+            total_cost=UnboundedContinuousTensorSpec(shape=(1), dtype=self.float_type),
+            total_rc=UnboundedContinuousTensorSpec(shape=(self.B*self.D), dtype=self.float_type),
         )
         self.observation_spec = CompositeSpec(
             observation=observation_spec,
             state=state_spec,
             batch_updates=UnboundedContinuousTensorSpec(shape=(), dtype=torch.float32),
-            timestep=UnboundedDiscreteTensorSpec(shape=(), dtype=th.int64),
-            realized_demand=UnboundedContinuousTensorSpec(shape=(),dtype=torch.float32),
-            observed_demand=UnboundedContinuousTensorSpec(shape=(),dtype=torch.float32),
-            expected_demand=UnboundedContinuousTensorSpec(shape=(),dtype=torch.float32),
-            std_demand=UnboundedContinuousTensorSpec(shape=(),dtype=torch.float32),
-            init_expected_demand=UnboundedContinuousTensorSpec(shape=(),dtype=torch.float32),
-            action=UnboundedContinuousTensorSpec(shape=(), dtype=self.float_type),
+            timestep=UnboundedDiscreteTensorSpec(shape=(1), dtype=th.int64),
+            realized_demand=UnboundedContinuousTensorSpec(shape=(self.T*self.K),dtype=torch.float32),
+            observed_demand=UnboundedContinuousTensorSpec(shape=(self.T*self.K),dtype=torch.float32),
+            expected_demand=UnboundedContinuousTensorSpec(shape=(self.T*self.K),dtype=torch.float32),
+            std_demand=UnboundedContinuousTensorSpec(shape=(self.T*self.K),dtype=torch.float32),
+            init_expected_demand=UnboundedContinuousTensorSpec(shape=(self.T*self.K),dtype=torch.float32),
+            action=UnboundedContinuousTensorSpec(shape=(self.B*self.D), dtype=self.float_type),
         )
             # observation=UnboundedContinuousTensorSpec(shape=(214)),  # Define shape as needed
         self.action_spec = BoundedTensorSpec(
@@ -233,13 +233,6 @@ class MasterPlanningEnv(EnvBase):
         pol, pod, tau, k, rev = self._extract_cargo_parameters_for_step(t[0])
         utilization, target_long_crane, total_metrics = self._extract_from_state(td["state"], batch_size)
         demand_obs = self._extract_from_obs(td["observation"], batch_size)
-        print("---")
-        print("shapes", action.shape, realized_demand.shape, t.shape)
-        print("shapes", utilization.shape, target_long_crane.shape,
-              total_metrics["total_loaded"].shape, total_metrics["total_revenue"].shape, total_metrics["total_cost"].shape, total_metrics["total_rc"].shape)
-        print("shapes", demand_obs["current_demand"].shape, demand_obs["observed_demand"].shape, demand_obs["expected_demand"].shape)
-        print("shapes", demand_obs["std_demand"].shape)
-
 
         ## Current state
         # Check done, update utilization, and compute violation
@@ -311,7 +304,6 @@ class MasterPlanningEnv(EnvBase):
 
         # # Track metrics
         # total_metrics["total_rc"] += residual_capacity.view(*batch_size, -1)
-        print("total_metrics", total_metrics["total_revenue"].shape, revenue.shape)
         total_metrics["total_revenue"] += revenue
         # total_metrics["total_cost"] += cost
         # # Normalize revenue \in [0,1]:
@@ -329,7 +321,7 @@ class MasterPlanningEnv(EnvBase):
         out =  TensorDict({
             "state":{
                 # Vessel
-                "utilization": next_state_dict["utilization"],
+                "utilization": next_state_dict["utilization"].view(*batch_size, self.B*self.D*self.T*self.K),
                 "target_long_crane": next_state_dict["target_long_crane"],
 
                 # # Performance
@@ -376,7 +368,6 @@ class MasterPlanningEnv(EnvBase):
             "done": done,
             "timestep":t,
         }, td.shape)
-        print("td_set", out)
         return out
 
     def _reset(self,  td: Optional[TensorDict] = None,) -> TensorDict:
@@ -425,7 +416,7 @@ class MasterPlanningEnv(EnvBase):
         # Init tds - state: internal state
         initial_state = TensorDict({
             # Vessel
-            "utilization": utilization,
+            "utilization": utilization.view(*batch_size, self.B*self.D*self.T*self.K),
             "target_long_crane": target_long_crane,
             # Performance
             "total_loaded": th.zeros_like(current_demand, dtype=self.float_type),
