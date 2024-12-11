@@ -270,13 +270,7 @@ def process_logits(
         return F.log_softmax(logits, dim=-1)
     else:
         # For continuous action space, we have logits and std_x
-        if logits.dim() == 2:
-            e_x = logits
-            std_x = torch.ones_like(logits)
-        elif logits.dim() == 3 or logits.dim() == 4:
-            e_x, std_x = logits[..., 0], logits[..., 1]
-        else:
-            raise ValueError(f"Invalid logits shape: {logits.shape}")
+        e_x, std_x = logits[..., 0], logits[..., 1].exp()
 
         # Apply lower bound
         if clip_min is not None:
@@ -535,13 +529,6 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
 
         return selected
 
-    @staticmethod
-    def continuous_eps_greedy(logits, mask=None, epsilon=0.1):
-        """Return the logit with (1-eps) probability, and random logit with eps probability."""
-        if torch.rand(logits.shape) < epsilon:  # Vectorized random sampling
-            return torch.FloatTensor(logits.shape).uniform_(0, 1).masked_fill(~mask, -float("inf"))
-
-        return logits  # Greedy action
 
     @staticmethod
     def continuous_sampling(mean_logits: torch.Tensor, std_logits: torch.Tensor, selected: torch.Tensor = None,
@@ -560,8 +547,6 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             # think about rsample (reparamerization trick)
             selected = dist.sample()
         logprobs = dist.log_prob(selected)
-        # print("mean_logits", mean_logits.mean(), mean_logits.std(), mean_logits.max(), mean_logits.min())
-        # print("std_logits", std_logits.mean(), std_logits.std(), std_logits.max(), std_logits.min())
 
         # todo: fix proper argument passing of tanh_squashing
         if tanh_squashing:
