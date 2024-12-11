@@ -560,6 +560,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             # think about rsample (reparamerization trick)
             selected = dist.sample()
         logprobs = dist.log_prob(selected)
+        entropy = dist.entropy()
 
         # todo: fix proper argument passing of tanh_squashing
         if tanh_squashing:
@@ -572,7 +573,7 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
         # mask logprobs
         if mask is not None:
             logprobs = logprobs.masked_fill(~mask, 0)
-        return selected, logprobs
+        return selected, logprobs, entropy
 
 class Greedy(DecodingStrategy):
     name = "greedy"
@@ -765,7 +766,8 @@ class ContinuousSampling(DecodingStrategy):
     ) -> Tuple[torch.Tensor, torch.Tensor, TensorDict]:
         """Sample an action with a multinomial distribution given by the log probabilities.
         Get logprobs based on sampled action."""
-        selected, logprobs = self.continuous_sampling(mean_logits, std_logits, action, mask, **kwargs)
+        selected, logprobs, entropy = self.continuous_sampling(mean_logits, std_logits, action, mask, **kwargs)
+        td.update({"entropy": entropy})
         return logprobs, selected, td
 
 class ContinuousProjection(DecodingStrategy):

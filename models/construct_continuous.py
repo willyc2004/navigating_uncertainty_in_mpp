@@ -238,6 +238,7 @@ class ConstructivePolicy(nn.Module):
 
         # Main decoding: loop until all sequences are done
         self.logits = [] # store logits for entropy calculation
+        self.entropy = [] # store entropy for entropy calculation
         self.lhs_A = [] # store lhs_A for feasibility calculation
         self.rhs = [] # store rhs for feasibility calculation
         step = 0
@@ -251,9 +252,11 @@ class ConstructivePolicy(nn.Module):
                 action=actions[..., step] if actions is not None else None,
             )
             # Store before next step
-            self.logits.append(td["logits"])
-            self.lhs_A.append(td["lhs_A"])
-            self.rhs.append(td["rhs"])
+            if env.name == "mpp":
+                self.logits.append(td["logits"])
+                self.entropy.append(td["entropy"])
+                self.lhs_A.append(td["lhs_A"])
+                self.rhs.append(td["rhs"])
 
             # Perform the step
             td = env.step(td)["next"]
@@ -286,11 +289,12 @@ class ConstructivePolicy(nn.Module):
             outdict["actions"] = actions
         if return_entropy:
             if action_dtype == "continuous":
-                outdict["logits"] = torch.stack(self.logits, dim=1)
-                outdict["entropy"] = calculate_gaussian_entropy(outdict["logits"])
+                outdict["entropy"] = torch.stack(self.entropy, dim=1)
+                #calculate_gaussian_entropy(outdict["logits"])
             else:
                 outdict["entropy"] = calculate_entropy(logprobs)
         if return_feasibility:
+            outdict["logits"] = torch.stack(self.logits, dim=1)
             outdict["lhs_A"] = torch.stack(self.lhs_A, dim=1)
             outdict["rhs"] = torch.stack(self.rhs, dim=1)
         if return_hidden:
