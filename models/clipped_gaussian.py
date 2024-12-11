@@ -85,6 +85,3 @@ class ClippedGaussian:
 
     def copy(self):
         return ClippedGaussian(self.mean.clone(), self.var.clone(), self.low.clone(), self.high.clone())
-
-    def entropy(self):
-        return 0.5 + 0.5 * math.log(2 * math.pi) + torch.log(self.var.sqrt())
