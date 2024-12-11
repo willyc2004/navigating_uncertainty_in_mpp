@@ -109,6 +109,7 @@ class ProjectionPPO(RL4COLitModule):
             "normalize_adv": normalize_adv,
             "max_grad_norm": max_grad_norm,
         }
+        self.action_dtype = "discrete" if env.action_spec.dtype == torch.int64 else "continuous"
 
     def configure_optimizers(self):
         parameters = list(self.policy.parameters()) + list(self.critic.parameters())
@@ -131,7 +132,7 @@ class ProjectionPPO(RL4COLitModule):
         # Evaluate old actions, log probabilities, and rewards
         with torch.no_grad():
             td = self.env.reset(batch)  # note: clone needed for dataloader
-            out = self.policy(td.clone(), self.env, phase=phase, return_actions=True)
+            out = self.policy(td.clone(), self.env, phase=phase, return_actions=True, action_dtype=self.action_dtype,)
 
         if phase == "train":
             batch_size = out["actions"].shape[0]
@@ -171,11 +172,12 @@ class ProjectionPPO(RL4COLitModule):
                         env=self.env,
                         return_entropy=True,
                         return_sum_log_likelihood=False,
+                        action_dtype=self.action_dtype,
                     )
                     ll, entropy = out["log_likelihood"], out["entropy"]
 
                     # Compute the ratio of probabilities of new and old actions
-                    if self.env.name == "mpp":
+                    if self.action_dtype == "continuous":
                         ratio = torch.exp(ll.sum(dim=-1) - sub_td["logprobs"].sum(dim=-1)).view(-1, 1)
                     else:
                         ratio = torch.exp(ll.sum(dim=-1) - sub_td["logprobs"]).view(-1, 1)  # [batch, 1]

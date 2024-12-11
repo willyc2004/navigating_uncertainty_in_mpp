@@ -203,8 +203,7 @@ class ConstructivePolicy(nn.Module):
             env = get_env(env_name)
 
         # Determine continuous or discrete action space
-        action_dtype = "discrete" if env.action_spec.dtype == torch.int64 else "continuous"
-
+        action_dtype = decoding_kwargs.pop("action_dtype", "discrete")
         # Get decode type depending on phase and whether actions are passed for evaluation
         decode_type = decoding_kwargs.pop("decode_type", None)
         if actions is not None:
