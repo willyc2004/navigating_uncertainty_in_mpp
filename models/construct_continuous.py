@@ -234,6 +234,7 @@ class ConstructivePolicy(nn.Module):
         td, env, hidden = self.decoder.pre_decoder_hook(td, env, hidden, num_starts)
 
         # Main decoding: loop until all sequences are done
+        self.logits = [] # store logits for entropy calculation
         step = 0
         while not td["done"].all():
             logits, mask = self.decoder(td, hidden, num_starts)
@@ -243,11 +244,12 @@ class ConstructivePolicy(nn.Module):
                 td,
                 action=actions[..., step] if actions is not None else None,
             )
+            self.logits.append(td["logits"])
             td = env.step(td)["next"]
             step += 1
             if step > max_steps:
                 log.error(
-                    f"Exceeded maximum number of steps ({max_steps}) duing decoding"
+                    f"Exceeded maximum number of steps ({max_steps}) during decoding"
                 )
                 break
 
@@ -273,7 +275,8 @@ class ConstructivePolicy(nn.Module):
             outdict["actions"] = actions
         if return_entropy:
             if action_dtype == "continuous":
-                outdict["entropy"] = calculate_gaussian_entropy(logprobs)
+                outdict["logits"] = torch.stack(self.logits, dim=1)
+                outdict["entropy"] = calculate_gaussian_entropy(outdict["logits"])
             else:
                 outdict["entropy"] = calculate_entropy(logprobs)
         if return_hidden:
