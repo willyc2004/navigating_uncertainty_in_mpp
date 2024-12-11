@@ -36,7 +36,7 @@ model:
   num_decoder_layers: 2
   num_heads: 8
   dropout_rate: 0.1
-  normalization: "layer"
+  normalization: "layer" # layer, batch
   out_bias_pointer_attn: False
   temperature: 1.0
   critic_temperature: 0.10
@@ -74,7 +74,7 @@ ppo:
 
 # AM PPO parameters
 am_ppo:
-  lr: 0.0001
+  lr: 0.0003
   projection_type: "linear_violation"
   #None, convex_program, worst_case_violation, linear_violation, linear_program
   projection_kwargs:

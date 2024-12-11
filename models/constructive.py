@@ -169,7 +169,7 @@ class ConstructivePolicyMPP(nn.Module):
         return_actions: bool = False,
         return_entropy: bool = False,
         return_tds: bool = False,
-        return_feasibility: bool = True,
+        return_feasibility: bool = False,
         return_hidden: bool = False,
         return_init_embeds: bool = False,
         return_sum_log_likelihood: bool = True,
@@ -258,7 +258,6 @@ class ConstructivePolicyMPP(nn.Module):
             # Perform main decoding to construct the solution
             out = self._main_decoding(td, env, actions=actions, hidden=hidden, num_starts=num_starts,
                                       decode_strategy=decode_strategy, max_steps=max_steps, **decoding_kwargs)
-            tds = torch.stack(out["tds"], dim=1)
 
         # Post-decoding hook: used for the final step(s) of the decoding strategy
         dictout, td, env = decode_strategy.post_decoder_hook(td, env)
@@ -283,6 +282,7 @@ class ConstructivePolicyMPP(nn.Module):
             "total_cost": td["state"].get("total_cost", None),
         }
         if return_tds:
+            tds = torch.stack(out["tds"], dim=1)
             outdict["tds"] = tds
         if return_actions:
             outdict["actions"] = actions
@@ -322,7 +322,8 @@ class ConstructivePolicyMPP(nn.Module):
         tds = []
         while not td["done"].all():
             logits, mask = self.decoder(td, hidden, num_starts)
-            tds.append(td.select(*self.select_obs_td).clone())
+            td_obs = td.select(*self.select_obs_td).clone() if self.select_obs_td is not None else td.clone()
+            tds.append(td_obs)
             td = decode_strategy.step(
                 logits,
                 mask,

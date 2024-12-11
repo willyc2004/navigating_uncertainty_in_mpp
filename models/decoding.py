@@ -456,12 +456,12 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             )
             # Track logits, logprobs and actions
             self.utilization.append(td["state"]["utilization"])
-            td.update({"unproj_mean_logits": unproj_mean_logits,
-                       "mean_logits": mean_logits,
-                       "std_logits": std_logits,
-                       "logprobs":logprobs,
-                       "action":selected_action,
-                       "mask":mask})
+            td.update({"unproj_mean_logits": unproj_mean_logits.clone(),
+                       "mean_logits": mean_logits.clone(),
+                       "std_logits": std_logits.clone(),
+                       "logprobs":logprobs.clone(),
+                       "action":selected_action.clone(),
+                       "mask":mask.clone()})
         else:
             # Discrete action space
             logprobs = process_logits(
@@ -481,8 +481,8 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             # Track logprobs and actions
             td.set("action", selected_action)
             td.update({"logprobs":logprobs})
-        self.actions.append(selected_action)
-        self.logprobs.append(logprobs)
+        self.actions.append(selected_action.clone())
+        self.logprobs.append(logprobs.clone())
         return td
 
     @staticmethod

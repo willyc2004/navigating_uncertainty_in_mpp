@@ -53,8 +53,8 @@ AutoregressivePolicy.__bases__ = (ConstructivePolicyMPP,) # Adapt base class
 # PPO
 from models.projection_n_step_ppo import Projection_Nstep_PPO
 from models.projection_ppo import Projection_PPO
-# AMPPO.__bases__ = (Projection_PPO,)  # Adapt base class
-AMPPO.__bases__ = (Projection_Nstep_PPO,)  # Adapt base class
+AMPPO.__bases__ = (Projection_PPO,)  # Adapt base class
+# AMPPO.__bases__ = (Projection_Nstep_PPO,)  # Adapt base class
 
 # Custom environment modules
 from environment.env import MasterPlanningEnv

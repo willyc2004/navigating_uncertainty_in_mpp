@@ -330,7 +330,7 @@ class Projection_PPO(RL4COLitModule):
 
             # Todo: Add support for multi dimensional batches
             td.set("logprobs", out["log_likelihood"])
-            td.set("reward", out["reward"]) # only reward at end of episode
+            td.set("return", out["reward"]) #out["return"]) # change from reward to return
             td.set("action", out["actions"])
 
             # Inherit the dataset class from the environment for efficiency
@@ -345,7 +345,7 @@ class Projection_PPO(RL4COLitModule):
             for k in range(self.ppo_cfg["ppo_epochs"]):  # PPO inner epoch, K
                 for sub_td in dataloader:
                     sub_td = sub_td.to(td.device)
-                    returns = sub_td["reward"].view(-1, 1)
+                    returns = sub_td["return"].view(-1, 1)
                     out = self.policy(  # note: remember to clone to avoid in-place replacements!
                         sub_td.clone(),
                         actions=sub_td["action"],
@@ -423,19 +423,19 @@ class Projection_PPO(RL4COLitModule):
                     # "violation_vcg_ub": relevant_violation[..., 3].sum(dim=1).mean().detach(),
                     # "violation_vcg_lb": relevant_violation[..., 4].sum(dim=1).mean().detach(),
                     # Additional metrics for debugging or logging # todo: fix logging
-                    "total_loaded": td["state"]["total_loaded"].mean().detach(),
-                    "total_profit": (
-                            td["state"]["total_revenue"].mean() - td["state"]["total_cost"].mean()
-                    ).detach(),
-                    "total_revenue": td["state"]["total_revenue"].mean().detach(),
-                    "total_cost": td["state"]["total_cost"].mean().detach(),
+                    # "total_loaded": td["state"]["total_loaded"].mean().detach(),
+                    # "total_profit": (
+                    #         td["state"]["total_revenue"].mean() - td["state"]["total_cost"].mean()
+                    # ).detach(),
+                    # "total_revenue": td["state"]["total_revenue"].mean().detach(),
+                    # "total_cost": td["state"]["total_cost"].mean().detach(),
                     # Logits
                     # "e_x_logit": out["proj_mean_logits"].mean().detach(),
                     # "std_x_logit": out["std_logits"].mean().detach(),
-                    "x": out["actions"].mean().detach(),
-                    "std(x)": out["actions"].std().detach(),
-                    "min(x)": out["actions"].min().detach(),
-                    "max(x)": out["actions"].max().detach(),
+                    # "x": out["actions"].mean().detach(),
+                    # "std(x)": out["actions"].std().detach(),
+                    # "min(x)": out["actions"].min().detach(),
+                    # "max(x)": out["actions"].max().detach(),
                 }
             )
 

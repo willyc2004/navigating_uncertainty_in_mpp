@@ -297,7 +297,7 @@ class Projection_Nstep_PPO(RL4COLitModule):
             for batch in dataloader:
                 # Forward pass based on mini-batch actions
                 out = self.policy(
-                    batch['tds'][:,0],
+                    batch['tds'][:,0].clone(),
                     action=batch["actions"],
                     env=self.env,
                     phase=phase,
@@ -369,7 +369,12 @@ class Projection_Nstep_PPO(RL4COLitModule):
         # check_for_nans(old_ll, "old_ll")
 
         # Compute the ratios for PPO clipping
+        # todo: check log_ratios/ratios!
         log_ratios = ll - old_ll.detach()  # Detach old log-likelihoods
+        # print("mean(ratios)", torch.exp(log_ratios).mean(), "median(ratios)", torch.exp(log_ratios).median(),
+        #       "std(ratios)", torch.exp(log_ratios).std(),
+        #       "min(ratios)", torch.exp(log_ratios).min(), "max(ratios)", torch.exp(log_ratios).max())
+        # print("mean(ratios)", torch.exp(log_ratios.sum(dim=-1, keepdims=True)).mean(dim=0),)
         ratios = torch.exp(log_ratios.sum(dim=-1, keepdims=True))  # Calculate importance sampling ratios
         clipped_ratios = torch.clamp(ratios, min=1 - self.ppo_cfg["clip_range"], max=1 + self.ppo_cfg["clip_range"])
         surrogate_loss = -torch.min(ratios * adv, clipped_ratios * adv).mean()  # Surrogate loss
