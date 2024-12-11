@@ -202,11 +202,16 @@ class ConstructivePolicy(nn.Module):
             log.info(f"Instantiated environment not provided; instantiating {env_name}")
             env = get_env(env_name)
 
+        # Determine continuous or discrete action space
+        action_dtype = "discrete" if env.action_spec.dtype == torch.int64 else "continuous"
+
         # Get decode type depending on phase and whether actions are passed for evaluation
         decode_type = decoding_kwargs.pop("decode_type", None)
         if actions is not None:
-            if env.action_spec.dtype == "float":
+            if action_dtype == "continuous":
                 decode_type = "continuous_evaluate"
+                # Due to action=actions[..., step] in the decoding loop, we need to permute the actions
+                actions = actions.permute(0, 2, 1) # [batch_size, seq_len, action_dim] -> [batch_size, action_dim, seq_len, ]
             else:
                 decode_type = "evaluate"
         elif decode_type is None:
@@ -231,6 +236,8 @@ class ConstructivePolicy(nn.Module):
 
         # Main decoding: loop until all sequences are done
         step = 0
+        if actions is not None:
+            print("actions shape:", actions.shape)
         while not td["done"].all():
             logits, mask = self.decoder(td, hidden, num_starts)
             td = decode_strategy.step(
@@ -254,6 +261,10 @@ class ConstructivePolicy(nn.Module):
         if calc_reward:
             td.set("reward", env.get_reward(td, actions))
 
+        # todo: make mask optional
+        if action_dtype == "continuous":
+            td.pop("mask")
+
         outdict = {
             "reward": td["reward"],
             "log_likelihood": get_log_likelihood(
@@ -264,7 +275,7 @@ class ConstructivePolicy(nn.Module):
         if return_actions:
             outdict["actions"] = actions
         if return_entropy:
-            if env.action_spec.dtype == "float":
+            if action_dtype == "continuous":
                 outdict["entropy"] = calculate_gaussian_entropy(logprobs)
             else:
                 outdict["entropy"] = calculate_entropy(logprobs)
