@@ -172,7 +172,8 @@ class MasterPlanningEnv(RL4COEnvBase):
         self.action_spec = BoundedTensorSpec(
             shape=(self.B*self.D),  # Define shape as needed
             low=0.0,
-            high=10,  # Define high value as needed
+            high=10.0,  # Define high value as needed
+            dtype=self.float_type,
         )
         self.reward_spec = UnboundedContinuousTensorSpec(shape=(1,))
         self.done_spec = UnboundedDiscreteTensorSpec(shape=(1,), dtype=th.bool)
