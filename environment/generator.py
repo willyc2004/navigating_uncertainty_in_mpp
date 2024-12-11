@@ -126,12 +126,11 @@ class MPP_Generator(Generator):
 
         # Return demand matrix
         return TensorDict({"realized_demand": demand.view(*batch_size, self.T*self.K),
-                               "observed_demand": observed_demand.view(*batch_size, self.T*self.K),
-                               "expected_demand": e_x.view(*batch_size, self.T*self.K),
-                               "std_demand":std_x.view(*batch_size, self.T*self.K),
-                               "init_expected_demand": e_x_init_demand.view(*batch_size, self.T*self.K),
-                               "batch_updates":batch_updates + 1,
-                               }, batch_size=batch_size, device=self.device,)
+                           "observed_demand": observed_demand.view(*batch_size, self.T*self.K),
+                           "expected_demand": e_x.view(*batch_size, self.T*self.K),
+                           "std_demand":std_x.view(*batch_size, self.T*self.K),
+                           "init_expected_demand": e_x_init_demand.view(*batch_size, self.T*self.K),
+                           "batch_updates":batch_updates + 1,}, batch_size=batch_size, device=self.device,)
 
     ## Initial demand
     def _initial_contract_demand(self, batch_size,) -> Tuple[th.Tensor,th.Tensor]:
