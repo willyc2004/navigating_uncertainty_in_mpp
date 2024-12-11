@@ -72,7 +72,8 @@ class ProjectionPPO(RL4COLitModule):
         normalize_adv: bool = False,  # whether to normalize advantage
         max_grad_norm: float = 0.5,  # max gradient norm
         metrics: dict = {
-            "train": ["reward", "loss", "surrogate_loss", "value_loss", "entropy", "ratio"],
+            "train": ["reward", "loss", "surrogate_loss", "value_loss", "entropy",
+                      "ratio", "adv", "value_pred", "return"],
         },
         **kwargs,
     ):
@@ -227,11 +228,16 @@ class ProjectionPPO(RL4COLitModule):
 
             out.update(
                 {
+                    # Losses
                     "loss": loss,
                     "surrogate_loss": surrogate_loss,
                     "value_loss": value_loss,
                     "entropy": entropy.mean(),
+                    # Supporting to loss
                     "ratio": ratio.mean(),
+                    "adv": adv.mean(),
+                    "value_pred": value_pred.mean(),
+                    "return": previous_reward.mean(),
                 }
             )
 
