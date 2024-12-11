@@ -334,6 +334,10 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
         self.improvement_method_mode = improvement_method_mode
         self.select_best = select_best
         self.store_all_logp = store_all_logp
+        # create projection layer
+        self.projection_type = kwargs.get("projection_type", None)
+        self.projection_kwargs = kwargs.get("projection_kwargs", None)
+        self.projection_layer = ProjectionFactory.create_class(self.projection_type, kwargs=self.projection_kwargs)
         # initialize buffers
         self.actions = []
         self.logprobs = []
