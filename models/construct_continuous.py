@@ -269,8 +269,6 @@ class ConstructivePolicy(nn.Module):
             ),
         }
 
-        print("outdict:", outdict["log_likelihood"].shape)
-
         if return_actions:
             outdict["actions"] = actions
         if return_entropy:
