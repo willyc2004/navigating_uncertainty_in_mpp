@@ -288,9 +288,7 @@ class ConstructivePolicy(nn.Module):
         if return_entropy:
             if action_dtype == "continuous":
                 outdict["logits"] = torch.stack(self.logits, dim=1)
-                outdict["entropy"] = calculate_gaussian_entropy(outdict["logits"]) #torch.stack(self.entropy, dim=1)
-            else:
-                outdict["entropy"] = calculate_entropy(logprobs)
+            outdict["entropy"] = calculate_entropy(logprobs)
         if return_feasibility:
             outdict["lhs_A"] = torch.stack(self.lhs_A, dim=1)
             outdict["rhs"] = torch.stack(self.rhs, dim=1)
