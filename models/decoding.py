@@ -8,7 +8,7 @@ from torch.distributions import Normal
 from tensordict.tensordict import TensorDict
 
 from rl4co.envs import RL4COEnvBase
-from rl4co.utils.ops import batchify
+from rl4co.utils.ops import batchify, gather_by_index, unbatchify, unbatchify_and_gather
 from rl4co.utils.pylogger import get_pylogger
 from models.projection import ProjectionFactory
 from models.clipped_gaussian import ClippedGaussian
@@ -43,7 +43,7 @@ def get_decoding_strategy(decoding_strategy, **config):
     return strategy_registry.get(decoding_strategy, ContinuousSampling)(**config)
 
 
-def get_log_likelihood(logprobs, actions, mask=None, return_sum: bool = True,):
+def get_log_likelihood(logprobs, actions=None, mask=None, return_sum: bool = True):
     """Get log likelihood of selected actions.
     Note that mask is a boolean tensor where True means the value should be kept.
 
