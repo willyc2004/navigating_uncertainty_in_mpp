@@ -471,8 +471,6 @@ class MasterPlanningEnv(EnvBase):
             "init_expected_demand": td["init_expected_demand"].view(*batch_size, self.T * self.K),
             "batch_updates": td["batch_updates"] + 1,
         })
-        print("td_reset", td)
-
         return td
 
     def _set_seed(self, seed: Optional[int]):
