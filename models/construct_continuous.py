@@ -166,6 +166,7 @@ class ConstructivePolicy(nn.Module):
         calc_reward: bool = True,
         return_actions: bool = False,
         return_entropy: bool = False,
+        return_feasibility: bool = False,
         return_hidden: bool = False,
         return_init_embeds: bool = False,
         return_sum_log_likelihood: bool = True,
@@ -237,8 +238,11 @@ class ConstructivePolicy(nn.Module):
 
         # Main decoding: loop until all sequences are done
         self.logits = [] # store logits for entropy calculation
+        self.lhs_A = [] # store lhs_A for feasibility calculation
+        self.rhs = [] # store rhs for feasibility calculation
         step = 0
         while not td["done"].all():
+            # Decode the next action
             logits, mask = self.decoder(td, hidden, num_starts)
             td = decode_strategy.step(
                 logits,
@@ -246,7 +250,12 @@ class ConstructivePolicy(nn.Module):
                 td,
                 action=actions[..., step] if actions is not None else None,
             )
+            # Store before next step
             self.logits.append(td["logits"])
+            self.lhs_A.append(td["lhs_A"])
+            self.rhs.append(td["rhs"])
+
+            # Perform the step
             td = env.step(td)["next"]
             step += 1
             if step > max_steps:
@@ -281,6 +290,9 @@ class ConstructivePolicy(nn.Module):
                 outdict["entropy"] = calculate_gaussian_entropy(outdict["logits"])
             else:
                 outdict["entropy"] = calculate_entropy(logprobs)
+        if return_feasibility:
+            outdict["lhs_A"] = torch.stack(self.lhs_A, dim=1)
+            outdict["rhs"] = torch.stack(self.rhs, dim=1)
         if return_hidden:
             outdict["hidden"] = hidden
         if return_init_embeds:
