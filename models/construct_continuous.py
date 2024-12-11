@@ -235,8 +235,6 @@ class ConstructivePolicy(nn.Module):
 
         # Main decoding: loop until all sequences are done
         step = 0
-        if actions is not None:
-            print("actions shape:", actions.shape)
         while not td["done"].all():
             logits, mask = self.decoder(td, hidden, num_starts)
             td = decode_strategy.step(
@@ -270,6 +268,8 @@ class ConstructivePolicy(nn.Module):
                 logprobs, actions, td.get("mask", None), return_sum_log_likelihood,  env.action_spec.dtype == torch.int64
             ),
         }
+
+        print("outdict:", outdict["log_likelihood"].shape)
 
         if return_actions:
             outdict["actions"] = actions
