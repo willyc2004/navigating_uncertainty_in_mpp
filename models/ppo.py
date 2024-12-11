@@ -179,8 +179,7 @@ class ProjectionPPO(RL4COLitModule):
 
                     # Compute the ratio of probabilities of new and old actions
                     if self.action_dtype == "continuous":
-                        print("shapes", ll.shape, sub_td["logprobs"].shape)
-                        ratio = torch.exp(ll.sum(dim=-1) - sub_td["logprobs"].sum(dim=-1)).view(-1, 1)
+                        ratio = torch.exp(ll.sum(dim=(-2,-1)) - sub_td["logprobs"].sum(dim=(-2,-1))).view(-1, 1)
                     else:
                         ratio = torch.exp(ll.sum(dim=-1) - sub_td["logprobs"]).view(-1, 1)  # [batch, 1]
 
