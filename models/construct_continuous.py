@@ -155,6 +155,8 @@ class ConstructivePolicy(nn.Module):
         self.train_decode_type = train_decode_type
         self.val_decode_type = val_decode_type
         self.test_decode_type = test_decode_type
+        # Store logits for entropy calculation # todo: think about pre-allocating tensor, but not sure about fixed-size
+        self.logits = []
 
     def forward(
         self,
