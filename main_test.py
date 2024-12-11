@@ -32,16 +32,22 @@ from rl4co.utils.trainer import RL4COTrainer
 from rl4co.models.zoo import AMPPO
 # Customized RL4CO modules
 from models.am_policy import AttentionModelPolicy4PPO
+from models.ppo import ProjectionPPO
 from models.projection_n_step_ppo import Projection_Nstep_PPO
 from models.projection_ppo import Projection_PPO
 from rl4co.models.zoo.am.encoder import AttentionModelEncoder
+from rl4co.models.common.constructive.autoregressive import AutoregressivePolicy
 from models.examples.decoder2 import AttentionModelDecoder
 from models.constructive import ConstructivePolicyMPP
-from rl4co.models.common.constructive.autoregressive import AutoregressivePolicy
+from models.construct_continuous import ConstructivePolicy
 from environment.env import MasterPlanningEnv
 # AMPPO.__bases__ = (StepwisePPO,)  # Adapt base class
 # AMPPO.__bases__ = (Projection_Nstep_PPO,)  # Adapt base class
-AMPPO.__bases__ = (Projection_PPO,)  # Adapt base class
+# AMPPO.__bases__ = (Projection_PPO,)  # Adapt base class
+AMPPO.__bases__ = (ProjectionPPO,)  # Adapt base class
+AttentionModelPolicy.__bases__ = (ConstructivePolicy,)  # Adapt base class
+# AutoregressivePolicy.__bases__ = (ContinuousConstructivePolicy,)
+# AutoregressivePolicy.__bases__ = (ConstructivePolicyMPP,)  # Adapt base class
 from environment.embeddings import MPPContextEmbedding, MPPInitEmbedding
 
 import yaml
@@ -58,68 +64,6 @@ def make_env(env_kwargs, device):
     """Setup custom environment"""
     return MasterPlanningEnv(**env_kwargs).to(device)
     # return PortMasterPlanningEnv(**env_kwargs).to(device).half()
-
-class TSPInitEmbedding(nn.Module):
-    """Initial embedding for the Traveling Salesman Problems (TSP).
-    Embed the following node features to the embedding space:
-        - locs: x, y coordinates of the cities
-    """
-
-    def __init__(self, embed_dim, linear_bias=True):
-        super(TSPInitEmbedding, self).__init__()
-        node_dim = 2  # x, y
-
-        self.init_embed = nn.Linear(node_dim, embed_dim, linear_bias)
-        # input: xxx, node_dim --> xxx, obs_shape
-        # output: xxx, embed_dim --> xxx, embed_dim
-        # where xxx is the batch size, td["locs"]
-
-    def forward(self, td):
-        out = self.init_embed(td["locs"])
-        return out
-
-class TSPContext(nn.Module):
-    """Context embedding for the Traveling Salesman Problem (TSP).
-    Project the following to the embedding space:
-        - first node embedding
-        - current node embedding
-    """
-
-    def __init__(self, embed_dim, linear_bias=True):
-        super(TSPContext, self).__init__()
-        self.W_placeholder = nn.Parameter(
-            torch.Tensor(2 * embed_dim).uniform_(-1, 1)
-        )
-        self.project_context = nn.Linear(
-            embed_dim * 2, embed_dim, bias=linear_bias
-        )
-
-    def forward(self, embeddings, td):
-        batch_size = embeddings.size(0)
-        # By default, node_dim = -1 (we only have one node embedding per node)
-        node_dim = (
-            (-1,) if td["first_node"].dim() == 1 else (td["first_node"].size(-1), -1)
-        )
-        if td["i"][(0,) * td["i"].dim()].item() < 1:  # get first item fast
-            context_embedding = self.W_placeholder[None, :].expand(
-                batch_size, self.W_placeholder.size(-1)
-            )
-        else:
-            context_embedding = gather_by_index(
-                embeddings,
-                torch.stack([td["first_node"], td["current_node"]], -1).view(
-                    batch_size, -1
-                ),
-            ).view(batch_size, *node_dim)
-        output = self.project_context(context_embedding)
-        return output
-
-class StaticEmbedding(nn.Module):
-    def __init__(self, *args, **kwargs):
-        super(StaticEmbedding, self).__init__()
-
-    def forward(self, td):
-        return 0, 0, 0
 
 def check_env_specs(env):
     """Verifies that the environment's specifications (action and observation spaces) are valid."""
@@ -159,9 +103,6 @@ def main(config: Optional[DotMap] = None):
     check_env_specs(env)
     td = env.reset(batch_size=32)
 
-    if env.name == "mpp":
-        AutoregressivePolicy.__bases__ = (ConstructivePolicyMPP,)  # Adapt base class
-
     # Model: default is AM with REINFORCE and greedy rollout baseline
     # check out `RL4COLitModule` and `REINFORCE` for more details
     init_embedding = MPPInitEmbedding(emb_dim, env.action_spec.shape[0], env)
@@ -172,8 +113,6 @@ def main(config: Optional[DotMap] = None):
                                         decoder=AttentionModelDecoder(emb_dim, context_embedding=context_embedding, mask_inner=False),
                                   # this is actually not needed since we are initializing the embeddings!
                                   embed_dim=emb_dim,
-                                  init_embedding=init_embedding,
-                                      context_embedding=context_embedding,
                                       mask_inner=False,
                                       # train_decode_type="sampling",
                                       # val_decode_type="greedy",
