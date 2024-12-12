@@ -2,6 +2,7 @@ import os
 import yaml
 import torch
 import tqdm
+import wandb
 
 from collections import defaultdict
 from typing import Optional
@@ -267,4 +268,22 @@ if __name__ == "__main__":
         config = DotMap(config)
         config = adapt_env_kwargs(config)
 
-    main(config)
+    # Call your main() function
+    try:
+        wandb.init()
+        model = main(config)
+    except Exception as e:
+        # Log the error to WandB
+        wandb.log({"error": str(e)})
+
+        # Optionally, use WandB alert for critical errors
+        wandb.alert(
+            title="Training Error",
+            text=f"An error occurred during training: {e}",
+            level="error"  # 'info' or 'warning' levels can be used as needed
+        )
+
+        # Print the error for local console logging as well
+        print(f"An error occurred during training: {e}")
+    finally:
+        wandb.finish()
