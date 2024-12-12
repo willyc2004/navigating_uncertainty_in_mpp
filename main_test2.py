@@ -21,13 +21,14 @@ from torchrl.envs import (
     TransformedEnv,
     UnsqueezeTransform,
 )
+from torchrl.envs.transforms import Transform, ObservationNorm, StepCounter
 from torchrl.envs.transforms.transforms import _apply_to_composite
 from torchrl.envs.utils import check_env_specs, step_mdp
 from torchrl.data import Bounded, Composite, Unbounded
 
 # Custom Environment
 from environment.env_example import PendulumEnv
-
+from environment.env_ import MasterPlanningEnv
 
 def adapt_env_kwargs(config):
     """Adapt environment kwargs based on configuration"""
@@ -37,30 +38,30 @@ def adapt_env_kwargs(config):
     return config
 
 
-def make_env(device: torch.device = torch.device("cuda")):
+def make_env(env_kwargs:DotMap, device: torch.device = torch.device("cuda")):
     """Setup and transform the Pendulum environment."""
-    env = PendulumEnv()  # Custom environment
-
-    # Apply necessary transforms
-    env = TransformedEnv(
-        env,
-        # ``Unsqueeze`` the observations that we will concatenate
-        UnsqueezeTransform(
-            dim=-1,
-            in_keys=["th", "thdot"],
-            in_keys_inv=["th", "thdot"],
-        ),
-    )
-
-    t_sin = SinTransform(in_keys=["th"], out_keys=["sin"])
-    t_cos = CosTransform(in_keys=["th"], out_keys=["cos"])
-    env.append_transform(t_sin)
-    env.append_transform(t_cos)
-
-    cat_transform = CatTensors(
-        in_keys=["sin", "cos", "thdot"], dim=-1, out_key="observation", del_keys=False
-    )
-    env.append_transform(cat_transform)
+    env = MasterPlanningEnv(**env_kwargs)  # Custom environment
+    # # Apply necessary transforms
+    # env = PendulumEnv()
+    # env = TransformedEnv(
+    #     env,
+    #     # ``Unsqueeze`` the observations that we will concatenate
+    #     UnsqueezeTransform(
+    #         dim=-1,
+    #         in_keys=["th", "thdot"],
+    #         in_keys_inv=["th", "thdot"],
+    #     ),
+    # )
+    #
+    # t_sin = SinTransform(in_keys=["th"], out_keys=["sin"])
+    # t_cos = CosTransform(in_keys=["th"], out_keys=["cos"])
+    # env.append_transform(t_sin)
+    # env.append_transform(t_cos)
+    #
+    # cat_transform = CatTensors(
+    #     in_keys=["sin", "cos", "thdot"], dim=-1, out_key="observation", del_keys=False
+    # )
+    # env.append_transform(cat_transform)
 
     # Move the environment to the specified device
     transformed_env = env.to(device)
@@ -132,7 +133,9 @@ def main(config: Optional[DotMap] = None):
     ## Environment initialization
     emb_dim = 128
     env_kwargs = config.env
-    env = make_env()
+
+    # todo: add our custom environment
+    env = make_env(env_kwargs)
     # todo: fix parallel env
     # env = ParallelEnv(4, make_env)
     check_env_specs(env)  # this must pass for ParallelEnv to work
@@ -141,6 +144,7 @@ def main(config: Optional[DotMap] = None):
     torch.manual_seed(0)
     env.set_seed(0)
 
+    # todo: add more complex model
     net = nn.Sequential(
         nn.LazyLinear(64),
         nn.Tanh(),
@@ -148,16 +152,16 @@ def main(config: Optional[DotMap] = None):
         nn.Tanh(),
         nn.LazyLinear(64),
         nn.Tanh(),
-        nn.LazyLinear(1),
-    ).to(device)
+        nn.LazyLinear(env.action_spec.shape[0]),
+    ).to(device).to(torch.float16)
 
     policy = TensorDictModule(
         net,
-        in_keys=["observation"],
+        in_keys=["observation", ],
         out_keys=["action"],
     )
 
-    optim = torch.optim.Adam(policy.parameters(), lr=2e-3)
+    optim = torch.optim.Adam(policy.parameters(), lr=1e-3)
 
     batch_size = 32
     pbar = tqdm.tqdm(range(20_000 // batch_size))
@@ -165,7 +169,8 @@ def main(config: Optional[DotMap] = None):
     logs = defaultdict(list)
 
     for _ in pbar:
-        init_td = env.reset(env.gen_params(batch_size=batch_size))
+        gen_td = env.generator(batch_size=batch_size)
+        init_td = env.reset(gen_td) # todo: change td setup - possibly causes issues
         rollout = env.rollout(100, policy, tensordict=init_td, auto_reset=False)
         traj_return = rollout["next", "reward"].mean()
         (-traj_return).backward()
