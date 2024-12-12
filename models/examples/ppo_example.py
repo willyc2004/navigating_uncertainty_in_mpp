@@ -361,7 +361,7 @@ import yaml
 from dotmap import DotMap
 
 # Load static configuration from the YAML file
-with open('config.yaml', 'r') as file:
+with open('../../config.yaml', 'r') as file:
 # with open('test_config.yaml', 'r') as file:
     config = yaml.safe_load(file)
     config = DotMap(config)
