@@ -108,8 +108,7 @@ class MasterPlanningEnv(EnvBase):
         self.stability_params_lhs = self._precompute_stability_parameters()
 
         # Constraints
-        self.constraint_signs = th.tensor([1, 0, 0, 0, 0], device=self.generator.device, dtype=self.float_type)
-        # #th.tensor([1, 1, -1, 1, -1], device=self.generator.device, dtype=self.float_type)
+        self.constraint_signs = th.tensor([1, 1, -1, 1, -1], device=self.generator.device, dtype=self.float_type)
         self.swap_signs_stability = th.tensor([1, -1, -1, -1, -1], device=self.generator.device, dtype=self.float_type)
         self.A = self._create_constraint_matrix(shape=(self.n_constraints, self.n_action, self.T, self.K))
 
