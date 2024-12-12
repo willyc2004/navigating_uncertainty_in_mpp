@@ -131,13 +131,9 @@ def main(config: Optional[DotMap] = None):
         torch.backends.cudnn.deterministic = True
 
     ## Environment initialization
-    emb_dim = 128
     env_kwargs = config.env
-
-    # todo: add our custom environment
     env = make_env(env_kwargs)
-    # todo: fix parallel env
-    # env = ParallelEnv(4, make_env)
+    # env = ParallelEnv(4, make_env)     # todo: fix parallel env
     check_env_specs(env)  # this must pass for ParallelEnv to work
 
     # Simple training
@@ -160,18 +156,37 @@ def main(config: Optional[DotMap] = None):
         in_keys=["observation", ],
         out_keys=["action"],
     )
+    optim = torch.optim.Adam(policy.parameters(), lr=1e-5)
 
-    optim = torch.optim.Adam(policy.parameters(), lr=1e-4)
-
-    batch_size = 32
-    pbar = tqdm.tqdm(range(20_000 // batch_size))
+    batch_size = 64
+    total_train_steps = 1_000_000
+    pbar = tqdm.tqdm(range(total_train_steps // batch_size))
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, 20_000)
     logs = defaultdict(list)
 
+    # torch.autograd.set_detect_anomaly(True)
     for _ in pbar:
         init_td = env.reset(env.generator(batch_size=batch_size))
         rollout = env.rollout(72, policy, tensordict=init_td, auto_reset=False)
         traj_return = rollout["next", "reward"].mean()
+        traj_violation = rollout["next", "violation"].sum(dim=(-1,-2)).mean()
+        loss = -traj_return + 0.05 * traj_violation
+        loss.backward()
+        gn = torch.nn.utils.clip_grad_norm_(net.parameters(), 0.5)
+        optim.step()
+        optim.zero_grad()
+        pbar.set_description(
+            f"reward: {traj_return: 4.4f}, "
+            f"last reward: {rollout[..., -1]['next', 'reward'].mean(): 4.4f}, "
+            f"last total_revenue: {rollout[..., -1]['next', 'state', 'total_revenue'].mean(): 4.4f}, "
+            f"last total_cost: {rollout[..., -1]['next', 'state', 'total_cost'].mean(): 4.4f}, "
+            f"last total_loaded: {rollout[..., -1]['next', 'state', 'total_loaded'].mean(): 4.4f}, "
+            f"last total_violation: {rollout[..., -1]['next', 'state', 'total_violation'].sum(dim=-1).mean(): 4.4f}, "
+            f"gradient norm: {gn: 4.4}, "
+        )
+        logs["return"].append(traj_return.item())
+        logs["last_reward"].append(rollout[..., -1]["next", "reward"].mean().item())
+        scheduler.step()
 
         # # Debugging checks
         # if torch.isnan(init_td["observation"]).any():
@@ -190,18 +205,6 @@ def main(config: Optional[DotMap] = None):
         #
         # print(f"Trajectory return: {traj_return}")
 
-        (-traj_return).backward()
-        gn = torch.nn.utils.clip_grad_norm_(net.parameters(), 0.5)
-        optim.step()
-        optim.zero_grad()
-        pbar.set_description(
-            f"reward: {traj_return: 4.4f}, "
-            f"last reward: {rollout[..., -1]['next', 'reward'].mean(): 4.4f}, gradient norm: {gn: 4.4}"
-            f"last total_revenue: {rollout[..., -1]['next', 'state', 'total_revenue'].mean(): 4.4f}"
-        )
-        logs["return"].append(traj_return.item())
-        logs["last_reward"].append(rollout[..., -1]["next", "reward"].mean().item())
-        scheduler.step()
 
     def plot():
         import matplotlib
