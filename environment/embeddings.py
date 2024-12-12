@@ -17,7 +17,7 @@ class MPPInitEmbedding(nn.Module):
         self.seq_size = self.env.T * self.env.K
 
         # Embedding layers
-        num_embeddings = 7  # Number of embeddings
+        num_embeddings = 5  # Number of embeddings
         self.fc = nn.Linear(num_embeddings, embed_dim)
         self.positional_encoding = DynamicSinusoidalPositionalEncoding(embed_dim)
 
@@ -33,26 +33,16 @@ class MPPInitEmbedding(nn.Module):
         return norm_features
 
 
-    def forward(self, td: TensorDict):
-        # Normalize demand (based on teu and total capacity)
-        # norm_cargo = (self.env.teus[self.env.k[:-1]] / self.env.total_capacity).view(1, -1, 1)
-        if td["obs"]["expected_demand"].dim() == 2:
-            expected_demand = td["obs"]["expected_demand"].unsqueeze(-1) #* norm_cargo
-            std_demand = td["obs"]["std_demand"].unsqueeze(-1) #* norm_cargo
-        elif td["obs"]["expected_demand"].dim() == 3:
-            expected_demand = td["obs"]["expected_demand"][:,0].unsqueeze(-1) #* norm_cargo
-            std_demand = td["obs"]["std_demand"][:,0].unsqueeze(-1) #* norm_cargo
-        else:
-            raise ValueError("Invalid shape for expected_demand")
-
-        # Concatenate demand and cargo_parameters and pass through linear layer
-        cargo_parameters  = self._combine_cargo_parameters(batch_size=td.batch_size[0])
-        combined_input = torch.cat([expected_demand, std_demand, *cargo_parameters.values(),], dim=-1)
+    def forward(self, obs: Tensor):
+        # todo: possibly add more exp, std of demand
+        batch_size = obs.shape[0]
+        cargo_parameters = self._combine_cargo_parameters(batch_size=batch_size)
+        combined_input = torch.cat([*cargo_parameters.values(),], dim=-1)
         combined_emb = self.fc(combined_input)
 
         # Positional encoding
         # todo: add positional encoding
-        # initial_embedding = self.positional_encoding(positional_emb)
+        # initial_embedding = self.positional_encoding(combined_emb)
         initial_embedding = combined_emb
         return initial_embedding
 
@@ -66,7 +56,7 @@ class MPPContextEmbedding(nn.Module):
         super(MPPContextEmbedding, self).__init__()
         self.env = env
         self.seq_size = self.env.T * self.env.K
-        self.project_context = nn.Linear(embed_dim + 286, embed_dim, ) # 286, 217, 20
+        self.project_context = nn.Linear(415, embed_dim,) # 286, 217, 20, 142, embed_dim +
 
         # todo: give options for different demand aggregation methods; e.g. sum, self-attention
         self.demand_aggregation = demand_aggregation
@@ -85,50 +75,17 @@ class MPPContextEmbedding(nn.Module):
         else:
             raise ValueError(f"Invalid demand aggregation: {demand_aggregation}")
 
-    def forward(self,
-                init_embeddings: Tensor,
-                td: TensorDict):
+    def forward(self, obs: Tensor, latent_state: Tensor):
         """Embed the context for the MPP"""
-        # Get init embedding and state embedding
-        select_init_embedding = gather_by_index(init_embeddings, td["timestep"])
-        state_embedding = self._state_embedding(td)
-        # check_for_nans(select_init_embedding, "select_init_embedding")
-        # check_for_nans(state_embedding, "state_embedding")
+        # Get relevant init embedding (first element of obs)
+        time = obs[..., 0].long()
+        select_init_embedding = gather_by_index(latent_state, time)
 
         # Project state, concat embeddings, and project concat to output
-        context_embedding = torch.cat([select_init_embedding, state_embedding], dim=-1)
+        context_embedding = torch.cat([obs, select_init_embedding], dim=-1)
         # check_for_nans(context_embedding, "context_embedding")
         output = self.project_context(context_embedding)
-        # check_for_nans(output, "output")
         return output
-
-    def _state_embedding(self, td):
-        """Embed the state for the MPP.
-        Important:
-        - The state embedding size should not depend on e.g. voyage length and cargo types.
-        - todo: We have dependency on ports and bays, which is not ideal for generalization.
-        """
-        # Extract demand
-        current_demand = td["obs"]["current_demand"] #* norm_cargo_t
-        expected_demand = td["obs"]["expected_demand"] #* norm_cargo
-        std_demand = td["obs"]["std_demand"] #* norm_cargo
-        observed_demand = td["obs"]["observed_demand"] #* norm_cargo
-
-        # Extract vessel and location embeddings (all in range [0,1])
-        residual_capacity = td["obs"]["residual_capacity"]
-        residual_lc_capacity = td["obs"]["residual_lc_capacity"]
-        origin_embed = td["obs"]["agg_pol_location"]/self.env.P
-        destination_embed = td["obs"]["agg_pod_location"]/self.env.P
-        # print("t", td["timestep"][0])
-        # print("residual_capacity", residual_capacity.mean(dim=0))
-        # print("residual_lc_capacity", residual_lc_capacity.mean(dim=0))
-
-        # Concatenate all embeddings
-        state_embed = torch.cat([
-            current_demand, expected_demand, std_demand, observed_demand,
-            residual_capacity, residual_lc_capacity, origin_embed, destination_embed
-        ], dim=-1)
-        return state_embed
 
 def reorder_demand(demand, tau, k, T, K, batch_size):
     """Reorder demand to match the episode ordering"""
