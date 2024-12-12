@@ -209,17 +209,15 @@ class MLPDecoderWithCache(nn.Module):
         self.mean_head = nn.Linear(hidden_dim, action_size)
         self.std_head = nn.Linear(hidden_dim, action_size)
 
-    def forward(self, td: TensorDict, cached: PrecomputedCache, num_starts: int = 0, noise=1e-3) -> Tuple[Tensor,Tensor]:
-        # Get precomputed (cached) embeddings
-        init_embeds_cache, _ = cached.init_embeddings, cached.graph_context
-        # Compute step context
-        step_context = self.context_embedding(init_embeds_cache, td)
+    def forward(self, context) -> Tensor:
         # Compute mask and logits
-        hidden = self.policy_mlp(step_context)
+        hidden = self.policy_mlp(context)
         mean = self.mean_head(hidden)
-        std = F.softplus(self.std_head(hidden))
-        output_logits = torch.stack([mean, std], dim=-1)
-        return output_logits, td["action_mask"]
+        # todo: add std head
+        # std = F.softplus(self.std_head(hidden))
+        # output_logits = torch.stack([mean, std], dim=-1)
+        # todo: add mask
+        return mean
 
     def pre_decoder_hook(self, td, env, embeddings, num_starts: int = 0):
         return td, env, self._precompute_cache(embeddings, num_starts)
