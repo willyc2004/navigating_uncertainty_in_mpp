@@ -190,6 +190,7 @@ class MasterPlanningEnv(RL4COEnvBase):
     def _step(self, td: TensorDict) -> TensorDict:
         """Perform a step in the environment and return the next state."""
         ## Extraction and precompute
+        td["action"] = torch.clamp(td["action"], min=td["clip_min"])
         action, realized_demand, lhs_A, rhs, t, batch_size = self._extract_from_td(td)
         pol, pod, tau, k, rev = self._extract_cargo_parameters_for_step(t[0])
         utilization, target_long_crane, total_metrics = self._extract_from_state(td["state"])
@@ -199,31 +200,31 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Check done, update utilization, and compute violation
         done = self._check_done(t)
         utilization = self._update_state_loading(action, utilization, tau, k,)
-        violation = compute_violation(action.view(*batch_size, 1, -1), lhs_A, rhs)
-        # Compute long crane moves
+        # violation = compute_violation(action.view(*batch_size, 1, -1), lhs_A, rhs)
+        # # Compute long crane moves
         long_crane_moves = self._compute_long_crane(utilization, pol)
-        # Compute od-pairs
-        pol_locations, pod_locations = self._compute_pol_pod_locations(utilization)
-        agg_pol_location, agg_pod_location = self._aggregate_pol_pod_location(pol_locations, pod_locations)
+        # # Compute od-pairs
+        # pol_locations, pod_locations = self._compute_pol_pod_locations(utilization)
+        # agg_pol_location, agg_pod_location = self._aggregate_pol_pod_location(pol_locations, pod_locations)
         # Compute total loaded
         sum_action = action.sum(dim=(-2, -1)).unsqueeze(-1)
-        total_metrics["total_loaded"] += sum_action
+        # total_metrics["total_loaded"] += sum_action
 
         ## Reward
-        # revenue = sum_action * self.revenues[t[0]]
-        revenue = th.min(sum_action, demand_obs["current_demand"]) * self.revenues[t[0]]
-        profit = revenue.clone()
-        if self.next_port_mask[t].any():
-            # Compute aggregated: overstowage and long crane excess
-            overstowage = self._compute_hatch_overstowage(utilization, pol)
-            excess_crane_moves = th.clamp(long_crane_moves - target_long_crane.view(-1, 1), min=0)
-            # Compute costs
-            ho_costs = overstowage.sum(dim=-1, keepdim=True) * self.ho_costs
-            lc_costs = excess_crane_moves.sum(dim=-1, keepdim=True) * self.lc_costs
-            cost = ho_costs + lc_costs
-            profit -= cost
-        else:
-            cost = th.zeros_like(profit)
+        revenue = sum_action * self.revenues[t[0]]
+        # revenue = th.clamp(sum_action, min=th.zeros_like(sum_action), max=demand_obs["current_demand"]) * self.revenues[t[0]]
+        # profit = revenue.clone()
+        # if self.next_port_mask[t].any():
+        #     # Compute aggregated: overstowage and long crane excess
+        #     overstowage = self._compute_hatch_overstowage(utilization, pol)
+        #     excess_crane_moves = th.clamp(long_crane_moves - target_long_crane.view(-1, 1), min=0)
+        #     # Compute costs
+        #     ho_costs = overstowage.sum(dim=-1, keepdim=True) * self.ho_costs
+        #     lc_costs = excess_crane_moves.sum(dim=-1, keepdim=True) * self.lc_costs
+        #     cost = ho_costs + lc_costs
+        #     profit -= cost
+        # else:
+        #     cost = th.zeros_like(profit)
 
         ## Transition to next step
         # Update next state
@@ -231,14 +232,15 @@ class MasterPlanningEnv(RL4COEnvBase):
         next_state_dict = self._update_next_state(utilization, target_long_crane, long_crane_moves,
                                                   realized_demand, demand_obs, t,)
         if not done.any():
-            # Update feasibility: lhs_A, rhs, clip_max based on next state
-            lhs_A = self.create_lhs_A(lhs_A, t)
-            rhs = self.create_rhs(next_state_dict["utilization"], next_state_dict["current_demand"], batch_size)
+        #     # Update feasibility: lhs_A, rhs, clip_max based on next state
+        #     lhs_A = self.create_lhs_A(lhs_A, t)
+        #     rhs = self.create_rhs(next_state_dict["utilization"], next_state_dict["current_demand"], batch_size)
+
             # Express residual capacity in teu
             residual_capacity = th.clamp(self.capacity - next_state_dict["utilization"].sum(dim=-2)
-                                         @ self.teus, min=self.zero)
+                                         @ self.teus, min=self.zero) / self.capacity
         else:
-            residual_capacity = th.zeros_like(td["clip_max"], dtype=self.float_type).view(-1, self.B, self.D)
+            residual_capacity = td["clip_min"].view(-1, self.B, self.D)
 
         # # Update action mask
         # # action_mask[t] = 0
@@ -247,35 +249,34 @@ class MasterPlanningEnv(RL4COEnvBase):
         # new_mask = self._prevent_HO_mask(action_mask, pod, pod_locations, min_pod)
         # action_mask = th.where(mask_condition, new_mask, action_mask)
 
-        # Only for final port
+        # # Only for final port
         if t[0] == self.T*self.K:
-            # Compute last port long crane excess
-            lc_moves_last_port = self._compute_long_crane(utilization, pol)
-            lc_excess_last_port = th.clamp(lc_moves_last_port - next_state_dict["target_long_crane"].view(-1,1), min=0)
-
-            # Compute metrics
-            excess_crane_moves += lc_excess_last_port
-            lc_cost_ = lc_excess_last_port.sum(dim=-1, keepdim=True) * self.lc_costs
-            profit -= lc_cost_
-            cost += lc_cost_
-            lc_costs += lc_cost_
-            # set t back to fit clip max
+        #     # Compute last port long crane excess
+        #     lc_moves_last_port = self._compute_long_crane(utilization, pol)
+        #     lc_excess_last_port = th.clamp(lc_moves_last_port - next_state_dict["target_long_crane"].view(-1,1), min=0)
+        #
+        #     # Compute metrics
+        #     excess_crane_moves += lc_excess_last_port
+        #     lc_cost_ = lc_excess_last_port.sum(dim=-1, keepdim=True) * self.lc_costs
+        #     profit -= lc_cost_
+        #     cost += lc_cost_
+        #     lc_costs += lc_cost_
+        #     # set t back to fit clip max
             t -= 1
 
-        # Track metrics
-        total_metrics["total_rc"] += residual_capacity.view(*batch_size, -1)
+        # # Track metrics
+        # total_metrics["total_rc"] += residual_capacity.view(*batch_size, -1)
         total_metrics["total_revenue"] += revenue
-        total_metrics["total_cost"] += cost
-        # Normalize revenue \in [0,1]:
-        # revenue_norm = rev_t / max(rev_t) * min(q_t, sum(a_t)) / q_t
+        # total_metrics["total_cost"] += cost
+        # # Normalize revenue \in [0,1]:
+        # # revenue_norm = rev_t / max(rev_t) * min(q_t, sum(a_t)) / q_t
         normalize_revenue = self.revenues.max() * demand_obs["current_demand"]
-        # Normalize accumulated cost \in [0, t_cost], where t_cost is the time at which we evaluate cost:
-        # cost_norm = cost_{t_cost} / E[q_t]
-        normalize_cost = realized_demand.view(*batch_size, -1)[:,:t[0]].sum(dim=-1, keepdims=True) / t[0]
+        # # Normalize accumulated cost \in [0, t_cost], where t_cost is the time at which we evaluate cost:
+        # # cost_norm = cost_{t_cost} / E[q_t]
+        # normalize_cost = realized_demand.view(*batch_size, -1)[:,:t[0]].sum(dim=-1, keepdims=True) / t[0]
         # Normalize reward: r_t = revenue_norm - cost_norm
         # We have spikes over delayed costs at specific time steps.
-        reward = (revenue.clone() / normalize_revenue) - (cost.clone() / normalize_cost)
-        # print("next_t", t[0], "teu", self.teus_episode[t][0])
+        reward = (revenue.clone() / normalize_revenue) #- (cost.clone() / normalize_cost)
 
         # Update td output
         td.update({
@@ -284,11 +285,11 @@ class MasterPlanningEnv(RL4COEnvBase):
                 "utilization": next_state_dict["utilization"],
                 "target_long_crane": next_state_dict["target_long_crane"],
 
-                # Performance
-                "total_loaded": total_metrics["total_loaded"],
+                # # Performance
+                # "total_loaded": total_metrics["total_loaded"],
                 "total_revenue": total_metrics["total_revenue"],
-                "total_cost": total_metrics["total_cost"],
-                "total_rc": total_metrics["total_rc"],
+                # "total_cost": total_metrics["total_cost"],
+                # "total_rc": total_metrics["total_rc"],
             },
             "obs":{
                 # Demand
@@ -297,26 +298,28 @@ class MasterPlanningEnv(RL4COEnvBase):
                 "expected_demand": next_state_dict["expected_demand"].view(*batch_size, self.T*self.K),
                 "std_demand": next_state_dict["std_demand"].view(*batch_size, self.T*self.K),
                 # Vessel (in range [0, 1])
-                "residual_capacity": (residual_capacity/self.capacity.unsqueeze(0)).view(*batch_size, self.B * self.D),
-                "residual_lc_capacity": next_state_dict["residual_lc_capacity"].view(*batch_size, self.B-1),
-                "pol_location": pol_locations.view(*batch_size, -1).to(self.float_type),
-                "pod_location": pod_locations.view(*batch_size, -1).to(self.float_type),
-                "agg_pol_location": agg_pol_location.view(*batch_size, self.B * self.D),
-                "agg_pod_location": agg_pod_location.view(*batch_size, self.B * self.D),
+                "residual_capacity": residual_capacity.view(*batch_size, self.B*self.D),
+                # "residual_capacity": (residual_capacity/self.capacity.unsqueeze(0)).view(*batch_size, self.B * self.D),
+                # "residual_lc_capacity": next_state_dict["residual_lc_capacity"].view(*batch_size, self.B-1),
+                # "pol_location": pol_locations.view(*batch_size, -1).to(self.float_type),
+                # "pod_location": pod_locations.view(*batch_size, -1).to(self.float_type),
+                # "agg_pol_location": agg_pol_location.view(*batch_size, self.B * self.D),
+                # "agg_pod_location": agg_pod_location.view(*batch_size, self.B * self.D),
             },
 
-            # Feasibility and constraints
-            "lhs_A": lhs_A,
-            "rhs": rhs,
-            "violation": violation,
-            # in containers # todo: check if this clip_max is correct for next step
-            "clip_max": (residual_capacity / self.teus_episode[t].view(-1, 1, 1)).view(*batch_size, self.B*self.D),
+            # # Feasibility and constraints
+            # "lhs_A": lhs_A,
+            # "rhs": rhs,
+            # "violation": violation,
+            # # in containers # todo: check if this clip_max is correct for next step
+            # "clip_max": (residual_capacity / self.teus_episode[t].view(-1, 1, 1)).view(*batch_size, self.B*self.D),
+            # # Profit metrics
+            # "profit": profit,
+            # "revenue": revenue,
+            # "cost": cost,
             # Action, reward, done and step
             "action": action.view(*batch_size, self.B*self.D),
             "reward": reward,
-            "profit": profit,
-            "revenue": revenue,
-            "cost": cost,
             "done": done,
             "timestep":t,
         })
@@ -341,7 +344,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         residual_capacity = (self.capacity / self.teus[t[0]]).unsqueeze(0).repeat(*batch_size, 1, 1)
         target_long_crane = self._compute_target_long_crane(td["realized_demand"].view(*batch_size, self.T, self.K),
                                                             self.moves_idx[t[0]])
-        utilization = th.zeros((*batch_size, self.B, self.D, self.T, self.K), device=device, dtype=self.float_type)
+        utilization = th.zeros((*batch_size, self.B, self.D, self.T, self.K), device=device, dtype=torch.float32)
         locations_utilization = th.zeros_like(action_mask, dtype=self.float_type)
         port_locations = th.zeros((*batch_size, self.B*self.D*self.P), dtype=self.float_type)
         # Demand
@@ -352,7 +355,7 @@ class MasterPlanningEnv(RL4COEnvBase):
         # Constraints
         lhs_A = self.create_lhs_A(
             th.zeros((*batch_size, self.n_constraints, self.B * self.D),  device=device, dtype=self.float_type), t)
-        rhs = self.create_rhs(utilization, current_demand, batch_size)
+        rhs = self.create_rhs(utilization.to(self.float_type), current_demand, batch_size)
 
         # Init tds - state: internal state
         initial_state = TensorDict({
@@ -457,7 +460,7 @@ class MasterPlanningEnv(RL4COEnvBase):
     # Reward/costs functions
     def _get_reward(self, td, utilizations) -> Tensor:
         """Compute total profit for episode"""
-        return td["state"]["total_revenue"] - td["state"]["total_cost"]
+        return (td["state"]["total_revenue"] - td["state"]["total_cost"])/1000
 
     def _compute_min_pod(self,pod_locations: Tensor) -> Tensor:
         """Compute min_pod based on utilization"""

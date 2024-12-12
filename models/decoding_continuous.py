@@ -537,10 +537,10 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
         Get logprobs based on sampled action."""
         clip_min = kwargs.get("clip_min", None)
         clip_max = kwargs.get("clip_max", None)
-        if clip_min is not None and clip_max is not None:
-            dist = ClippedGaussian(mean_logits, std_logits, clip_min, clip_max)
-        else:
-            dist = Normal(mean_logits, std_logits)
+        # if clip_min is not None and clip_max is not None:
+        #     dist = ClippedGaussian(mean_logits, std_logits, clip_min, clip_max)
+        # else:
+        dist = Normal(mean_logits, std_logits)
 
         # sample and get log probs
         if selected is None:

@@ -201,7 +201,7 @@ class AttentionModelDecoder(AutoregressiveDecoder):
         # logits = self.pointer(glimpse_q, glimpse_k, glimpse_v, logit_k, mask)
         logits = self.mlp(glimpse_q)
         mean = self.mean_head(logits).squeeze()
-        std = F.softplus(self.std_head(logits)).squeeze()
+        std = self.std_head(logits).squeeze()
         output_logits = torch.stack([mean, std], dim=-1)
 
         # Now we need to reshape the logits and mask to [B*S,N,...] is num_starts > 1 without dynamic embeddings

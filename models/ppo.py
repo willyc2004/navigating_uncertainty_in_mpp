@@ -67,10 +67,10 @@ class ProjectionPPO(RL4COLitModule):
         critic: CriticNetwork = None,
         critic_kwargs: dict = {},
         update_timestep: int = 1,
-        clip_range: float = 0.1,  # epsilon of PPO
+        clip_range: float = 0.2,  # epsilon of PPO
         ppo_epochs: int = 3,  # inner epoch, K
         vf_lambda: float = 0.5,  # lambda of Value function fitting
-        entropy_lambda: float = 0.0,  # lambda of entropy bonus
+        entropy_lambda: float = 1.0,  # lambda of entropy bonus
         feasibility_lambda: float = 1.0,  # lambda of feasibility loss
         demand_lambda: float = 1.0,  # lambda of demand violations
         stability_lambda: float = 1.0,  # lambda of stability violations
@@ -80,7 +80,6 @@ class ProjectionPPO(RL4COLitModule):
         normalize_return: bool = False,  # whether to normalize return
         max_grad_norm: float = 0.5,  # max gradient norm
         kl_threshold: float = 0.03,  # KL threshold
-        kl_penalty_lambda: float = 1.0,  # KL penalty coefficient
         batch_size: int = 512,  # batch size
         mini_batch_size: Union[int, float] = 0.25,  # mini batch size,
         gamma: float = 0.99,  # gamma
@@ -88,13 +87,7 @@ class ProjectionPPO(RL4COLitModule):
         n_step: float = 72,  # n-step for n-step PPO
         T_train: int = 72,  # the maximum inference T used for training
         T_test: int = 72,  # the maximum inference T used for test
-        lr: float = 1e-4,  # learning rate of policy network
-        lr_scheduler=torch.optim.lr_scheduler.ExponentialLR,
-        lr_scheduler_kwargs: dict = {
-            "gamma": 0.985,  # the learning decay per epoch,
-            },
-            lr_scheduler_interval: str = "epoch",
-            lr_scheduler_monitor=None,
+        lr: float = 1e-3,  # learning rate of policy network
         metrics: dict = {
             "train": ["reward", "loss", "surrogate_loss", "value_loss", "entropy",
                       "ratio", "adv", "value_pred", "return"],
@@ -257,13 +250,6 @@ class ProjectionPPO(RL4COLitModule):
                     # compute value function loss
                     value_loss = F.huber_loss(value_pred, returns)
 
-                    # compute total loss
-                    loss = (
-                            surrogate_loss
-                            + self.ppo_cfg["vf_lambda"] * value_loss
-                            - self.ppo_cfg["entropy_lambda"] * entropy.mean()
-                    )
-
                     # Compute feasibility and projection losses
                     if self.env.name == "mpp":
                         mean_logits = out["logits"][..., 0]
@@ -285,8 +271,14 @@ class ProjectionPPO(RL4COLitModule):
                             surrogate_loss
                             + self.ppo_cfg["vf_lambda"] * value_loss
                             - self.ppo_cfg["entropy_lambda"] * entropy.mean()
-                            + self.ppo_cfg["feasibility_lambda"] * feasibility_loss
+                            # + self.ppo_cfg["feasibility_lambda"] * feasibility_loss
                             # + self.ppo_cfg["projection_lambda"] * projection_loss
+                        )
+                    else:
+                        # compute total loss
+                        loss = (surrogate_loss
+                                + self.ppo_cfg["vf_lambda"] * value_loss
+                                - self.ppo_cfg["entropy_lambda"] * entropy.mean()
                         )
 
                     # perform manual optimization following the Lightning routine
@@ -308,7 +300,7 @@ class ProjectionPPO(RL4COLitModule):
                     "loss": loss,
                     "surrogate_loss": surrogate_loss,
                     "value_loss": value_loss,
-                    "entropy": entropy.mean(),
+                    "entropy": - self.ppo_cfg["entropy_lambda"] * entropy.mean(),
                     # Supporting to loss
                     "ratio": ratio.mean(),
                     "adv": adv.mean(),

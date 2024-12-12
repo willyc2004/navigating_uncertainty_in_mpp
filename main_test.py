@@ -65,18 +65,18 @@ def make_env(env_kwargs, device):
     return MasterPlanningEnv(**env_kwargs).to(device)
     # return PortMasterPlanningEnv(**env_kwargs).to(device).half()
 
-def check_env_specs(env):
-    """Verifies that the environment's specifications (action and observation spaces) are valid."""
-    try:
-        action_spec = env.action_spec
-        observation_spec = env.observation_spec
-        print("Action space shape:", action_spec.shape)
-        print("Observation space shape:", observation_spec.shape)
-        return True
-    except AttributeError as e:
-        print(f"Error: {e}")
-        print("Please make sure your environment defines valid action_spec and observation_spec properties.")
-        return False
+# def check_env_specs(env):
+#     """Verifies that the environment's specifications (action and observation spaces) are valid."""
+#     try:
+#         action_spec = env.action_spec
+#         observation_spec = env.observation_spec
+#         print("Action space shape:", action_spec.shape)
+#         print("Observation space shape:", observation_spec.shape)
+#         return True
+#     except AttributeError as e:
+#         print(f"Error: {e}")
+#         print("Please make sure your environment defines valid action_spec and observation_spec properties.")
+#         return False
 
 def main(config: Optional[DotMap] = None):
     # Initialize torch and cuda
@@ -98,9 +98,13 @@ def main(config: Optional[DotMap] = None):
     emb_dim = 128
     env_kwargs = config.env
     env = make_env(env_kwargs, device)
+
+    print(env.batch_size)
+    breakpoint()
+    # check_env_specs(env)
+
     # env = DenseRewardTSPEnv(generator_params=dict(num_loc=100),)
     # env = SDVRPEnv(generator_params=dict(num_loc=100),)
-    check_env_specs(env)
     td = env.reset(batch_size=32)
 
     # Model: default is AM with REINFORCE and greedy rollout baseline
