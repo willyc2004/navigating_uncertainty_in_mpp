@@ -188,6 +188,7 @@ class MasterPlanningEnv(EnvBase):
             total_revenue=UnboundedContinuousTensorSpec(shape=(*batch_size,1), dtype=self.float_type),
             total_cost=UnboundedContinuousTensorSpec(shape=(*batch_size,1), dtype=self.float_type),
             total_rc=UnboundedContinuousTensorSpec(shape=(*batch_size,self.B*self.D), dtype=self.float_type),
+            total_violation=UnboundedContinuousTensorSpec(shape=(*batch_size,self.n_constraints), dtype=self.float_type),
             current_demand=UnboundedContinuousTensorSpec(shape=(*batch_size, 1), dtype=torch.float32),
             observed_demand=UnboundedContinuousTensorSpec(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
             expected_demand=UnboundedContinuousTensorSpec(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
@@ -279,6 +280,8 @@ class MasterPlanningEnv(EnvBase):
             violation = torch.bmm(lhs_A, action.view(*batch_size, -1, 1)) - rhs.unsqueeze(-1)
         else:
             raise ValueError("lhs_A has wrong dimensions.")
+        violation = torch.clamp(violation, min=0).view(*batch_size, -1)
+        total_metrics["total_violation"] += violation.clone()
 
         # Compute long crane moves
         long_crane_moves = self._compute_long_crane(utilization, pol)
@@ -373,6 +376,7 @@ class MasterPlanningEnv(EnvBase):
                 "total_revenue": total_metrics["total_revenue"],
                 "total_cost": total_metrics["total_cost"],
                 "total_rc": total_metrics["total_rc"],
+                "total_violation": total_metrics["total_violation"],
                 # Demand
                 "current_demand": next_state_dict["current_demand"].view(*batch_size, 1),
                 "observed_demand": next_state_dict["observed_demand"].view(*batch_size, self.T * self.K),
@@ -466,6 +470,7 @@ class MasterPlanningEnv(EnvBase):
             "total_revenue": th.zeros_like(current_demand, dtype=self.float_type),
             "total_cost": th.zeros_like(current_demand, dtype=self.float_type),
             "total_rc": th.zeros_like(locations_utilization),
+            "total_violation": th.zeros_like(rhs, dtype=self.float_type),
             # Demand
             "current_demand": current_demand.view(*batch_size, 1),
             "observed_demand": td["observed_demand"].view(*batch_size, self.T * self.K),
@@ -572,6 +577,7 @@ class MasterPlanningEnv(EnvBase):
             "total_revenue": state["total_revenue"].view(*batch_size, 1).clone(),
             "total_cost": state["total_cost"].view(*batch_size, 1).clone(),
             "total_rc": state["total_rc"].view(*batch_size, self.B * self.D).clone(),
+            "total_violation": state["total_violation"].view(*batch_size, self.n_constraints).clone()
         }
         return utilization, target_long_crane, demand, total_metrics
 
