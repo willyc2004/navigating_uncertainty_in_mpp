@@ -108,7 +108,8 @@ class MasterPlanningEnv(EnvBase):
         self.stability_params_lhs = self._precompute_stability_parameters()
 
         # Constraints
-        self.constraint_signs = th.tensor([1, 1, -1, 1, -1], device=self.generator.device, dtype=self.float_type)
+        self.constraint_signs = th.tensor([1, 0, 0, 0, 0], device=self.generator.device, dtype=self.float_type)
+        # #th.tensor([1, 1, -1, 1, -1], device=self.generator.device, dtype=self.float_type)
         self.swap_signs_stability = th.tensor([1, -1, -1, -1, -1], device=self.generator.device, dtype=self.float_type)
         self.A = self._create_constraint_matrix(shape=(self.n_constraints, self.n_action, self.T, self.K))
 
@@ -196,10 +197,6 @@ class MasterPlanningEnv(EnvBase):
         ## Current state
         # Action clipping
         action = action.clamp(min=td["clip_min"].view(*batch_size, self.B, self.D), max=td["clip_max"].view(*batch_size, self.B, self.D))
-        # if self.teus_episode[t].mean() == 2 and td["clip_max"].mean() > 0.5:
-        #     raise ValueError("Clip max is too high!")
-        # elif self.teus_episode[t].mean() == 1 and td["clip_max"].mean() < 0.5:
-        #     raise ValueError("Clip max is too low!")
 
         # Check done, update utilization, and compute violation
         done = self._check_done(t)
@@ -295,7 +292,7 @@ class MasterPlanningEnv(EnvBase):
 
         # Update td output
         obs = self._get_observation(next_state_dict, residual_capacity,  agg_pol_location, agg_pod_location, t, batch_size)
-
+        clip_max = (residual_capacity * self.capacity.unsqueeze(0) / self.teus_episode[t].view(*batch_size, 1, 1))
         # todo: reduce number of outputs in td (way too much now)
         out =  TensorDict({
             "state":{
@@ -337,7 +334,7 @@ class MasterPlanningEnv(EnvBase):
             "violation": violation.view(*batch_size, self.n_constraints),
             # in containers
             "clip_min": th.zeros_like(residual_capacity, dtype=self.float_type).view(*batch_size, self.B*self.D),
-            "clip_max": (residual_capacity / self.teus_episode[t].view(*batch_size, 1, 1)).view(*batch_size, self.B*self.D),
+            "clip_max": clip_max.view(*batch_size, self.B*self.D),
             # Profit metrics
             "profit": profit,
             "revenue": revenue,
