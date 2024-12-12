@@ -146,14 +146,14 @@ def main(config: Optional[DotMap] = None):
 
     # todo: add more complex model
     net = nn.Sequential(
-        nn.LazyLinear(64),
-        nn.Tanh(),
-        nn.LazyLinear(64),
-        nn.Tanh(),
-        nn.LazyLinear(64),
-        nn.Tanh(),
+        nn.LazyLinear(1000),
+        nn.ReLU(),
+        nn.LazyLinear(1000),
+        nn.ReLU(),
+        nn.LazyLinear(1000),
+        nn.ReLU(),
         nn.LazyLinear(env.action_spec.shape[0]),
-    ).to(device).to(torch.float16)
+    ).to(device).to(env.float_type)
 
     policy = TensorDictModule(
         net,
@@ -161,7 +161,7 @@ def main(config: Optional[DotMap] = None):
         out_keys=["action"],
     )
 
-    optim = torch.optim.Adam(policy.parameters(), lr=1e-3)
+    optim = torch.optim.Adam(policy.parameters(), lr=1e-4)
 
     batch_size = 32
     pbar = tqdm.tqdm(range(20_000 // batch_size))
@@ -169,17 +169,35 @@ def main(config: Optional[DotMap] = None):
     logs = defaultdict(list)
 
     for _ in pbar:
-        gen_td = env.generator(batch_size=batch_size)
-        init_td = env.reset(gen_td) # todo: change td setup - possibly causes issues
-        rollout = env.rollout(100, policy, tensordict=init_td, auto_reset=False)
+        init_td = env.reset(env.generator(batch_size=batch_size))
+        rollout = env.rollout(72, policy, tensordict=init_td, auto_reset=False)
         traj_return = rollout["next", "reward"].mean()
+
+        # # Debugging checks
+        # if torch.isnan(init_td["observation"]).any():
+        #     raise ValueError("NaN detected in initial observations!")
+        # # Check rewards after rollout
+        # if torch.isnan(rollout["next", "reward"]).any():
+        #     raise ValueError("NaN detected in rewards after rollout!")
+        # # Check model output (actions) after policy call
+        # actions = policy(init_td)["action"]
+        # if torch.isnan(actions).any():
+        #     raise ValueError("NaN detected in policy actions!")
+        #
+        # print(f"Policy actions: {actions.mean(), actions.shape}")
+        # if torch.isnan(traj_return):
+        #     raise ValueError("NaN detected in trajectory return!")
+        #
+        # print(f"Trajectory return: {traj_return}")
+
         (-traj_return).backward()
-        gn = torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
+        gn = torch.nn.utils.clip_grad_norm_(net.parameters(), 0.5)
         optim.step()
         optim.zero_grad()
         pbar.set_description(
             f"reward: {traj_return: 4.4f}, "
             f"last reward: {rollout[..., -1]['next', 'reward'].mean(): 4.4f}, gradient norm: {gn: 4.4}"
+            f"last total_revenue: {rollout[..., -1]['next', 'state', 'total_revenue'].mean(): 4.4f}"
         )
         logs["return"].append(traj_return.item())
         logs["last_reward"].append(rollout[..., -1]["next", "reward"].mean().item())
