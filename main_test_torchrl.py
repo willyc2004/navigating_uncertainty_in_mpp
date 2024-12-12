@@ -20,7 +20,7 @@ from torchrl.modules import ProbabilisticActor, IndependentNormal
 from rl4co.models.zoo.am.encoder import AttentionModelEncoder
 
 # Custom
-from environment.env_ import MasterPlanningEnv
+from environment.env_torchrl import MasterPlanningEnv
 from environment.embeddings import MPPInitEmbedding, StaticEmbedding, MPPContextEmbedding
 from models.encoder import MLPEncoder
 from models.decoder import AttentionDecoderWithCache, MLPDecoderWithCache
@@ -130,6 +130,7 @@ def train(batch_size, train_data_size, policy, env, model, optim):
             f"last total_revenue: {rollout[..., -1]['next', 'state', 'total_revenue'].mean(): 4.4f}, "
             f"last total_cost: {rollout[..., -1]['next', 'state', 'total_cost'].mean(): 4.4f}, "
             f"last total_loaded: {rollout[..., -1]['next', 'state', 'total_loaded'].mean(): 4.4f}, "
+            f"total demand: {rollout[..., -1]['next', 'realized_demand'].sum(dim=-1).mean(): 4.4f},"
             f"last total_violation: {rollout[..., -1]['next', 'state', 'total_violation'].sum(dim=-1).mean(): 4.4f}, "
             f"gradient norm: {gn: 4.4}, "
         )
