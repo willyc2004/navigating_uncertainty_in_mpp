@@ -7,10 +7,9 @@ from torch import Tensor
 from tensordict.tensordict import TensorDict
 from torchrl.envs.common import EnvBase
 from torchrl.data import (
-    BoundedTensorSpec,
-    CompositeSpec,
-    UnboundedContinuousTensorSpec,
-    UnboundedDiscreteTensorSpec,
+    Bounded,
+    Unbounded,
+    Composite,
 )
 from rl4co.envs.common.base import RL4COEnvBase
 from rl4co.envs.common.utils import Generator
@@ -179,69 +178,69 @@ class MasterPlanningEnv(EnvBase):
         """Define the specs for observations, actions, rewards, and done flags."""
         # todo: use this as overview and clean-up this messiness!
         batch_size = td.batch_size
-        observation_spec = UnboundedContinuousTensorSpec(shape=(*batch_size,133), dtype=self.float_type)
+        observation_spec = Unbounded(shape=(*batch_size,277), dtype=self.float_type)
         # 286
-        state_spec = CompositeSpec(
-            utilization=UnboundedContinuousTensorSpec(shape=(*batch_size,self.B*self.D*self.T*self.K), dtype=self.float_type),
-            target_long_crane=UnboundedContinuousTensorSpec(shape=(*batch_size,1), dtype=self.float_type),
-            total_loaded=UnboundedContinuousTensorSpec(shape=(*batch_size,1), dtype=self.float_type),
-            total_revenue=UnboundedContinuousTensorSpec(shape=(*batch_size,1), dtype=self.float_type),
-            total_cost=UnboundedContinuousTensorSpec(shape=(*batch_size,1), dtype=self.float_type),
-            total_rc=UnboundedContinuousTensorSpec(shape=(*batch_size,self.B*self.D), dtype=self.float_type),
-            total_violation=UnboundedContinuousTensorSpec(shape=(*batch_size,self.n_constraints), dtype=self.float_type),
-            current_demand=UnboundedContinuousTensorSpec(shape=(*batch_size, 1), dtype=torch.float32),
-            observed_demand=UnboundedContinuousTensorSpec(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
-            expected_demand=UnboundedContinuousTensorSpec(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
-            std_demand=UnboundedContinuousTensorSpec(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
-            residual_capacity=UnboundedContinuousTensorSpec(shape=(*batch_size, self.B * self.D),
+        state_spec = Composite(
+            utilization=Unbounded(shape=(*batch_size,self.B*self.D*self.T*self.K), dtype=self.float_type),
+            target_long_crane=Unbounded(shape=(*batch_size,1), dtype=self.float_type),
+            total_loaded=Unbounded(shape=(*batch_size,1), dtype=self.float_type),
+            total_revenue=Unbounded(shape=(*batch_size,1), dtype=self.float_type),
+            total_cost=Unbounded(shape=(*batch_size,1), dtype=self.float_type),
+            total_rc=Unbounded(shape=(*batch_size,self.B*self.D), dtype=self.float_type),
+            total_violation=Unbounded(shape=(*batch_size,self.n_constraints), dtype=self.float_type),
+            current_demand=Unbounded(shape=(*batch_size, 1), dtype=torch.float32),
+            observed_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
+            expected_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
+            std_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
+            residual_capacity=Unbounded(shape=(*batch_size, self.B * self.D),
                                                             dtype=self.float_type),
-            residual_lc_capacity=UnboundedContinuousTensorSpec(shape=(*batch_size, self.B - 1), dtype=self.float_type),
-            pol_location=UnboundedContinuousTensorSpec(shape=(*batch_size, self.B * self.D * self.P),
+            residual_lc_capacity=Unbounded(shape=(*batch_size, self.B - 1), dtype=self.float_type),
+            pol_location=Unbounded(shape=(*batch_size, self.B * self.D * self.P),
                                                        dtype=self.float_type),
-            pod_location=UnboundedContinuousTensorSpec(shape=(*batch_size, self.B * self.D * self.P),
+            pod_location=Unbounded(shape=(*batch_size, self.B * self.D * self.P),
                                                        dtype=self.float_type),
-            agg_pol_location=UnboundedContinuousTensorSpec(shape=(*batch_size, self.B * self.D), dtype=self.float_type),
-            agg_pod_location=UnboundedContinuousTensorSpec(shape=(*batch_size, self.B * self.D), dtype=self.float_type),
+            agg_pol_location=Unbounded(shape=(*batch_size, self.B * self.D), dtype=self.float_type),
+            agg_pod_location=Unbounded(shape=(*batch_size, self.B * self.D), dtype=self.float_type),
             shape=batch_size,
         )
-        self.observation_spec = CompositeSpec(
+        self.observation_spec = Composite(
             # Obs and state
             observation=observation_spec,
             state=state_spec,
 
             # Action, batch_updates, timestep
-            action=UnboundedContinuousTensorSpec(shape=(*batch_size, self.B * self.D), dtype=self.float_type),
-            batch_updates=UnboundedContinuousTensorSpec(shape=(*batch_size,), dtype=torch.float32),
-            timestep=UnboundedDiscreteTensorSpec(shape=(*batch_size,1), dtype=th.int64),
+            action=Unbounded(shape=(*batch_size, self.B * self.D), dtype=self.float_type),
+            batch_updates=Unbounded(shape=(*batch_size,), dtype=torch.float32),
+            timestep=Unbounded(shape=(*batch_size,1), dtype=th.int64),
 
             # Performance
-            profit=UnboundedContinuousTensorSpec(shape=(*batch_size,1), dtype=torch.float32),
-            revenue=UnboundedContinuousTensorSpec(shape=(*batch_size,1), dtype=torch.float32),
-            cost=UnboundedContinuousTensorSpec(shape=(*batch_size,1), dtype=torch.float32),
+            profit=Unbounded(shape=(*batch_size,1), dtype=torch.float32),
+            revenue=Unbounded(shape=(*batch_size,1), dtype=torch.float32),
+            cost=Unbounded(shape=(*batch_size,1), dtype=torch.float32),
 
             # Demand
-            realized_demand=UnboundedContinuousTensorSpec(shape=(*batch_size,self.T*self.K),dtype=torch.float32),
-            observed_demand=UnboundedContinuousTensorSpec(shape=(*batch_size,self.T*self.K),dtype=torch.float32),
-            expected_demand=UnboundedContinuousTensorSpec(shape=(*batch_size,self.T*self.K),dtype=torch.float32),
-            std_demand=UnboundedContinuousTensorSpec(shape=(*batch_size,self.T*self.K),dtype=torch.float32),
-            init_expected_demand=UnboundedContinuousTensorSpec(shape=(*batch_size,self.T*self.K),dtype=torch.float32),
+            realized_demand=Unbounded(shape=(*batch_size,self.T*self.K),dtype=torch.float32),
+            observed_demand=Unbounded(shape=(*batch_size,self.T*self.K),dtype=torch.float32),
+            expected_demand=Unbounded(shape=(*batch_size,self.T*self.K),dtype=torch.float32),
+            std_demand=Unbounded(shape=(*batch_size,self.T*self.K),dtype=torch.float32),
+            init_expected_demand=Unbounded(shape=(*batch_size,self.T*self.K),dtype=torch.float32),
 
             # Constraints
-            clip_min=UnboundedContinuousTensorSpec(shape=(*batch_size,self.B*self.D),dtype=self.float_type),
-            clip_max=UnboundedContinuousTensorSpec(shape=(*batch_size,self.B*self.D),dtype=self.float_type),
-            lhs_A=UnboundedContinuousTensorSpec(shape=(*batch_size,self.n_constraints,self.B*self.D),dtype=self.float_type),
-            rhs=UnboundedContinuousTensorSpec(shape=(*batch_size,self.n_constraints),dtype=self.float_type),
-            violation=UnboundedContinuousTensorSpec(shape=(*batch_size,self.n_constraints),dtype=self.float_type),
+            clip_min=Unbounded(shape=(*batch_size,self.B*self.D),dtype=self.float_type),
+            clip_max=Unbounded(shape=(*batch_size,self.B*self.D),dtype=self.float_type),
+            lhs_A=Unbounded(shape=(*batch_size,self.n_constraints,self.B*self.D),dtype=self.float_type),
+            rhs=Unbounded(shape=(*batch_size,self.n_constraints),dtype=self.float_type),
+            violation=Unbounded(shape=(*batch_size,self.n_constraints),dtype=self.float_type),
             shape=batch_size,
         )
-        self.action_spec = BoundedTensorSpec(
+        self.action_spec = Bounded(
             shape=(*batch_size, self.B*self.D),  # Define shape as needed
             low=0.0,
             high=10.0,  # Define high value as needed
             dtype=self.float_type,
         )
-        self.reward_spec = UnboundedContinuousTensorSpec(shape=(*batch_size,1,))
-        self.done_spec = UnboundedDiscreteTensorSpec(shape=(*batch_size,1,), dtype=th.bool)
+        self.reward_spec = Unbounded(shape=(*batch_size,1,))
+        self.done_spec = Unbounded(shape=(*batch_size,1,), dtype=th.bool)
 
     def check_solution_validity(self, td, actions) -> th.bool:
         """Check solution validity"""
@@ -588,8 +587,8 @@ class MasterPlanningEnv(EnvBase):
             # Demand
             next_state_dict["current_demand"].view(*batch_size, 1),
             next_state_dict["observed_demand"].view(*batch_size, self.T * self.K),
-            # next_state_dict["expected_demand"].view(*batch_size, self.T * self.K),
-            # next_state_dict["std_demand"].view(*batch_size, self.T * self.K),
+            next_state_dict["expected_demand"].view(*batch_size, self.T * self.K),
+            next_state_dict["std_demand"].view(*batch_size, self.T * self.K),
             # Vessel
             residual_capacity.view(*batch_size, self.B * self.D),
             # next_state_dict["residual_lc_capacity"].view(*batch_size, self.B - 1),
