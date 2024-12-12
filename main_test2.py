@@ -1,33 +1,18 @@
 import os
-import time
 import yaml
-import numpy as np
 import torch
 import tqdm
 
 from collections import defaultdict
 from typing import Optional
 from dotmap import DotMap
-from tensordict import TensorDict, TensorDictBase
 from tensordict.nn import TensorDictModule
 from torch import nn
 
 # TorchRL
-from torchrl.envs import (
-    ParallelEnv,
-    CatTensors,
-    EnvBase,
-    Transform,
-    TransformedEnv,
-    UnsqueezeTransform,
-)
-from torchrl.envs.transforms import Transform, ObservationNorm, StepCounter
-from torchrl.envs.transforms.transforms import _apply_to_composite
-from torchrl.envs.utils import check_env_specs, step_mdp
-from torchrl.data import Bounded, Composite, Unbounded
+from torchrl.envs.utils import check_env_specs
 
 # Custom Environment
-from environment.env_example import PendulumEnv
 from environment.env_ import MasterPlanningEnv
 
 def adapt_env_kwargs(config):
@@ -37,82 +22,25 @@ def adapt_env_kwargs(config):
     config.env.capacity = [50] if config.env.TEU == 1000 else [500]
     return config
 
-
 def make_env(env_kwargs:DotMap, device: torch.device = torch.device("cuda")):
     """Setup and transform the Pendulum environment."""
-    env = MasterPlanningEnv(**env_kwargs)  # Custom environment
-    # # Apply necessary transforms
-    # env = PendulumEnv()
-    # env = TransformedEnv(
-    #     env,
-    #     # ``Unsqueeze`` the observations that we will concatenate
-    #     UnsqueezeTransform(
-    #         dim=-1,
-    #         in_keys=["th", "thdot"],
-    #         in_keys_inv=["th", "thdot"],
-    #     ),
-    # )
-    #
-    # t_sin = SinTransform(in_keys=["th"], out_keys=["sin"])
-    # t_cos = CosTransform(in_keys=["th"], out_keys=["cos"])
-    # env.append_transform(t_sin)
-    # env.append_transform(t_cos)
-    #
-    # cat_transform = CatTensors(
-    #     in_keys=["sin", "cos", "thdot"], dim=-1, out_key="observation", del_keys=False
-    # )
-    # env.append_transform(cat_transform)
+    return MasterPlanningEnv(**env_kwargs).to(device)  # Custom environment
 
-    # Move the environment to the specified device
-    transformed_env = env.to(device)
-    return transformed_env
+class SimplePolicy(nn.Module):
+    def __init__(self, hidden_dim, act_dim, device: torch.device = torch.device("cuda"), dtype=torch.float32):
+        super().__init__()
+        self.net = nn.Sequential(
+        nn.LazyLinear(hidden_dim),
+        nn.ReLU(),
+        nn.LazyLinear(hidden_dim),
+        nn.ReLU(),
+        nn.LazyLinear(hidden_dim),
+        nn.ReLU(),
+        nn.LazyLinear(act_dim),
+    ).to(device).to(dtype)
 
-class SinTransform(Transform):
-    def _apply_transform(self, obs: torch.Tensor) -> None:
-        return obs.sin()
-
-    # The transform must also modify the data at reset time
-    def _reset(
-        self, tensordict: TensorDictBase, tensordict_reset: TensorDictBase
-    ) -> TensorDictBase:
-        return self._call(tensordict_reset)
-
-    # _apply_to_composite will execute the observation spec transform across all
-    # in_keys/out_keys pairs and write the result in the observation_spec which
-    # is of type ``Composite``
-    @_apply_to_composite
-    def transform_observation_spec(self, observation_spec):
-        return Bounded(
-            low=-1,
-            high=1,
-            shape=observation_spec.shape,
-            dtype=observation_spec.dtype,
-            device=observation_spec.device,
-        )
-
-
-class CosTransform(Transform):
-    def _apply_transform(self, obs: torch.Tensor) -> None:
-        return obs.cos()
-
-    # The transform must also modify the data at reset time
-    def _reset(
-        self, tensordict: TensorDictBase, tensordict_reset: TensorDictBase
-    ) -> TensorDictBase:
-        return self._call(tensordict_reset)
-
-    # _apply_to_composite will execute the observation spec transform across all
-    # in_keys/out_keys pairs and write the result in the observation_spec which
-    # is of type ``Composite``
-    @_apply_to_composite
-    def transform_observation_spec(self, observation_spec):
-        return Bounded(
-            low=-1,
-            high=1,
-            shape=observation_spec.shape,
-            dtype=observation_spec.dtype,
-            device=observation_spec.device,
-        )
+    def forward(self, x):
+        return self.net(x)
 
 def main(config: Optional[DotMap] = None):
     # Initialize torch and cuda
@@ -133,24 +61,13 @@ def main(config: Optional[DotMap] = None):
     ## Environment initialization
     env_kwargs = config.env
     env = make_env(env_kwargs)
+    env.set_seed(seed)
     # env = ParallelEnv(4, make_env)     # todo: fix parallel env
     check_env_specs(env)  # this must pass for ParallelEnv to work
 
-    # Simple training
-    torch.manual_seed(0)
-    env.set_seed(0)
-
-    # todo: add more complex model
-    net = nn.Sequential(
-        nn.LazyLinear(1000),
-        nn.ReLU(),
-        nn.LazyLinear(1000),
-        nn.ReLU(),
-        nn.LazyLinear(1000),
-        nn.ReLU(),
-        nn.LazyLinear(env.action_spec.shape[0]),
-    ).to(device).to(env.float_type)
-
+    ## Model initialization
+    # todo: more complex model
+    net = SimplePolicy(hidden_dim=128, act_dim=env.action_spec.shape[0], device=device, dtype=env.float_type)
     policy = TensorDictModule(
         net,
         in_keys=["observation", ],
@@ -158,13 +75,15 @@ def main(config: Optional[DotMap] = None):
     )
     optim = torch.optim.Adam(policy.parameters(), lr=1e-5)
 
+    ## Hyperparameters
     batch_size = 64
     total_train_steps = 1_000_000
-    pbar = tqdm.tqdm(range(total_train_steps // batch_size))
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, 20_000)
-    logs = defaultdict(list)
 
+    ## Training
     # torch.autograd.set_detect_anomaly(True)
+    pbar = tqdm.tqdm(range(total_train_steps // batch_size))
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, total_train_steps)
+    logs = defaultdict(list)
     for _ in pbar:
         init_td = env.reset(env.generator(batch_size=batch_size))
         rollout = env.rollout(72, policy, tensordict=init_td, auto_reset=False)
@@ -188,26 +107,7 @@ def main(config: Optional[DotMap] = None):
         logs["last_reward"].append(rollout[..., -1]["next", "reward"].mean().item())
         scheduler.step()
 
-        # # Debugging checks
-        # if torch.isnan(init_td["observation"]).any():
-        #     raise ValueError("NaN detected in initial observations!")
-        # # Check rewards after rollout
-        # if torch.isnan(rollout["next", "reward"]).any():
-        #     raise ValueError("NaN detected in rewards after rollout!")
-        # # Check model output (actions) after policy call
-        # actions = policy(init_td)["action"]
-        # if torch.isnan(actions).any():
-        #     raise ValueError("NaN detected in policy actions!")
-        #
-        # print(f"Policy actions: {actions.mean(), actions.shape}")
-        # if torch.isnan(traj_return):
-        #     raise ValueError("NaN detected in trajectory return!")
-        #
-        # print(f"Trajectory return: {traj_return}")
-
-
     def plot():
-        import matplotlib
         from matplotlib import pyplot as plt
 
         with plt.ion():
