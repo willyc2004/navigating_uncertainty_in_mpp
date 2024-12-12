@@ -1,12 +1,13 @@
 import os
 import yaml
-import torch
 import tqdm
-import wandb
-
 from collections import defaultdict
 from typing import Optional
 from dotmap import DotMap
+from datetime import datetime
+
+import wandb
+import torch
 from tensordict.nn import TensorDictModule
 from torch import nn
 
@@ -155,6 +156,18 @@ def train(batch_size, train_data_size, policy, env, model, optim):
 
     plot()
 
+    # Generate a timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Save the model checkpoint with timestamp
+    model_save_path = f"saved_models/trained_model_{timestamp}.pth"
+    os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
+    torch.save(model.state_dict(), model_save_path)
+
+    # Log the model checkpoint to wandb
+    wandb.save(model_save_path)
+
+
 def main(config: Optional[DotMap] = None):
     # todo: clean-up and refactor all hyperparameters etc.
     # Environment kwargs
@@ -282,6 +295,7 @@ def main(config: Optional[DotMap] = None):
 
     # Train the model
     train(batch_size, train_data_size, policy, env, model, optim)
+
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
