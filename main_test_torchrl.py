@@ -11,7 +11,8 @@ from torch import nn
 
 # TorchRL
 from torchrl.envs.utils import check_env_specs
-from torchrl.modules import ProbabilisticActor
+from torchrl.modules import ProbabilisticActor, IndependentNormal
+
 
 # RL4CO
 from rl4co.models.zoo.am.encoder import AttentionModelEncoder
@@ -210,8 +211,6 @@ def main(config: Optional[DotMap] = None):
     else:
         raise ValueError(f"Decoder type {config.model.decoder_type} not recognized.")
 
-
-    # todo: more complex model
     model = AutoEncoder(encoder, decoder, init_embed, context_embed, dynamic_embed).to(device)
     # model = SimplePolicy(hidden_dim=hidden_dim, act_dim=action_dim, device=device, dtype=env.float_type).apply(init_weights)
 
@@ -224,12 +223,10 @@ def main(config: Optional[DotMap] = None):
     # ProbabilisticActor (for stochastic policies)
     policy = ProbabilisticActor(
         module=td_module,
-        in_keys=["loc"],
-        distribution_class=torch.distributions.Normal,  # Gaussian policy
-        distribution_kwargs={"scale": 1.0}
+        in_keys=["loc",],
+        distribution_class=IndependentNormal,
+        distribution_kwargs={"scale": 1.0}  # Specify the event dimension for the action space
     )
-
-
 
 
     # # AM Model initialization
