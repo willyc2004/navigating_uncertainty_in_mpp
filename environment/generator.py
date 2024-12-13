@@ -14,7 +14,6 @@ class MPP_Generator(Generator):
         # Input simulation
         self.device = th.device("cuda" if th.cuda.is_available() else "cpu")
         self.seed = kwargs.get("seed")
-        self.rng = kwargs.get("rng")
 
         # Input env
         self.P = kwargs.get("ports")  # Number of ports
@@ -105,11 +104,9 @@ class MPP_Generator(Generator):
         if td is None or td.is_empty():
             e_x_init_demand, _ = self._initial_contract_demand(batch_size)
             batch_updates = th.zeros(batch_size, device=self.device)
-            print("empty")
         else:
             e_x_init_demand = td["init_expected_demand"].view(-1, self.T, self.K)
             batch_updates = td["batch_updates"].clone()
-            print("init td")
 
         # Get moments and distribution
         if not self.iid_demand:
@@ -117,6 +114,7 @@ class MPP_Generator(Generator):
         else:
             std_x = self._create_std_x(e_x_init_demand, self.cv_demand)
             e_x, std_x, dist = self._iid_normal_distribution(e_x_init_demand, std_x,)
+
         # Sample demand
         demand = th.clamp(dist.sample(), min=1)
 
@@ -166,8 +164,6 @@ class MPP_Generator(Generator):
         if wave >1 then capacity used in previous steps is overestimated. Nonetheless, this bound used for an initial
         E[X] and V[X], hence this is acceptable if we tune wave parameters to obtain sufficient levels of utilization.
         """
-        # Set seed to generate a single random sample
-        th.manual_seed(self.seed)
         # Get transport bound with wave
         utilization_bound = self.tr_wave * 2 * self.utilization_rate_initial_demand * self.total_capacity
         num_cargo = (self.K * self.tr_loads / (1 - self.tr_ac / self.tr_ob))
