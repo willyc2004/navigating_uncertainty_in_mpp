@@ -34,17 +34,17 @@ class MasterPlanningEnv(EnvBase):
         self.W = kwargs.get("weight_classes")  # Number of weight classes
 
         # Seed
-        seed = kwargs.get("seed")
-        if seed is None:
-            seed = torch.empty((), dtype=torch.int64).random_().item()
-        self.set_seed(seed)
+        self.seed = kwargs.get("seed")
+        if self.seed is None:
+            self.seed = torch.empty((), dtype=torch.int64).random_().item()
+        self.set_seed(self.seed)
 
         # Init fns
         # todo: perform big clean-up here!
         self.float_type = kwargs.get("float_type", th.float32)
         self.demand_uncertainty = kwargs.get("demand_uncertainty", False)
         self._compact_form_shapes()
-        self.generator = MPP_Generator(rng=self.rng, **kwargs)
+        self.generator = MPP_Generator(**kwargs)
         if td_gen == None:
             td_gen = self.generator(batch_size=[],)
         self._make_spec(td_gen)
@@ -346,13 +346,14 @@ class MasterPlanningEnv(EnvBase):
         }, td.shape)
         return out
 
-    def _reset(self,  td: Optional[TensorDict] = None) -> TensorDict:
+    def _reset(self,  td: Optional[TensorDict] = None, seed:Optional=None) -> TensorDict:
         """Reset the environment to the initial state."""
         # Extract batch_size from td if it exists
+        torch.manual_seed(self.seed) if seed is None else torch.manual_seed(seed)
         batch_size = getattr(td, 'batch_size', self.batch_size)
         if td is None or td.is_empty():
             # Generate new demand
-            td = self.generator(batch_size=batch_size, rng=self.rng)
+            td = self.generator(batch_size=batch_size)
 
         # Reordering on demand
         td["realized_demand"] = td["realized_demand"].view(*batch_size, self.T, self.K)
