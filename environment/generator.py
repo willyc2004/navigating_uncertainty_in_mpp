@@ -14,6 +14,7 @@ class MPP_Generator(Generator):
         # Input simulation
         self.device = th.device("cuda" if th.cuda.is_available() else "cpu")
         self.seed = kwargs.get("seed")
+        self.rng = kwargs.get("rng")
 
         # Input env
         self.P = kwargs.get("ports")  # Number of ports
@@ -59,7 +60,7 @@ class MPP_Generator(Generator):
         self.tr_ac = th.repeat_interleave(self.num_ac, self.num_loads)
         self.tr_ob = th.repeat_interleave(self.num_ob, self.num_loads)
 
-    def __call__(self, batch_size, td: Optional[TensorDict] = None) -> TensorDict:
+    def __call__(self, batch_size, td: Optional[TensorDict] = None, rng:Optional=None) -> TensorDict:
         batch_size = [batch_size] if isinstance(batch_size, int) else batch_size
         return self._generate(batch_size, td)
 
@@ -98,24 +99,33 @@ class MPP_Generator(Generator):
         """Create std_x from coefficient of variation: cv < 0.1 is low, 0.3<x<0.5 is moderate, >0.5 is high"""
         return e_x * cv
 
-    def _generate(self, batch_size, td:Optional=None) -> TensorDict:
+    def _generate(self, batch_size, td:Optional=None,) -> TensorDict:
         """Generate demand matrix for voyage with GBM process"""
         # Get initial demand if not provided
         if td is None or td.is_empty():
             e_x_init_demand, _ = self._initial_contract_demand(batch_size)
             batch_updates = th.zeros(batch_size, device=self.device)
+            print("empty")
         else:
             e_x_init_demand = td["init_expected_demand"].view(-1, self.T, self.K)
             batch_updates = td["batch_updates"].clone()
+            print("init td")
 
-        # Get moments, dist and non-negative sample from Geometric Brownian Motion process
+        # Get moments and distribution
         if not self.iid_demand:
             e_x, std_x, dist = self._gbm_lognormal_distribution(batch_updates + 1, e_x_init_demand,)
         else:
             std_x = self._create_std_x(e_x_init_demand, self.cv_demand)
             e_x, std_x, dist = self._iid_normal_distribution(e_x_init_demand, std_x,)
-
+        # Sample demand
         demand = th.clamp(dist.sample(), min=1)
+
+        # # Manually generate random numbers using the generator
+        # random_tensor = th.rand(e_x.shape, generator=self.rng, device=self.device)
+        # # Transform using the inverse CDF (ppf)
+        # demand = dist.icdf(random_tensor)
+        # demand = th.clamp(demand, min=1)
+
         # Observed demand: only transports of POL=0
         load_tr = get_load_transport(self.transport_idx, th.zeros((1,), device=self.device,))
         observed_demand = th.zeros_like(demand)
