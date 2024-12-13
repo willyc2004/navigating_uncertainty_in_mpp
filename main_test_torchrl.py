@@ -95,7 +95,7 @@ class AutoEncoder(nn.Module):
         return dec_out
 
 ## Training
-def train(batch_size, train_data_size, policy, env, model, optim, seed, device):
+def train(batch_size, train_data_size, policy, env, model, optim,):
     # torch.autograd.set_detect_anomaly(True)
     # todo: extend with mini-batch training, data loader, REINFORCE, PPO, etc.
     pbar = tqdm.tqdm(range(train_data_size // batch_size))
@@ -105,7 +105,7 @@ def train(batch_size, train_data_size, policy, env, model, optim, seed, device):
     # for step, td in enumerate(collector):
     for step in pbar:
         # Perform rollout
-        td = env.reset(env.generator(batch_size=batch_size, td=init_td),) # seed=seed)
+        td = env.reset(env.generator(batch_size=batch_size, td=init_td),)
         rollout = env.rollout(72, policy, tensordict=td, auto_reset=True)
         # Get return and violation
         traj_return = rollout["next", "reward"].mean()
@@ -270,14 +270,13 @@ def main(config: Optional[DotMap] = None):
     train_data_size = config.am_ppo.train_data_size
     lr = config.am_ppo.lr
 
-
-    # # AM Model initialization
+    # AM Model initialization
     model_params = {
         "decoder": decoder,
         "encoder": encoder,
-        # "init_embedding": init_embed,
-        # "context_embedding": context_embed,
-        # "dynamic_embedding": dynamic_embed,
+        "init_embedding": init_embed,
+        "context_embedding": context_embed,
+        "dynamic_embedding": dynamic_embed,
         "projection_type": config.am_ppo.projection_type,
         "projection_kwargs": config.am_ppo.projection_kwargs,
         "select_obs_td":["obs", "done", "timestep", "action_mask", "lhs_A", "rhs", "clip_min", "clip_max",
@@ -307,25 +306,25 @@ def main(config: Optional[DotMap] = None):
     ## Main loop
     # Train the model
     if config.model.phase == "train":
-        train(batch_size, train_data_size, policy, env, model, optim, seed, device)
+        train(batch_size, train_data_size, policy, env, model, optim,)
     # Test the model
     elif config.model.phase == "test":
-        date_stamp = f"2024/10/30/00-53-46"
-        checkpoint_path = f"checkpoints/{date_stamp}"
-        ckpt_name = "/last.ckpt" #"/epoch_epoch=00-val_loss=0.00.ckpt"
-        checkpoint = torch.load(checkpoint_path + ckpt_name,)
-        model.load_state_dict(checkpoint['state_dict'], strict=True)
+        datestamp = "20241213_102052"
+        checkpoint_path = f"/saved_models"
+        pth_name = f"/trained_model_{datestamp}.pth"
+        pth = torch.load(checkpoint_path + pth_name,)
+        model.load_state_dict(pth, strict=True)
 
         # Initialize policy
         policy = model.policy
         env_kwargs["float_type"] = torch.float32
-        test_env = make_env(env_kwargs, device)  # Re-initialize the environment
+        test_env = make_env(env_kwargs)  # Re-initialize the environment
 
         # Run multiple iterations to measure inference time
         num_runs = 20
         outs = []
         times = []
-        init_td = env.generator(batch_size).clone()
+        init_td = test_env.generator(batch_size).clone()
 
         for i in range(num_runs):
             # Set a new seed for each run
@@ -338,8 +337,9 @@ def main(config: Optional[DotMap] = None):
             start_time = time.perf_counter()
 
             # Run inference
-            td = env.reset(env.generator(batch_size=batch_size, td=init_td), )  # seed=seed)
-            rollout = env.rollout(72, policy, tensordict=td, auto_reset=True)
+            td = test_env.reset(test_env.generator(batch_size=batch_size, td=init_td), )
+            rollout = test_env.rollout(72, policy, tensordict=td, auto_reset=True)
+            # todo: add rollout_results to outs
 
             # Sync GPU again after inference if using CUDA
             if torch.cuda.is_available():
