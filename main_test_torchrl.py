@@ -141,7 +141,8 @@ def train(batch_size, train_data_size, policy, env, model, optim, seed, device):
             f"last total_revenue: {rollout[..., -1]['next', 'state', 'total_revenue'].mean(): 4.4f}, "
             f"last total_cost: {rollout[..., -1]['next', 'state', 'total_cost'].mean(): 4.4f}, "
             f"last total_loaded: {rollout[..., -1]['next', 'state', 'total_loaded'].mean(): 4.4f}, "
-            f"total demand: {rollout[..., -1]['next', 'realized_demand'].sum(dim=-1).mean(): 4.4f},"
+            f"total demand: {rollout[..., -1]['next', 'realized_demand'].sum(dim=-1).mean(): 4.4f}, "
+            f"total e[x] demand: {rollout[..., -1]['next', 'expected_demand'].sum(dim=-1).mean(): 4.4f}, "
             f"last total_violation: {rollout[..., -1]['next', 'state', 'total_violation'].sum(dim=-1).mean(): 4.4f}, "
             f"last demand_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,0].mean(): 4.4f}, "
             f"last LCG_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,1:3].sum(dim=-1).mean(): 4.4f}, "
@@ -170,6 +171,7 @@ def train(batch_size, train_data_size, policy, env, model, optim, seed, device):
             "total_cost": rollout[..., -1]["next", "state", "total_cost"].mean().item(),
             "total_loaded": rollout[..., -1]["next", "state", "total_loaded"].mean().item(),
             "total_demand":rollout[..., -1]['next', 'realized_demand'].sum(dim=-1).mean().item(),
+            "total_e_x_demand": rollout[..., -1]['next', 'expected_demand'].sum(dim=-1).mean().item(),
         }
         wandb.log(log)
         # todo: plotting?
