@@ -295,7 +295,7 @@ def main(config: Optional[DotMap] = None):
         module=td_module,
         in_keys=["loc",],
         distribution_class=IndependentNormal,
-        distribution_kwargs={"scale": 1.0}  # Specify the event dimension for the action space
+        distribution_kwargs={"scale": 1.0}
     )
 
 
