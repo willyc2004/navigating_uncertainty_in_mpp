@@ -99,7 +99,6 @@ def train(batch_size, train_data_size, policy, env, model, optim, seed, device):
     # torch.autograd.set_detect_anomaly(True)
     # todo: extend with mini-batch training, data loader, REINFORCE, PPO, etc.
     pbar = tqdm.tqdm(range(train_data_size // batch_size))
-    logs = defaultdict(list)
     init_td = env.generator(batch_size).clone()
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, train_data_size)
 
@@ -161,27 +160,7 @@ def train(batch_size, train_data_size, policy, env, model, optim, seed, device):
             "total_e_x_demand": init_td['expected_demand'].sum(dim=-1).mean().item(),
         }
         wandb.log(log)
-        # todo: plotting?
-        logs["return"].append(traj_return.item())
-        logs["last_reward"].append(rollout[..., -1]["next", "reward"].mean().item())
         scheduler.step()
-
-    def plot():
-        from matplotlib import pyplot as plt
-
-        with plt.ion():
-            plt.figure(figsize=(10, 5))
-            plt.subplot(1, 2, 1)
-            plt.plot(logs["return"])
-            plt.title("returns")
-            plt.xlabel("iteration")
-            plt.subplot(1, 2, 2)
-            plt.plot(logs["last_reward"])
-            plt.title("last reward")
-            plt.xlabel("iteration")
-            plt.show()
-
-    plot()
 
     # Generate a timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
