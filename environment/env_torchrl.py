@@ -24,12 +24,6 @@ class MasterPlanningEnv(EnvBase):
     def __init__(self, device="cuda", td_gen=None, **kwargs):
         super().__init__(device=device, batch_size=[])
 
-        # Seed
-        seed = kwargs.get("seed")
-        if seed is None:
-            seed = torch.empty((), dtype=torch.int64).random_().item()
-        self.set_seed(seed)
-
         # Sets
         self.P = kwargs.get("ports") # Number of ports
         self.B = kwargs.get("bays")  # Number of bays
@@ -39,14 +33,20 @@ class MasterPlanningEnv(EnvBase):
         self.K = kwargs.get("cargo_classes") * self.CC # Number of container classes
         self.W = kwargs.get("weight_classes")  # Number of weight classes
 
+        # Seed
+        seed = kwargs.get("seed")
+        if seed is None:
+            seed = torch.empty((), dtype=torch.int64).random_().item()
+        self.set_seed(seed)
+
         # Init fns
         # todo: perform big clean-up here!
         self.float_type = kwargs.get("float_type", th.float32)
         self.demand_uncertainty = kwargs.get("demand_uncertainty", False)
         self._compact_form_shapes()
-        self.generator = MPP_Generator(**kwargs)
+        self.generator = MPP_Generator(rng=self.rng, **kwargs)
         if td_gen == None:
-            td_gen = self.generator(batch_size=[])
+            td_gen = self.generator(batch_size=[],)
         self._make_spec(td_gen)
         self.zero = th.tensor([0], device=self.generator.device, dtype=self.float_type)
         self.padding = th.tensor([self.P-1], device=self.generator.device, dtype=th.int32)
@@ -346,13 +346,13 @@ class MasterPlanningEnv(EnvBase):
         }, td.shape)
         return out
 
-    def _reset(self,  td: Optional[TensorDict] = None,) -> TensorDict:
+    def _reset(self,  td: Optional[TensorDict] = None) -> TensorDict:
         """Reset the environment to the initial state."""
         # Extract batch_size from td if it exists
         batch_size = getattr(td, 'batch_size', self.batch_size)
         if td is None or td.is_empty():
             # Generate new demand
-            td = self.generator(batch_size=batch_size)
+            td = self.generator(batch_size=batch_size, rng=self.rng)
 
         # Reordering on demand
         td["realized_demand"] = td["realized_demand"].view(*batch_size, self.T, self.K)
@@ -450,22 +450,9 @@ class MasterPlanningEnv(EnvBase):
         return out
 
     def _set_seed(self, seed: Optional[int]):
-        if seed is not None:
-            if self.device.type == "cuda":
-                # Set the seed for CUDA
-                torch.cuda.manual_seed(seed)
-                torch.cuda.manual_seed_all(seed)  # For multi-GPU setups
-            else:
-                # Set the seed for CPU
-                torch.manual_seed(seed)
-
-            # Ensure deterministic behavior if needed
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cudnn.benchmark = False
-
-            # Store the seed and device RNG state
-            self.rng = torch.Generator(device=self.device).manual_seed(seed)
-
+        rng = torch.Generator(device=self.device)
+        rng.manual_seed(seed)
+        self.rng = rng
 
     # Extraction functions
     def _extract_from_td(self, td, batch_size) -> Tuple:
