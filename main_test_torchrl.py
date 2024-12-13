@@ -117,10 +117,8 @@ def train(batch_size, train_data_size, policy, env, model, optim, seed, device):
 
     # for step, td in enumerate(collector):
     for step in pbar:
-        # Stepwise-seed
-        seed = random.randint(0, 10000)
         # Perform rollout
-        td = env.reset(env.generator(batch_size=batch_size, td=init_td), seed=seed)
+        td = env.reset(env.generator(batch_size=batch_size, td=init_td),) # seed=seed)
         rollout = env.rollout(72, policy, tensordict=td, auto_reset=True)
         # Get return and violation
         traj_return = rollout["next", "reward"].mean()
@@ -226,7 +224,6 @@ def main(config: Optional[DotMap] = None):
     env = make_env(env_kwargs)
     seed = env_kwargs.seed
     env.set_seed(seed)
-    # env.set_seed(seed)
     # env = ParallelEnv(4, make_env)     # todo: fix parallel env
     check_env_specs(env)  # this must pass for ParallelEnv to work
 
