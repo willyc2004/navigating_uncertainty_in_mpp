@@ -1,17 +1,22 @@
+## Imports
 import os
-import yaml
 import tqdm
+import time
+from datetime import datetime
+
+# Datatypes
+import yaml
 from collections import defaultdict
 from typing import Optional
 from dotmap import DotMap
-from datetime import datetime
-
-import wandb
-import numpy as np
-import random
-import torch
 from tensordict.nn import TensorDictModule
+
+# Machine learning
+import random
+import numpy as np
+import torch
 from torch import nn
+import wandb
 
 # TorchRL
 from torchrl.envs.utils import check_env_specs
@@ -30,8 +35,7 @@ from environment.embeddings import MPPInitEmbedding, StaticEmbedding, MPPContext
 from models.encoder import MLPEncoder
 from models.decoder import AttentionDecoderWithCache, MLPDecoderWithCache
 
-
-# Helper functions
+## Helper functions
 def adapt_env_kwargs(config):
     """Adapt environment kwargs based on configuration"""
     config.env.bays = 10 if config.env.TEU == 1000 else 20
@@ -52,7 +56,7 @@ def init_weights(m):
         torch.nn.init.constant_(m.weight, 1.0)
         torch.nn.init.constant_(m.bias, 0.0)
 
-# Classes
+## Classes
 class SimplePolicy(nn.Module):
     def __init__(self, hidden_dim, act_dim, device: torch.device = torch.device("cuda"), dtype=torch.float32):
         super().__init__()
@@ -90,30 +94,14 @@ class AutoEncoder(nn.Module):
         dec_out = self.decoder(context_embed)
         return dec_out
 
-
-
 ## Training
 def train(batch_size, train_data_size, policy, env, model, optim, seed, device):
     # torch.autograd.set_detect_anomaly(True)
-    # Collector and replay buffer
-    # todo: ensure random samples
-    # collector = SyncDataCollector(
-    #     env,
-    #     policy,
-    #     frames_per_batch=batch_size,
-    #     total_frames=train_data_size,
-    #     split_trajs=False,
-    #     device=device,
-    # )
-    # replay_buffer = ReplayBuffer(
-    #     storage=LazyTensorStorage(max_size=batch_size),
-    #     sampler=SamplerWithoutReplacement(),
-    # )
-
+    # todo: extend with mini-batch training, data loader, REINFORCE, PPO, etc.
     pbar = tqdm.tqdm(range(train_data_size // batch_size))
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, train_data_size)
     logs = defaultdict(list)
     init_td = env.generator(batch_size).clone()
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, train_data_size)
 
     # for step, td in enumerate(collector):
     for step in pbar:
@@ -298,37 +286,93 @@ def main(config: Optional[DotMap] = None):
         distribution_kwargs={"scale": 1.0}
     )
 
-
-    # # AM Model initialization
-    # model_params = {
-    #     "decoder": decoder,
-    #     "encoder": encoder,
-    #     # "init_embedding": init_embed,
-    #     # "context_embedding": context_embed,
-    #     # "dynamic_embedding": dynamic_embed,
-    #     "projection_type": config.am_ppo.projection_type,
-    #     "projection_kwargs": config.am_ppo.projection_kwargs,
-    #     "select_obs_td":["obs", "done", "timestep", "action_mask", "lhs_A", "rhs", "clip_min", "clip_max",
-    #                           "reward",
-    #                           ("state", "utilization"), ("state", "target_long_crane"), ("state", "total_loaded"),
-    #                           ("state", "total_revenue"), ("state", "total_cost"), ("state", "total_rc"),
-    #                           "realized_demand",
-    #                           ],
-    #     **config.model
-    # }
-
-
     ## Hyperparameters
     batch_size = config.model.batch_size
     train_data_size = config.am_ppo.train_data_size
     lr = config.am_ppo.lr
 
+
+    # # AM Model initialization
+    model_params = {
+        "decoder": decoder,
+        "encoder": encoder,
+        # "init_embedding": init_embed,
+        # "context_embedding": context_embed,
+        # "dynamic_embedding": dynamic_embed,
+        "projection_type": config.am_ppo.projection_type,
+        "projection_kwargs": config.am_ppo.projection_kwargs,
+        "select_obs_td":["obs", "done", "timestep", "action_mask", "lhs_A", "rhs", "clip_min", "clip_max",
+                              "reward",
+                              ("state", "utilization"), ("state", "target_long_crane"), ("state", "total_loaded"),
+                              ("state", "total_revenue"), ("state", "total_cost"), ("state", "total_rc"),
+                              "realized_demand",
+                              ],
+        **config.model
+    }
+    am_ppo_params = {
+        "env": env,
+        "policy":policy,
+        # "critic": critic,
+        # "critic_kwargs": {"embed_dim": embed_dim, "hidden_dim": hidden_dim, "customized": False},
+        # "projection_kwargs": projection_kwargs,
+        "decoder_type": config.model.decoder_type,
+        "batch_size": batch_size,
+        "env_kwargs": env_kwargs,
+        "model_kwargs": model_params,
+        **config.ppo,
+        **config.am_ppo,
+    }
     # Optimizer
     optim = torch.optim.Adam(policy.parameters(), lr=lr)
 
+    ## Main loop
     # Train the model
-    train(batch_size, train_data_size, policy, env, model, optim, seed, device)
+    if config.model.phase == "train":
+        train(batch_size, train_data_size, policy, env, model, optim, seed, device)
+    # Test the model
+    elif config.model.phase == "test":
+        date_stamp = f"2024/10/30/00-53-46"
+        checkpoint_path = f"checkpoints/{date_stamp}"
+        ckpt_name = "/last.ckpt" #"/epoch_epoch=00-val_loss=0.00.ckpt"
+        checkpoint = torch.load(checkpoint_path + ckpt_name,)
+        model.load_state_dict(checkpoint['state_dict'], strict=True)
 
+        # Initialize policy
+        policy = model.policy
+        env_kwargs["float_type"] = torch.float32
+        test_env = make_env(env_kwargs, device)  # Re-initialize the environment
+
+        # Run multiple iterations to measure inference time
+        num_runs = 20
+        outs = []
+        times = []
+        init_td = env.generator(batch_size).clone()
+
+        for i in range(num_runs):
+            # Set a new seed for each run
+            seed = i
+            torch.manual_seed(seed)
+
+            # Sync GPU before starting timer if using CUDA
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            start_time = time.perf_counter()
+
+            # Run inference
+            td = env.reset(env.generator(batch_size=batch_size, td=init_td), )  # seed=seed)
+            rollout = env.rollout(72, policy, tensordict=td, auto_reset=True)
+
+            # Sync GPU again after inference if using CUDA
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            end_time = time.perf_counter()
+
+            # Calculate and record inference time for each run
+            times.append(end_time - start_time)
+        times = torch.tensor(times)
+        # todo: add rollout_results
+        # rollout_results(test_env, outs, td, batch_size, checkpoint_path,
+        #                 am_ppo_params["projection_type"], config["env"]["utilization_rate_initial_demand"], times)
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
