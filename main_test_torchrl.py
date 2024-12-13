@@ -114,8 +114,6 @@ def train(batch_size, train_data_size, policy, env, model, optim, seed, device):
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, train_data_size)
     logs = defaultdict(list)
     init_td = env.generator(batch_size).clone()
-    print(init_td["expected_demand"].mean(dim=0))
-    breakpoint()
 
     # for step, td in enumerate(collector):
     for step in pbar:
@@ -138,7 +136,6 @@ def train(batch_size, train_data_size, policy, env, model, optim, seed, device):
         optim.zero_grad()
 
         # Log metrics
-
         pbar.set_description(
             f"reward: {traj_return: 4.4f}, "
             f"last reward: {rollout[..., -1]['next', 'reward'].mean(): 4.4f}, "
