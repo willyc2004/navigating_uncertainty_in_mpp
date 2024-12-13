@@ -7,6 +7,8 @@ from dotmap import DotMap
 from datetime import datetime
 
 import wandb
+import numpy as np
+import random
 import torch
 from tensordict.nn import TensorDictModule
 from torch import nn
@@ -14,7 +16,10 @@ from torch import nn
 # TorchRL
 from torchrl.envs.utils import check_env_specs
 from torchrl.modules import ProbabilisticActor, IndependentNormal
-
+from torchrl.collectors import SyncDataCollector
+from torchrl.data.replay_buffers import ReplayBuffer
+from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
+from torchrl.data.replay_buffers.storages import LazyTensorStorage
 
 # RL4CO
 from rl4co.models.zoo.am.encoder import AttentionModelEncoder
@@ -88,23 +93,62 @@ class AutoEncoder(nn.Module):
 
 
 ## Training
-def train(batch_size, train_data_size, policy, env, model, optim):
+def train(batch_size, train_data_size, policy, env, model, optim, seed, device):
     # torch.autograd.set_detect_anomaly(True)
+    # Collector and replay buffer
+    # todo: ensure random samples
+    # collector = SyncDataCollector(
+    #     env,
+    #     policy,
+    #     frames_per_batch=batch_size,
+    #     total_frames=train_data_size,
+    #     split_trajs=False,
+    #     device=device,
+    # )
+    # replay_buffer = ReplayBuffer(
+    #     storage=LazyTensorStorage(max_size=batch_size),
+    #     sampler=SamplerWithoutReplacement(),
+    # )
+
     pbar = tqdm.tqdm(range(train_data_size // batch_size))
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, train_data_size)
     logs = defaultdict(list)
+    init_td = env.generator(batch_size)
+    # for step, td in enumerate(collector):
     for step in pbar:
-        init_td = env.reset(env.generator(batch_size=batch_size))
-        rollout = env.rollout(72, policy, tensordict=init_td, auto_reset=False)
+        # Stepwise-seed
+        seed = random.randint(0, 10000)
+        # Perform rollout
+        td = env.reset(env.generator(batch_size=batch_size, td=init_td), seed=seed)
+        rollout = env.rollout(72, policy, tensordict=td, auto_reset=True)
+        # Get return and violation
         traj_return = rollout["next", "reward"].mean()
         traj_violation = rollout["next", "violation"].sum(dim=(-1,-2)).mean()
+
+        # Compute loss
         loss = -traj_return + 0.05 * traj_violation
+
+        # Perform backpropagation
         loss.backward()
         gn = torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
         optim.step()
         optim.zero_grad()
 
-        # Log metrics to wandb
+        # Log metrics
+        pbar.set_description(
+            f"reward: {traj_return: 4.4f}, "
+            f"last reward: {rollout[..., -1]['next', 'reward'].mean(): 4.4f}, "
+            f"last total_revenue: {rollout[..., -1]['next', 'state', 'total_revenue'].mean(): 4.4f}, "
+            f"last total_cost: {rollout[..., -1]['next', 'state', 'total_cost'].mean(): 4.4f}, "
+            f"last total_loaded: {rollout[..., -1]['next', 'state', 'total_loaded'].mean(): 4.4f}, "
+            f"total demand: {rollout[..., -1]['next', 'realized_demand'].sum(dim=-1).mean(): 4.4f},"
+            f"last total_violation: {rollout[..., -1]['next', 'state', 'total_violation'].sum(dim=-1).mean(): 4.4f}, "
+            f"last demand_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,0].mean(): 4.4f}, "
+            f"last LCG_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,1:3].sum(dim=-1).mean(): 4.4f}, "
+            f"last VCG_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,3:5].sum(dim=-1).mean(): 4.4f}, "
+
+            f"gradient norm: {gn: 4.4}, "
+        )
         log = {
             # General
             "step": step,
@@ -127,25 +171,8 @@ def train(batch_size, train_data_size, policy, env, model, optim):
             "total_loaded": rollout[..., -1]["next", "state", "total_loaded"].mean().item(),
             "total_demand":rollout[..., -1]['next', 'realized_demand'].sum(dim=-1).mean().item(),
         }
-
         wandb.log(log)
-
-        pbar.set_description(
-            f"reward: {traj_return: 4.4f}, "
-            f"last reward: {rollout[..., -1]['next', 'reward'].mean(): 4.4f}, "
-            f"last total_revenue: {rollout[..., -1]['next', 'state', 'total_revenue'].mean(): 4.4f}, "
-            f"last total_cost: {rollout[..., -1]['next', 'state', 'total_cost'].mean(): 4.4f}, "
-            f"last total_loaded: {rollout[..., -1]['next', 'state', 'total_loaded'].mean(): 4.4f}, "
-            f"total demand: {rollout[..., -1]['next', 'realized_demand'].sum(dim=-1).mean(): 4.4f},"
-            f"last total_violation: {rollout[..., -1]['next', 'state', 'total_violation'].sum(dim=-1).mean(): 4.4f}, "
-            f"last demand_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,0].mean(): 4.4f}, "
-            f"last LCG_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,1:3].sum(dim=-1).mean(): 4.4f}, "
-            f"last VCG_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,3:5].sum(dim=-1).mean(): 4.4f}, "
-
-            f"gradient norm: {gn: 4.4}, "
-        )
-
-
+        # todo: plotting?
         logs["return"].append(traj_return.item())
         logs["last_reward"].append(rollout[..., -1]["next", "reward"].mean().item())
         scheduler.step()
@@ -187,21 +214,16 @@ def main(config: Optional[DotMap] = None):
     # Initialize torch and cuda
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.cuda.empty_cache()
-    torch.backends.cudnn.benchmark = True
     torch._dynamo.config.cache_size_limit = 64  # or some higher value
-
-    # Set random seed and device
     torch.set_num_threads(1)
-    seed = env_kwargs.seed
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)  # If you are using multi-GPU
-        torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
     ## Environment initialization
     env = make_env(env_kwargs)
+    seed = env_kwargs.seed
     env.set_seed(seed)
+    # env.set_seed(seed)
     # env = ParallelEnv(4, make_env)     # todo: fix parallel env
     check_env_specs(env)  # this must pass for ParallelEnv to work
 
@@ -305,7 +327,7 @@ def main(config: Optional[DotMap] = None):
     optim = torch.optim.Adam(policy.parameters(), lr=lr)
 
     # Train the model
-    train(batch_size, train_data_size, policy, env, model, optim)
+    train(batch_size, train_data_size, policy, env, model, optim, seed, device)
 
 
 if __name__ == "__main__":
