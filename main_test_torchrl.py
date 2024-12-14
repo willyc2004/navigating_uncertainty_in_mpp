@@ -122,19 +122,22 @@ def train(batch_size, train_data_size, policy, env, model, optim,):
 
         # Log metrics
         pbar.set_description(
-            f"reward: {traj_return: 4.4f}, "
+            # Loss, gn and rewards
+            f"traj_return: {traj_return: 4.4f}, "
             f"last reward: {rollout[..., -1]['next', 'reward'].mean(): 4.4f}, "
-            f"last total_revenue: {rollout[..., -1]['next', 'state', 'total_revenue'].mean(): 4.4f}, "
-            f"last total_cost: {rollout[..., -1]['next', 'state', 'total_cost'].mean(): 4.4f}, "
-            f"last total_loaded: {rollout[..., -1]['next', 'state', 'total_loaded'].mean(): 4.4f}, "
+            f"loss :  {loss: 4.4f}, "
+            f"gradient norm: {gn: 4.4}, "
+            # Constraints
+            f"total_violation: {rollout[..., -1]['next', 'state', 'total_violation'].sum(dim=-1).mean(): 4.4f}, "
+            f"demand_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,0].mean(): 4.4f}, "
+            f"LCG_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,1:3].sum(dim=-1).mean(): 4.4f}, "
+            f"VCG_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,3:5].sum(dim=-1).mean(): 4.4f}, "
+            # Env
+            f"total_revenue: {rollout[..., -1]['next', 'state', 'total_revenue'].mean(): 4.4f}, "
+            f"total_cost: {rollout[..., -1]['next', 'state', 'total_cost'].mean(): 4.4f}, "
+            f"total_loaded: {rollout[..., -1]['next', 'state', 'total_loaded'].mean(): 4.4f}, "
             f"total demand: {rollout[..., -1]['next', 'realized_demand'].sum(dim=-1).mean(): 4.4f}, "
             f"total e[x] demand: {init_td['expected_demand'].sum(dim=-1).mean(): 4.4f}, "
-            f"last total_violation: {rollout[..., -1]['next', 'state', 'total_violation'].sum(dim=-1).mean(): 4.4f}, "
-            f"last demand_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,0].mean(): 4.4f}, "
-            f"last LCG_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,1:3].sum(dim=-1).mean(): 4.4f}, "
-            f"last VCG_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,3:5].sum(dim=-1).mean(): 4.4f}, "
-
-            f"gradient norm: {gn: 4.4}, "
         )
         log = {
             # General
