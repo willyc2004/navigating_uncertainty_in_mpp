@@ -37,6 +37,8 @@ from environment.env_torchrl import MasterPlanningEnv
 from environment.embeddings import MPPInitEmbedding, StaticEmbedding, MPPContextEmbedding
 from models.encoder import MLPEncoder
 from models.decoder import AttentionDecoderWithCache, MLPDecoderWithCache
+from models.critic import CriticNetwork
+
 
 ## Helper functions
 def adapt_env_kwargs(config):
@@ -76,48 +78,6 @@ class SimplePolicy(nn.Module):
     def forward(self, x):
         return self.net(x)
 
-class Encoder(nn.Module):
-    """Create encoder model from initial embedding, encoder models passed as arguments."""
-    def __init__(self, init_embed, encoder):
-        super().__init__()
-        self.init_embed = init_embed
-        self.encoder = encoder
-
-    def forward(self, obs):
-        # Initial embedding
-        init_embed = self.init_embed(obs)
-        # Encode initial embedding to hidden state
-        hidden, _ = self.encoder(init_embed)
-        return hidden
-
-class ActorDecoder(nn.Module):
-    """Create decoder model from context embedding, decoder models passed as arguments."""
-    def __init__(self, context_embed, decoder):
-        super().__init__()
-        self.context_embed = context_embed
-        self.decoder = decoder
-
-    def forward(self, obs, hidden):
-        # Context embedding
-        context_embed = self.context_embed(obs, hidden)
-        # Decode context embedding to output
-        dec_out = self.decoder(context_embed)
-        return dec_out
-
-class CriticDecoder(nn.Module):
-    """Create decoder model from context embedding, decoder models passed as arguments."""
-    def __init__(self, context_embed, decoder):
-        super().__init__()
-        self.context_embed = context_embed
-        self.decoder = decoder
-
-    def forward(self, obs, hidden):
-        # Context embedding
-        context_embed = self.context_embed(obs, hidden)
-        # Decode context embedding to output
-        dec_out = self.decoder(context_embed)
-        return dec_out
-
 class Actor(nn.Module):
     def __init__(self, encoder, decoder):
         super().__init__()
@@ -125,18 +85,7 @@ class Actor(nn.Module):
         self.decoder = decoder
 
     def forward(self, obs):
-        hidden = self.encoder(obs)
-        dec_out = self.decoder(obs, hidden)
-        return dec_out
-
-class Critic(nn.Module):
-    def __init__(self, encoder, decoder):
-        super().__init__()
-        self.encoder = encoder
-        self.decoder = decoder
-
-    def forward(self, obs):
-        hidden = self.encoder(obs)
+        hidden, init_embed = self.encoder(obs)
         dec_out = self.decoder(obs, hidden)
         return dec_out
 
@@ -204,11 +153,9 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
         # run through shapes in td
         for key, value in td.items():
             print(f"{key}: {value.shape}")
-        breakpoint()
         for _ in range(num_epochs):
             advantage_module(td)
-            data_view = td.reshape(-1)
-            replay_buffer.extend(data_view)
+            replay_buffer.extend(td)
             for _ in range(batch_size // mini_batch_size):
                 subdata = replay_buffer.sample(mini_batch_size)
                 loss_vals = loss_module(subdata.to(device))
@@ -349,8 +296,7 @@ def main(config: Optional[DotMap] = None):
     }
 
     # Setup model
-    # todo: fix e[x] being static?
-
+    # todo: fix e[x] demand being static?
     if config.model.encoder_type == "attention":
         encoder = AttentionModelEncoder(**encoder_args,)
     else:
@@ -361,13 +307,10 @@ def main(config: Optional[DotMap] = None):
         decoder = MLPDecoderWithCache(**decoder_args)
     else:
         raise ValueError(f"Decoder type {config.model.decoder_type} not recognized.")
-
-    encoder = Encoder(init_embed, encoder).to(device)
-    actor_decoder = ActorDecoder(context_embed, decoder).to(device)
-    critic_decoder = CriticDecoder(context_embed, decoder).to(device)
-    actor = Actor(encoder, actor_decoder).to(device)
-    critic = Critic(encoder, critic_decoder).to(device)
-    # model = SimplePolicy(hidden_dim=hidden_dim, act_dim=action_dim, device=device, dtype=env.float_type).apply(init_weights)
+    critic = CriticNetwork(encoder, embed_dim=embed_dim, hidden_dim=hidden_dim, num_layers=1,
+                           context_embedding=context_embed, normalization=config.model.normalization,
+                           dropout_rate=dropout_rate, customized=False).to(device)
+    actor = Actor(encoder, decoder).to(device)
 
     # Get ProbabilisticActor (for stochastic policies)
     actor = TensorDictModule(
