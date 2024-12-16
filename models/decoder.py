@@ -209,7 +209,10 @@ class MLPDecoderWithCache(nn.Module):
         self.mean_head = nn.Linear(hidden_dim, action_size)
         self.std_head = nn.Linear(hidden_dim, action_size)
 
-    def forward(self, context) -> Tensor:
+    def forward(self, obs, hidden) -> Tensor:
+        # Context embedding
+        context = self.context_embedding(obs, hidden)
+
         # Compute mask and logits
         hidden = self.policy_mlp(context)
         mean = self.mean_head(hidden)
