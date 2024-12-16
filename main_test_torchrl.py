@@ -146,6 +146,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     # Hyperparameters
     batch_size = kwargs["model"]["batch_size"]
     mini_batch_size = int(kwargs["algorithm"]["mini_batch_size"] * batch_size)
+    n_step = kwargs["algorithm"]["n_step"]
     num_epochs = kwargs["algorithm"]["ppo_epochs"]
     max_grad_norm = kwargs["algorithm"]["max_grad_norm"]
     vf_lambda = kwargs["algorithm"]["vf_lambda"]
@@ -184,7 +185,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     collector = SyncDataCollector(
         env,
         policy,
-        frames_per_batch=batch_size*env.T*env.K, # batch_size * steps_per_episode
+        frames_per_batch=batch_size*n_step, # batch_size * steps_per_episode
         total_frames=train_data_size,
         split_trajs=False,
         device=device,
