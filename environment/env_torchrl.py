@@ -21,8 +21,8 @@ class MasterPlanningEnv(EnvBase):
     name = "mpp"
     batch_locked = False
 
-    def __init__(self, device="cuda", td_gen=None, **kwargs):
-        super().__init__(device=device, batch_size=[])
+    def __init__(self, device="cuda", batch_size=[], td_gen=None, **kwargs):
+        super().__init__(device=device, batch_size=batch_size)
 
         # Sets
         self.P = kwargs.get("ports") # Number of ports
@@ -46,7 +46,7 @@ class MasterPlanningEnv(EnvBase):
         self._compact_form_shapes()
         self.generator = MPP_Generator(**kwargs)
         if td_gen == None:
-            td_gen = self.generator(batch_size=[],)
+            td_gen = self.generator(batch_size=batch_size,)
         self._make_spec(td_gen)
         self.zero = th.tensor([0], device=self.generator.device, dtype=self.float_type)
         self.padding = th.tensor([self.P-1], device=self.generator.device, dtype=th.int32)
@@ -220,8 +220,8 @@ class MasterPlanningEnv(EnvBase):
         total_metrics["total_loaded"] += sum_action
 
         ## Reward
-        revenue = sum_action * self.revenues[t[0]]
-        # revenue = th.clamp(sum_action, min=th.zeros_like(sum_action), max=demand_state["current_demand"]) * self.revenues[t[0]]
+        revenue = th.clamp(sum_action, min=th.zeros_like(sum_action), max=demand_state["current_demand"]) * self.revenues[t[0]]
+        # revenue = sum_action * self.revenues[t[0]]
         profit = revenue.clone()
         if self.next_port_mask[t].any():
             # Compute aggregated: overstowage and long crane excess
