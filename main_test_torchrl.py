@@ -144,14 +144,14 @@ class Critic(nn.Module):
 def train(policy, critic, device=torch.device("cuda"), **kwargs):
     # todo: extend with mini-batch training, data loader, REINFORCE, PPO, etc.
     # Hyperparameters
-    lr = kwargs["training"]["lr"]
     batch_size = kwargs["model"]["batch_size"]
-    mini_batch_size = int(kwargs["training"]["mini_batch_size"] * batch_size)
-    train_data_size = kwargs["training"]["train_data_size"]
+    mini_batch_size = int(kwargs["algorithm"]["mini_batch_size"] * batch_size)
     num_epochs = kwargs["algorithm"]["ppo_epochs"]
     max_grad_norm = kwargs["algorithm"]["max_grad_norm"]
     vf_lambda = kwargs["algorithm"]["vf_lambda"]
     feasibility_lambda = kwargs["algorithm"]["feasibility_lambda"]
+    lr = kwargs["training"]["lr"]
+    train_data_size = kwargs["training"]["train_data_size"]
 
     # Environment
     env = make_env(env_kwargs=kwargs["env"], batch_size=[batch_size], device=device)
@@ -162,14 +162,13 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     # elif kwargs["algorithm"]["name"] == "ppo":
     gamma = kwargs["algorithm"]["gamma"]
     gae_lambda = kwargs["algorithm"]["gae_lambda"]
-    clip_epsilon = kwargs["algorithm"]["clip_epsilon"]
+    clip_epsilon = kwargs["algorithm"]["clip_range"]
     entropy_lambda = kwargs["algorithm"]["entropy_lambda"]
 
-
+    # Loss modules
     advantage_module = GAE(
         gamma=gamma, lmbda=gae_lambda, value_network=critic, average_gae=True
     )
-
     loss_module = ClipPPOLoss(
         actor_network=policy,
         critic_network=critic,
@@ -185,7 +184,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     collector = SyncDataCollector(
         env,
         policy,
-        frames_per_batch=batch_size,
+        frames_per_batch=batch_size*env.T*env.K, # batch_size * steps_per_episode
         total_frames=train_data_size,
         split_trajs=False,
         device=device,
@@ -201,11 +200,11 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
 
     pbar = tqdm.tqdm(range(train_data_size // batch_size))
     for step, td in enumerate(collector):
-        # we now have a batch of data to work with. Let's learn something from it.
+        # run through shapes in td
+        for key, value in td.items():
+            print(f"{key}: {value.shape}")
+        breakpoint()
         for _ in range(num_epochs):
-            # We'll need an "advantage" signal to make PPO work.
-            # We re-compute it at each epoch as its value depends on the value
-            # network which is updated in the inner loop.
             advantage_module(td)
             data_view = td.reshape(-1)
             replay_buffer.extend(data_view)
