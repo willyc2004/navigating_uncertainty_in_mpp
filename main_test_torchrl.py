@@ -21,6 +21,9 @@ import wandb
 # TorchRL
 from torchrl.envs.utils import check_env_specs
 from torchrl.modules import ProbabilisticActor, IndependentNormal
+from torchrl.objectives.ppo import ClipPPOLoss
+from torchrl.objectives.reinforce import ReinforceLoss
+from torchrl.objectives.value import GAE
 from torchrl.collectors import SyncDataCollector
 from torchrl.data.replay_buffers import ReplayBuffer
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
@@ -43,9 +46,9 @@ def adapt_env_kwargs(config):
     config.env.capacity = [50] if config.env.TEU == 1000 else [500]
     return config
 
-def make_env(env_kwargs:DotMap, device: torch.device = torch.device("cuda")):
+def make_env(env_kwargs:DotMap, batch_size:Optional[list] = [], device: torch.device = torch.device("cuda")):
     """Setup and transform the Pendulum environment."""
-    return MasterPlanningEnv(**env_kwargs).to(device)  # Custom environment
+    return MasterPlanningEnv(batch_size=batch_size, **env_kwargs).to(device)  # Custom environment
 
 def init_weights(m):
     if isinstance(m, torch.nn.Linear):
@@ -73,96 +76,202 @@ class SimplePolicy(nn.Module):
     def forward(self, x):
         return self.net(x)
 
-class AutoEncoder(nn.Module):
-    """Create autoencoder model from initial embedding, encoder, context embedding, decoder models passed as arguments."""
-    def __init__(self, encoder, decoder, init_embed, context_embed, dynamic_embed):
+class Encoder(nn.Module):
+    """Create encoder model from initial embedding, encoder models passed as arguments."""
+    def __init__(self, init_embed, encoder):
         super().__init__()
-        self.encoder = encoder
-        self.decoder = decoder
         self.init_embed = init_embed
-        self.context_embed = context_embed
-        self.dynamic_embed = dynamic_embed
+        self.encoder = encoder
 
     def forward(self, obs):
         # Initial embedding
         init_embed = self.init_embed(obs)
         # Encode initial embedding to hidden state
         hidden, _ = self.encoder(init_embed)
+        return hidden
+
+class ActorDecoder(nn.Module):
+    """Create decoder model from context embedding, decoder models passed as arguments."""
+    def __init__(self, context_embed, decoder):
+        super().__init__()
+        self.context_embed = context_embed
+        self.decoder = decoder
+
+    def forward(self, obs, hidden):
         # Context embedding
         context_embed = self.context_embed(obs, hidden)
         # Decode context embedding to output
         dec_out = self.decoder(context_embed)
         return dec_out
 
+class CriticDecoder(nn.Module):
+    """Create decoder model from context embedding, decoder models passed as arguments."""
+    def __init__(self, context_embed, decoder):
+        super().__init__()
+        self.context_embed = context_embed
+        self.decoder = decoder
+
+    def forward(self, obs, hidden):
+        # Context embedding
+        context_embed = self.context_embed(obs, hidden)
+        # Decode context embedding to output
+        dec_out = self.decoder(context_embed)
+        return dec_out
+
+class Actor(nn.Module):
+    def __init__(self, encoder, decoder):
+        super().__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+
+    def forward(self, obs):
+        hidden = self.encoder(obs)
+        dec_out = self.decoder(obs, hidden)
+        return dec_out
+
+class Critic(nn.Module):
+    def __init__(self, encoder, decoder):
+        super().__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+
+    def forward(self, obs):
+        hidden = self.encoder(obs)
+        dec_out = self.decoder(obs, hidden)
+        return dec_out
+
 ## Training
-def train(batch_size, train_data_size, policy, env, model, optim,):
-    # torch.autograd.set_detect_anomaly(True)
+def train(policy, critic, device=torch.device("cuda"), **kwargs):
     # todo: extend with mini-batch training, data loader, REINFORCE, PPO, etc.
-    pbar = tqdm.tqdm(range(train_data_size // batch_size))
-    init_td = env.generator(batch_size).clone()
+    # Hyperparameters
+    lr = kwargs["training"]["lr"]
+    batch_size = kwargs["model"]["batch_size"]
+    mini_batch_size = int(kwargs["training"]["mini_batch_size"] * batch_size)
+    train_data_size = kwargs["training"]["train_data_size"]
+    num_epochs = kwargs["algorithm"]["ppo_epochs"]
+    max_grad_norm = kwargs["algorithm"]["max_grad_norm"]
+    vf_lambda = kwargs["algorithm"]["vf_lambda"]
+    feasibility_lambda = kwargs["algorithm"]["feasibility_lambda"]
+
+    # Environment
+    env = make_env(env_kwargs=kwargs["env"], batch_size=[batch_size], device=device)
+
+    # Optimizer, loss module, data collector, and scheduler
+    # if kwargs["algorithm"]["name"] == "reinforce":
+    #     loss_module = ReinforceLoss(actor_network=policy, critic_network=critic,)
+    # elif kwargs["algorithm"]["name"] == "ppo":
+    gamma = kwargs["algorithm"]["gamma"]
+    gae_lambda = kwargs["algorithm"]["gae_lambda"]
+    clip_epsilon = kwargs["algorithm"]["clip_epsilon"]
+    entropy_lambda = kwargs["algorithm"]["entropy_lambda"]
+
+
+    advantage_module = GAE(
+        gamma=gamma, lmbda=gae_lambda, value_network=critic, average_gae=True
+    )
+
+    loss_module = ClipPPOLoss(
+        actor_network=policy,
+        critic_network=critic,
+        clip_epsilon=clip_epsilon,
+        entropy_bonus=bool(entropy_lambda),
+        entropy_coef=entropy_lambda,
+        # these keys match by default but we set this for completeness
+        critic_coef=vf_lambda,
+        loss_critic_type="smooth_l1",
+    )
+
+    # Data collector and replay buffer
+    collector = SyncDataCollector(
+        env,
+        policy,
+        frames_per_batch=batch_size,
+        total_frames=train_data_size,
+        split_trajs=False,
+        device=device,
+    )
+    replay_buffer = ReplayBuffer(
+        storage=LazyTensorStorage(max_size=batch_size),
+        sampler=SamplerWithoutReplacement(),
+    )
+
+    # Optimizer and scheduler
+    optim = torch.optim.Adam(policy.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, train_data_size)
 
-    # for step, td in enumerate(collector):
-    for step in pbar:
-        # Perform rollout
-        td = env.reset(env.generator(batch_size=batch_size, td=init_td),)
-        rollout = env.rollout(72, policy, tensordict=td, auto_reset=True)
-        # Get return and violation
-        traj_return = rollout["next", "reward"].mean()
-        traj_violation = rollout["next", "violation"].sum(dim=(-1,-2)).mean()
+    pbar = tqdm.tqdm(range(train_data_size // batch_size))
+    for step, td in enumerate(collector):
+        # we now have a batch of data to work with. Let's learn something from it.
+        for _ in range(num_epochs):
+            # We'll need an "advantage" signal to make PPO work.
+            # We re-compute it at each epoch as its value depends on the value
+            # network which is updated in the inner loop.
+            advantage_module(td)
+            data_view = td.reshape(-1)
+            replay_buffer.extend(data_view)
+            for _ in range(batch_size // mini_batch_size):
+                subdata = replay_buffer.sample(mini_batch_size)
+                loss_vals = loss_module(subdata.to(device))
+                violation = subdata["next", "state", "violation"]
+                loss_value = (
+                        loss_vals["loss_objective"]
+                        + loss_vals["loss_critic"]
+                        + loss_vals["loss_entropy"]
+                        + feasibility_lambda * violation.mean()
+                )
 
-        # Compute loss
-        loss = -traj_return + 0.05 * traj_violation
+                # Optimization: backward, grad clipping and optimization step
+                loss_value.backward()
+                torch.nn.utils.clip_grad_norm_(loss_module.parameters(), max_grad_norm)
+                optim.step()
+                optim.zero_grad()
 
-        # Perform backpropagation
-        loss.backward()
-        gn = torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
-        optim.step()
-        optim.zero_grad()
+            # Log metrics
+            pbar.update(td.numel())
 
-        # Log metrics
-        pbar.set_description(
-            # Loss, gn and rewards
-            f"traj_return: {traj_return: 4.4f}, "
-            f"last reward: {rollout[..., -1]['next', 'reward'].mean(): 4.4f}, "
-            f"loss :  {loss: 4.4f}, "
-            f"gradient norm: {gn: 4.4}, "
-            # Constraints
-            f"total_violation: {rollout[..., -1]['next', 'state', 'total_violation'].sum(dim=-1).mean(): 4.4f}, "
-            f"demand_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,0].mean(): 4.4f}, "
-            f"LCG_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,1:3].sum(dim=-1).mean(): 4.4f}, "
-            f"VCG_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,3:5].sum(dim=-1).mean(): 4.4f}, "
-            # Env
-            f"total_revenue: {rollout[..., -1]['next', 'state', 'total_revenue'].mean(): 4.4f}, "
-            f"total_cost: {rollout[..., -1]['next', 'state', 'total_cost'].mean(): 4.4f}, "
-            f"total_loaded: {rollout[..., -1]['next', 'state', 'total_loaded'].mean(): 4.4f}, "
-            f"total demand: {rollout[..., -1]['next', 'realized_demand'].sum(dim=-1).mean(): 4.4f}, "
-            f"total e[x] demand: {init_td['expected_demand'].sum(dim=-1).mean(): 4.4f}, "
-        )
-        log = {
-            # General
-            "step": step,
-            # Trajectory
-            "traj_return": traj_return.item(),
-            "traj_violation": traj_violation.item(),
-            "last_reward": rollout[..., -1]["next", "reward"].mean().item(),
-            # Loss and gradients
-            "loss": loss.item(),
-            "grad_norm": gn.item(),
-            # Constraints
-            "total_violation": rollout[..., -1]["next", "state", "total_violation"].sum(dim=-1).mean().item(),
-            "demand_violation": rollout[..., -1]["next", "state", "total_violation"][...,0].mean().item(),
-            "LCG_violation": rollout[..., -1]["next", "state", "total_violation"][..., 1:3].sum(dim=-1).mean().item(),
-            "VCG_violation": rollout[..., -1]["next", "state", "total_violation"][..., 3:5].sum(dim=-1).mean().item(),
-
-            # Environment
-            "total_revenue": rollout[..., -1]["next", "state", "total_revenue"].mean().item(),
-            "total_cost": rollout[..., -1]["next", "state", "total_cost"].mean().item(),
-            "total_loaded": rollout[..., -1]["next", "state", "total_loaded"].mean().item(),
-            "total_demand":rollout[..., -1]['next', 'realized_demand'].sum(dim=-1).mean().item(),
-            "total_e_x_demand": init_td['expected_demand'].sum(dim=-1).mean().item(),
-        }
-        wandb.log(log)
+            # # Log metrics
+            # pbar.set_description(
+            #     # Loss, gn and rewards
+            #     f"traj_return: {traj_return.mean(): 4.4f}, "
+            #     f"last reward: {rollout[..., -1]['next', 'reward'].mean(): 4.4f}, "
+            #     f"loss :  {loss: 4.4f}, "
+            #     f"gradient norm: {gn: 4.4}, "
+            #     # Constraints
+            #     f"total_violation: {rollout[..., -1]['next', 'state', 'total_violation'].sum(dim=-1).mean(): 4.4f}, "
+            #     f"demand_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,0].mean(): 4.4f}, "
+            #     f"LCG_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,1:3].sum(dim=-1).mean(): 4.4f}, "
+            #     f"VCG_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,3:5].sum(dim=-1).mean(): 4.4f}, "
+            #     # Env
+            #     f"total_revenue: {rollout[..., -1]['next', 'state', 'total_revenue'].mean(): 4.4f}, "
+            #     f"total_cost: {rollout[..., -1]['next', 'state', 'total_cost'].mean(): 4.4f}, "
+            #     f"total_loaded: {rollout[..., -1]['next', 'state', 'total_loaded'].mean(): 4.4f}, "
+            #     f"total demand: {rollout[..., -1]['next', 'realized_demand'].sum(dim=-1).mean(): 4.4f}, "
+            #     f"total e[x] demand: {init_td['expected_demand'].sum(dim=-1).mean(): 4.4f}, "
+            # )
+        # log = {
+        #     # General
+        #     "step": step,
+        #     # Trajectory
+        #     "traj_return": traj_return.mean().item(),
+        #     "traj_violation": traj_violation.mean().item(),
+        #     "last_reward": rollout[..., -1]["next", "reward"].mean().item(),
+        #     # Loss and gradients
+        #     "loss": loss.item(),
+        #     "grad_norm": gn.item(),
+        #     # Constraints
+        #     "total_violation": rollout[..., -1]["next", "state", "total_violation"].sum(dim=-1).mean().item(),
+        #     "demand_violation": rollout[..., -1]["next", "state", "total_violation"][...,0].mean().item(),
+        #     "LCG_violation": rollout[..., -1]["next", "state", "total_violation"][..., 1:3].sum(dim=-1).mean().item(),
+        #     "VCG_violation": rollout[..., -1]["next", "state", "total_violation"][..., 3:5].sum(dim=-1).mean().item(),
+        #
+        #     # Environment
+        #     "total_revenue": rollout[..., -1]["next", "state", "total_revenue"].mean().item(),
+        #     "total_cost": rollout[..., -1]["next", "state", "total_cost"].mean().item(),
+        #     "total_loaded": rollout[..., -1]["next", "state", "total_loaded"].mean().item(),
+        #     "total_demand":rollout[..., -1]['next', 'realized_demand'].sum(dim=-1).mean().item(),
+        #     "total_e_x_demand": init_td['expected_demand'].sum(dim=-1).mean().item(),
+        # }
+        # wandb.log(log)
         scheduler.step()
 
     # Generate a timestamp
@@ -253,21 +362,31 @@ def main(config: Optional[DotMap] = None):
     else:
         raise ValueError(f"Decoder type {config.model.decoder_type} not recognized.")
 
-    model = AutoEncoder(encoder, decoder, init_embed, context_embed, dynamic_embed).to(device)
+    encoder = Encoder(init_embed, encoder).to(device)
+    actor_decoder = ActorDecoder(context_embed, decoder).to(device)
+    critic_decoder = CriticDecoder(context_embed, decoder).to(device)
+    actor = Actor(encoder, actor_decoder).to(device)
+    critic = Critic(encoder, critic_decoder).to(device)
     # model = SimplePolicy(hidden_dim=hidden_dim, act_dim=action_dim, device=device, dtype=env.float_type).apply(init_weights)
 
-    # Wrap in a TensorDictModule
-    td_module = TensorDictModule(
-        model,
+    # Get ProbabilisticActor (for stochastic policies)
+    actor = TensorDictModule(
+        actor,
         in_keys=["observation",],  # Input tensor key in TensorDict
         out_keys=["loc"]  # Output tensor key in TensorDict
     )
-    # ProbabilisticActor (for stochastic policies)
     policy = ProbabilisticActor(
-        module=td_module,
-        in_keys=["loc",],
+        module=actor,
+        in_keys=["loc", ],
         distribution_class=IndependentNormal,
-        distribution_kwargs={"scale": 1.0}
+        distribution_kwargs={"scale": 1.0},
+        return_log_prob=True,
+    )
+    # Get critic
+    critic = TensorDictModule(
+        critic,
+        in_keys=["observation", ],  # Input tensor key in TensorDict
+        out_keys=["state_value"]  # Output tensor key in TensorDict
     )
 
     ## Hyperparameters
@@ -295,7 +414,7 @@ def main(config: Optional[DotMap] = None):
     am_ppo_params = {
         "env": env,
         "policy":policy,
-        # "critic": critic,
+        "critic": critic,
         # "critic_kwargs": {"embed_dim": embed_dim, "hidden_dim": hidden_dim, "customized": False},
         # "projection_kwargs": projection_kwargs,
         "decoder_type": config.model.decoder_type,
@@ -305,13 +424,11 @@ def main(config: Optional[DotMap] = None):
         **config.ppo,
         **config.am_ppo,
     }
-    # Optimizer
-    optim = torch.optim.Adam(policy.parameters(), lr=lr)
 
     ## Main loop
     # Train the model
     if config.model.phase == "train":
-        train(batch_size, train_data_size, policy, env, model, optim,)
+        train(policy, critic, **config)
     # Test the model
     elif config.model.phase == "test":
         datestamp = "20241214_065732"
@@ -325,6 +442,8 @@ def main(config: Optional[DotMap] = None):
             in_keys=["observation", ],  # Input tensor key in TensorDict
             out_keys=["loc"]  # Output tensor key in TensorDict
         )
+        # todo: check if two models can be re-loaded
+
         # ProbabilisticActor (for stochastic policies)
         test_policy = ProbabilisticActor(
             module=test_td_module,
@@ -360,7 +479,7 @@ def main(config: Optional[DotMap] = None):
 
             # Run inference
             td = test_env.reset(test_env.generator(batch_size=batch_size, td=init_td), )
-            rollout = test_env.rollout(72, test_policy, tensordict=td, auto_reset=True)
+            rollout = test_env.rollout(env.K*env.T, test_policy, tensordict=td, auto_reset=True)
             # todo: add rollout_results to outs
 
             # Sync GPU again after inference if using CUDA
@@ -392,7 +511,7 @@ def main(config: Optional[DotMap] = None):
 if __name__ == "__main__":
     # Load static configuration from the YAML file
     file_path = os.getcwd()
-    with open(f'{file_path}/config.yaml', 'r') as file:
+    with open(f'{file_path}/config_torchrl.yaml', 'r') as file:
         config = yaml.safe_load(file)
         config = DotMap(config)
         config = adapt_env_kwargs(config)
