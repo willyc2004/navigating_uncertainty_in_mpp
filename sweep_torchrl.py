@@ -12,15 +12,15 @@ if __name__ == "__main__":
 
     def train():
         try:
-            # Initialize W&B
-            wandb.init()
-            sweep_config = wandb.config
-
             # Load static configuration from the YAML file
             with open('config.yaml', 'r') as file:
                 config = yaml.safe_load(file)
                 config = DotMap(config)
                 config = adapt_env_kwargs(config)
+
+            # Initialize W&B
+            wandb.init(config=config)
+            sweep_config = wandb.config
 
             # Model hyperparameters
             config['model']['feedforward_hidden'] = sweep_config.feedforward_hidden
