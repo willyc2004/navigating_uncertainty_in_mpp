@@ -1,0 +1,89 @@
+# Environment settings
+env:
+  ports: 4 # [4, 5, 6]
+  bays: 10 # [10, 20,]
+  decks: 2
+  cargo_classes: 6
+  weight_classes: 3
+  customer_classes: 2
+  capacity: [50] # [50, 500]
+  TEU: 1000  # 1000, 20000
+  LCG_target: 0.95
+  VCG_target: 1.05
+  stability_difference: 0.10
+  CI_target: 1.25
+  hatch_overstowage_costs: 0.333333
+  hatch_overstowage_mask: False
+  long_crane_costs: 0.5
+  episode_order: "greedy_revenue" # greedy_revenue, priority_then_greedy, max_distance_then_priority, standard
+
+  # Generator
+  seed: 42
+  utilization_rate_initial_demand: 1.1
+  spot_percentage: 0.3
+  iid_demand: True
+  cv_demand: 0.5
+  demand_uncertainty: True
+
+# Model settings
+model:
+  lr_end_factor: 0.5
+  batch_size: 64
+  init_dim: 8
+  embed_dim: 128
+  feedforward_hidden: 256
+  num_encoder_layers: 1
+  num_decoder_layers: 3
+  num_heads: 4
+  dropout_rate: 0.1
+  normalization: "layer" # layer, batch
+  out_bias_pointer_attn: False
+  temperature: 1.0
+  critic_temperature: 0.10
+  tanh_clipping: 0
+  tanh_squashing: False
+  train_decode_type: "continuous_sampling"
+  val_decode_type: "continuous_projection"
+  test_decode_type: "continuous_projection"
+  phase: "train" # train, test
+  encoder_type: "attention" # mlp, attention
+  decoder_type: "mlp" # mlp, attention
+  demand_aggregation: "full" # sum, self_attn, full
+  logger: "wandb" #"wandb" # None, wandb
+
+# PPO parameters
+algorithm:
+  type: "ppo" # reinforce, ppo
+  clip_range: 0.2
+  ppo_epochs: 5 # 2, 3, 5, 7, 10
+  mini_batch_size: 0.5
+  normalize_adv: False
+  normalize_return: False
+  max_grad_norm: 0.5
+  kl_threshold: None #0.01 - 0.1
+  kl_penalty_lambda: None # 1.0
+  gamma: 0.999
+  gae_lambda: 0.95
+  vf_lambda: 0.5
+  entropy_lambda: 0.1
+  feasibility_lambda: 0.2
+  demand_lambda: 1.0
+  stability_lambda: 1.0
+  projection_lambda: 0.01
+  adaptive_feasibility_lambda: False
+  n_step: 72
+
+# AM PPO parameters
+# todo: possibly change from am_ppo to "training"
+training:
+  lr: 0.0003
+  projection_type: "linear_violation"
+  #None, convex_program, worst_case_violation, linear_violation, linear_program
+  projection_kwargs:
+    iters: 5
+    project_per_port: False
+  optimizer: "Adam"
+  #AdamW, Adam
+  train_data_size: 400000  #5_000_000 # 3_000_000
+  val_data_size: 5000 # 50000
+  test_data_size: 5000
