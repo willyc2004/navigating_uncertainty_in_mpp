@@ -173,6 +173,7 @@ class MLPDecoderWithCache(nn.Module):
                  init_embedding=None,
                  context_embedding=None,
                  dynamic_embedding=None,
+                 temperature: float = 1.0,
                  linear_bias: bool = False,
                  max_context_len: int = 256,
                  use_graph_context: bool = False,
@@ -209,6 +210,9 @@ class MLPDecoderWithCache(nn.Module):
         self.mean_head = nn.Linear(hidden_dim, action_size)
         self.std_head = nn.Linear(hidden_dim, action_size)
 
+        # Temperature for the policy
+        self.temperature = temperature
+
     def forward(self, obs, hidden) -> Tensor:
         # Context embedding
         context = self.context_embedding(obs, hidden)
@@ -220,7 +224,7 @@ class MLPDecoderWithCache(nn.Module):
         # std = F.softplus(self.std_head(hidden))
         # output_logits = torch.stack([mean, std], dim=-1)
         # todo: add mask
-        return mean
+        return mean/self.temperature
 
     def pre_decoder_hook(self, td, env, embeddings, num_starts: int = 0):
         return td, env, self._precompute_cache(embeddings, num_starts)
