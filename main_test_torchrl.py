@@ -19,6 +19,7 @@ from torch import nn
 import wandb
 
 # TorchRL
+from torchrl.envs import EnvBase
 from torchrl.envs.utils import check_env_specs
 from torchrl.modules import ProbabilisticActor, IndependentNormal
 from torchrl.objectives.ppo import ClipPPOLoss
@@ -86,6 +87,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     feasibility_lambda = kwargs["algorithm"]["feasibility_lambda"]
     lr = kwargs["training"]["lr"]
     train_data_size = kwargs["training"]["train_data_size"]
+    val_data_size = kwargs["training"]["val_data_size"]
     validation_freq = kwargs["training"]["validation_freq"]
 
     # Environment
@@ -117,7 +119,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             entropy_bonus=bool(entropy_lambda),
             entropy_coef=entropy_lambda,
             critic_coef=vf_lambda,
-            loss_critic_type="l2",
+            loss_critic_type="smooth_l1",
         )
     elif kwargs["algorithm"]["type"] == "ppo_feas":
         loss_module = FeasibilityClipPPOLoss(
@@ -127,8 +129,9 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             entropy_bonus=bool(entropy_lambda),
             entropy_coef=entropy_lambda,
             critic_coef=vf_lambda,
-            loss_critic_type="l2",
+            loss_critic_type="smooth_l1",
             feasibility_coef=feasibility_lambda,
+            normalize_advantage=True,
         )
     else:
         raise ValueError(f"Algorithm {kwargs['algorithm']['type']} not recognized.")
@@ -149,9 +152,11 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
 
     # Optimizer and scheduler
     optim = torch.optim.Adam(policy.parameters(), lr=lr)
+    train_updates = train_data_size // (batch_size * n_step)
+    pbar = tqdm.tqdm(range(train_updates))
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, train_data_size)
 
-    pbar = tqdm.tqdm(range(len(collector)))
+    # todo: collector/pbar not the same right now
     for step, td in enumerate(collector):
         for _ in range(num_epochs):
             advantage_module(td)
@@ -200,7 +205,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             "total_cost": subdata["next", "state", "total_cost"][...,-1].mean().item(),
             "total_loaded": subdata["next", "state", "total_loaded"][...,-1].mean().item(),
             "total_demand":subdata['realized_demand'][:,0,:].sum(dim=-1).mean(),
-            "total_e[x]_demand": subdata['init_expected_demand'][:, 0, :].sum(dim=-1).mean(),
+            "total_e[x]_demand": td['init_expected_demand'][:, 0, :].sum(dim=-1).mean(),
         }
         # Log metrics
         pbar.set_description(
@@ -220,22 +225,81 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
 
         # every 20% of len(collector) validate
         if step % (len(collector) // (1/validation_freq)) == 0:
-            pass
+            validate_policy(env, policy, num_episodes=val_data_size//batch_size)
             # todo: add validation here for every
 
     # Generate a timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # Save the model checkpoint with timestamp
-    model_save_path = f"saved_models/trained_model_{timestamp}.pth"
-    os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
-    torch.save(model.state_dict(), model_save_path)
+    policy_save_path = f"saved_models/trained_policy_{timestamp}.pth"
+    critic_save_path = f"saved_models/trained_critic_{timestamp}.pth"
+    os.makedirs(os.path.dirname(policy_save_path), exist_ok=True)
+    torch.save(policy.state_dict(), policy_save_path)
+    torch.save(critic.state_dict(), critic_save_path)
 
     # Log the model checkpoint to wandb
-    wandb.save(model_save_path)
+    wandb.save(policy_save_path)
+    wandb.save(critic_save_path)
 
     # Close environments
     env.close()
+
+
+def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episodes: int = 10, device: str = "cuda"):
+    """
+    Perform validation rollouts for a given policy in an environment.
+
+    Args:
+        env (EnvBase): The environment for validation.
+        policy_module (ProbabilisticActor): The trained policy module.
+        num_episodes (int): Number of episodes to run for validation.
+        device (str): Device to run the policy ('cpu' or 'cuda').
+
+    Returns:
+        float: The average reward over the validation episodes.
+    """
+    policy_module.eval()  # Set the policy to evaluation mode
+    total_rewards = []
+
+    with torch.no_grad():
+        for episode in range(num_episodes):
+            # Reset the environment and get the initial observation
+            tensordict = env.reset()
+            tensordict = tensordict.to(device)
+            done = False
+            episode_reward = 0
+
+            while not done:
+                # Get action distribution from the policy and sample an action
+                action_dist = policy_module(tensordict)
+                action = action_dist.sample()
+                tensordict.set("action", action)
+
+                # Step the environment
+                next_tensordict = env.step(tensordict)
+
+                # Accumulate the reward
+                reward = next_tensordict["reward"]
+                episode_reward += reward.item()
+
+                # Update the current state for the next step
+                tensordict = next_tensordict
+
+                # Check if the episode is done
+                done = next_tensordict["done"].item()
+
+            total_rewards.append(episode_reward)
+            print(f"Episode {episode + 1}/{num_episodes}: Reward = {episode_reward}")
+
+    # Compute the average reward
+    avg_reward = sum(total_rewards) / num_episodes
+    print(f"\nAverage Reward over {num_episodes} Episodes: {avg_reward:.2f}")
+
+    policy_module.train()  # Set the policy back to training mode
+    return avg_reward
+
+
 
 def main(config: Optional[DotMap] = None):
     # todo: clean-up and refactor all hyperparameters etc.
@@ -288,6 +352,7 @@ def main(config: Optional[DotMap] = None):
         "context_embedding": context_embed,
         "dynamic_embedding": dynamic_embed,
         "normalization": config.model.normalization,
+        "temperature": config.model.temperature,
     }
     encoder_args = {
         "embed_dim": embed_dim,
@@ -300,7 +365,6 @@ def main(config: Optional[DotMap] = None):
     }
 
     # Setup model
-    # todo: fix e[x] demand being static?
     if config.model.encoder_type == "attention":
         encoder = AttentionModelEncoder(**encoder_args,)
     else:
@@ -311,9 +375,10 @@ def main(config: Optional[DotMap] = None):
         decoder = MLPDecoderWithCache(**decoder_args)
     else:
         raise ValueError(f"Decoder type {config.model.decoder_type} not recognized.")
-    critic = CriticNetwork(encoder, embed_dim=embed_dim, hidden_dim=hidden_dim, num_layers=1,
+    critic = CriticNetwork(encoder, embed_dim=embed_dim, hidden_dim=hidden_dim, num_layers=decoder_layers,
                            context_embedding=context_embed, normalization=config.model.normalization,
-                           dropout_rate=dropout_rate, customized=True).to(device)
+                           dropout_rate=dropout_rate, temperature=config.model.critic_temperature,
+                           customized=True).to(device)
     actor = Actor(encoder, decoder).to(device)
 
     # Get ProbabilisticActor (for stochastic policies)
@@ -373,85 +438,86 @@ def main(config: Optional[DotMap] = None):
         train(policy, critic, **config)
     # Test the model
     elif config.model.phase == "test":
-        datestamp = "20241214_065732"
-        checkpoint_path = f"./saved_models"
-        pth_name = f"/trained_model_{datestamp}.pth"
-        pth = torch.load(checkpoint_path + pth_name,)
-        model.load_state_dict(pth, strict=True)
-        # todo: extract trained hyper-parameters
-        # todo: check if two models can be re-loaded
-
-        # Wrap in a TensorDictModule
-        test_td_module = TensorDictModule(
-            model,
-            in_keys=["observation", ],  # Input tensor key in TensorDict
-            out_keys=["loc"]  # Output tensor key in TensorDict
-        )
-
-        # ProbabilisticActor (for stochastic policies)
-        test_policy = ProbabilisticActor(
-            module=test_td_module,
-            in_keys=["loc", ],
-            distribution_class=IndependentNormal,
-            distribution_kwargs={"scale": 1.0}
-        )
-
-
-        # Initialize policy
-        env_kwargs["float_type"] = torch.float32
-        test_env = make_env(env_kwargs)  # Re-initialize the environment
-
-        # Run multiple iterations to measure inference time
-        num_runs = 5
-        outs = []
-        returns = []
-        times = []
-        revenues = []
-        costs = []
-        violations = []
-
-        init_td = test_env.generator(batch_size).clone()
-        for i in range(num_runs):
-            # Set a new seed for each run
-            print(f"Run {i + 1}/{num_runs}")
-            seed = i
-            torch.manual_seed(seed)
-
-            # Sync GPU before starting timer if using CUDA
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-            start_time = time.perf_counter()
-
-            # Run inference
-            td = test_env.reset(test_env.generator(batch_size=batch_size, td=init_td), )
-            rollout = test_env.rollout(env.K*env.T, test_policy, tensordict=td, auto_reset=True)
-            # todo: add rollout_results to outs
-
-            # Sync GPU again after inference if using CUDA
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-            end_time = time.perf_counter()
-
-            # Calculate and record inference time for each run
-            returns.append(rollout["next", "reward"].mean())
-            times.append(end_time - start_time)
-            revenues.append(rollout[..., -1]["next", "state", "total_revenue"].mean())
-            costs.append(rollout[..., -1]["next", "state", "total_cost"].mean())
-            violations.append(rollout[..., -1]["next", "state", "total_violation"].sum(dim=(-1, -2)).mean())
-        returns = torch.tensor(returns)
-        times = torch.tensor(times)
-        revenues = torch.tensor(revenues)
-        costs = torch.tensor(costs)
-        violations = torch.tensor(violations)
-        print("-"*50)
-        print(f"Mean return: {returns.mean():.4f}")
-        print(f"Mean inference time: {times.mean():.4f} seconds")
-        print(f"Mean revenue: {revenues.mean():.4f}")
-        print(f"Mean cost: {costs.mean():.4f}")
-        print(f"Mean violation: {violations.mean():.4f}")
-
-        # rollout_results(test_env, outs, td, batch_size, checkpoint_path,
-        #                 am_ppo_params["projection_type"], config["env"]["utilization_rate_initial_demand"], times)
+        raise NotImplementedError("Testing not implemented yet.")
+    #     datestamp = "20241214_065732"
+    #     checkpoint_path = f"./saved_models"
+    #     pth_name = f"/trained_model_{datestamp}.pth"
+    #     pth = torch.load(checkpoint_path + pth_name,)
+    #     model.load_state_dict(pth, strict=True)
+    #     # todo: extract trained hyper-parameters
+    #     # todo: check if two models can be re-loaded
+    #
+    #     # Wrap in a TensorDictModule
+    #     test_td_module = TensorDictModule(
+    #         model,
+    #         in_keys=["observation", ],  # Input tensor key in TensorDict
+    #         out_keys=["loc"]  # Output tensor key in TensorDict
+    #     )
+    #
+    #     # ProbabilisticActor (for stochastic policies)
+    #     test_policy = ProbabilisticActor(
+    #         module=test_td_module,
+    #         in_keys=["loc", ],
+    #         distribution_class=IndependentNormal,
+    #         distribution_kwargs={"scale": 1.0}
+    #     )
+    #
+    #
+    #     # Initialize policy
+    #     env_kwargs["float_type"] = torch.float32
+    #     test_env = make_env(env_kwargs)  # Re-initialize the environment
+    #
+    #     # Run multiple iterations to measure inference time
+    #     num_runs = 5
+    #     outs = []
+    #     returns = []
+    #     times = []
+    #     revenues = []
+    #     costs = []
+    #     violations = []
+    #
+    #     init_td = test_env.generator(batch_size).clone()
+    #     for i in range(num_runs):
+    #         # Set a new seed for each run
+    #         print(f"Run {i + 1}/{num_runs}")
+    #         seed = i
+    #         torch.manual_seed(seed)
+    #
+    #         # Sync GPU before starting timer if using CUDA
+    #         if torch.cuda.is_available():
+    #             torch.cuda.synchronize()
+    #         start_time = time.perf_counter()
+    #
+    #         # Run inference
+    #         td = test_env.reset(test_env.generator(batch_size=batch_size, td=init_td), )
+    #         rollout = test_env.rollout(env.K*env.T, test_policy, tensordict=td, auto_reset=True)
+    #         # todo: add rollout_results to outs
+    #
+    #         # Sync GPU again after inference if using CUDA
+    #         if torch.cuda.is_available():
+    #             torch.cuda.synchronize()
+    #         end_time = time.perf_counter()
+    #
+    #         # Calculate and record inference time for each run
+    #         returns.append(rollout["next", "reward"].mean())
+    #         times.append(end_time - start_time)
+    #         revenues.append(rollout[..., -1]["next", "state", "total_revenue"].mean())
+    #         costs.append(rollout[..., -1]["next", "state", "total_cost"].mean())
+    #         violations.append(rollout[..., -1]["next", "state", "total_violation"].sum(dim=(-1, -2)).mean())
+    #     returns = torch.tensor(returns)
+    #     times = torch.tensor(times)
+    #     revenues = torch.tensor(revenues)
+    #     costs = torch.tensor(costs)
+    #     violations = torch.tensor(violations)
+    #     print("-"*50)
+    #     print(f"Mean return: {returns.mean():.4f}")
+    #     print(f"Mean inference time: {times.mean():.4f} seconds")
+    #     print(f"Mean revenue: {revenues.mean():.4f}")
+    #     print(f"Mean cost: {costs.mean():.4f}")
+    #     print(f"Mean violation: {violations.mean():.4f}")
+    #
+    #     # rollout_results(test_env, outs, td, batch_size, checkpoint_path,
+    #     #                 am_ppo_params["projection_type"], config["env"]["utilization_rate_initial_demand"], times)
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
