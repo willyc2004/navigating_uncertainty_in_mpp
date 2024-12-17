@@ -38,7 +38,7 @@ from environment.embeddings import MPPInitEmbedding, StaticEmbedding, MPPContext
 from models.encoder import MLPEncoder
 from models.decoder import AttentionDecoderWithCache, MLPDecoderWithCache
 from models.critic import CriticNetwork
-from models.ppo_feas_loss import FeasibilityClipPPOLoss
+from models.loss import FeasibilityClipPPOLoss
 
 ## Helper functions
 def adapt_env_kwargs(config):
@@ -86,6 +86,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     feasibility_lambda = kwargs["algorithm"]["feasibility_lambda"]
     lr = kwargs["training"]["lr"]
     train_data_size = kwargs["training"]["train_data_size"]
+    validation_freq = kwargs["training"]["validation_freq"]
 
     # Environment
     env = make_env(env_kwargs=kwargs["env"], batch_size=[batch_size], device=device)
@@ -116,7 +117,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             entropy_bonus=bool(entropy_lambda),
             entropy_coef=entropy_lambda,
             critic_coef=vf_lambda,
-            loss_critic_type="smooth_l1",
+            loss_critic_type="l2",
         )
     elif kwargs["algorithm"]["type"] == "ppo_feas":
         loss_module = FeasibilityClipPPOLoss(
@@ -126,8 +127,8 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             entropy_bonus=bool(entropy_lambda),
             entropy_coef=entropy_lambda,
             critic_coef=vf_lambda,
-            loss_critic_type="smooth_l1",
-            feasibility_lambda=feasibility_lambda,
+            loss_critic_type="l2",
+            feasibility_coef=feasibility_lambda,
         )
     else:
         raise ValueError(f"Algorithm {kwargs['algorithm']['type']} not recognized.")
@@ -157,21 +158,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             replay_buffer.extend(td)
             for _ in range(batch_size // mini_batch_size):
                 subdata = replay_buffer.sample(mini_batch_size)
-                # print(subdata.keys())
-                for k, v in subdata.items():
-                    if v.requires_grad:
-                        print(k, v.requires_grad)
-
                 loss_vals = loss_module(subdata.to(device))
-                print(loss_vals.keys())
-                for k, v in loss_vals.items():
-                    if v.requires_grad:
-                        print(k, v.requires_grad)
-
-                # print(loss_vals["loss_objective"].requires_grad)
-                breakpoint()
-                loss_vals["violation"] = subdata["next", "violation"]
-                loss_vals["loss_feasibility"] = feasibility_lambda * loss_vals["violation"].sum(dim=(-2,-1)).mean()
                 loss = (loss_vals["loss_objective"]
                         + loss_vals["loss_critic"]
                         + loss_vals["loss_entropy"]
@@ -184,47 +171,57 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
                 optim.step()
                 optim.zero_grad()
 
-            # Log metrics
-            pbar.update(1)
-            log = {
-                # General
-                "step": step,
-                # Losses
-                "loss": loss.item(),
-                "loss_actor": loss_vals["loss_objective"],
-                "loss_critic": loss_vals["loss_critic"],
-                "loss_feasibility":loss_vals["loss_feasibility"],
-                "loss_entropy": loss_vals["loss_entropy"],
-                # Gradient, return and loss support
-                "grad_norm": gn.item(),
-                "return":subdata['next', 'reward'].sum(dim=(-2,-1)).mean().item(),
-                "kl_approx": loss_vals["loss_entropy"],
-                "clip_fraction": loss_vals["clip_fraction"],
-                "entropy": loss_vals["entropy"],
-                # Constraints
-                "total_violation": loss_vals["violation"].sum(dim=(-2,-1)).mean().item(),
-                "demand_violation":loss_vals["violation"][...,0].sum(dim=(1)).mean().item(),
-                "LCG_violation": loss_vals["violation"][..., 1:3].sum(dim=(1,2)).mean().item(),
-                "VCG_violation": loss_vals["violation"][..., 3:5].sum(dim=(1,2)).mean().item(),
+        # Log metrics
+        pbar.update(1)
+        log = {
+            # General
+            "step": step,
+            # Losses
+            "loss": loss.item(),
+            "loss_actor": loss_vals["loss_objective"],
+            "loss_critic": loss_vals["loss_critic"],
+            "loss_feasibility":loss_vals["loss_feasibility"],
+            "loss_entropy": loss_vals["loss_entropy"],
+            # Gradient, return and loss support
+            "grad_norm": gn.item(),
+            "return":subdata['next', 'reward'].mean().item(),
+            "kl_approx": loss_vals["loss_entropy"],
+            "clip_fraction": loss_vals["clip_fraction"],
+            "entropy": loss_vals["entropy"],
+            # Constraints
+            "mean_total_violation": loss_vals["mean_violation"].sum(dim=(-2,-1)).mean().item(),
+            "total_violation": subdata['next', 'violation'].sum(dim=(-2,-1)).mean().item(),
+            "demand_violation": subdata['next', 'violation'][...,0].sum(dim=(1)).mean().item(),
+            "LCG_violation": subdata['next', 'violation'][..., 1:3].sum(dim=(1,2)).mean().item(),
+            "VCG_violation": subdata['next', 'violation'][..., 3:5].sum(dim=(1,2)).mean().item(),
 
-                # Environment
-                "total_revenue": subdata["next", "state", "total_revenue"][...,-1].mean().item(),
-                "total_cost": subdata["next", "state", "total_cost"][...,-1].mean().item(),
-                "total_loaded": subdata["next", "state", "total_loaded"][...,-1].mean().item(),
-                "total_demand":subdata['realized_demand'][:,0,:].sum(dim=-1).mean(),
-                "total_e[x]_demand": subdata['init_expected_demand'][:, 0, :].sum(dim=-1).mean(),
-            }
-            # Log metrics
-            pbar.set_description(
-                # Loss, gn and rewards
-                f"return: {log['return']: 4.4f}, "
-                f"loss:  {log['loss']: 4.4f}, "
-                f"violation: {log['total_violation']: 4.4f}, "                
-                f"feasibility_loss: {log['loss_feasibility']: 4.4f}, "
-                f"gradient norm: {log['grad_norm']: 4.4}, "
-            )
+            # Environment
+            "total_revenue": subdata["next", "state", "total_revenue"][...,-1].mean().item(),
+            "total_cost": subdata["next", "state", "total_cost"][...,-1].mean().item(),
+            "total_loaded": subdata["next", "state", "total_loaded"][...,-1].mean().item(),
+            "total_demand":subdata['realized_demand'][:,0,:].sum(dim=-1).mean(),
+            "total_e[x]_demand": subdata['init_expected_demand'][:, 0, :].sum(dim=-1).mean(),
+        }
+        # Log metrics
+        pbar.set_description(
+            # Loss, gn and rewards
+            f"return: {log['return']: 4.4f}, "
+            f"loss:  {log['loss']: 4.4f}, "
+            f"mean_violation: {log['mean_total_violation']: 4.4f}, "                
+            f"feasibility_loss: {log['loss_feasibility']: 4.4f}, "
+            f"gradient norm: {log['grad_norm']: 4.4}, "
+            # Performance
+            f"total_revenue: {log['total_revenue']: 4.4f}, "
+            f"total_cost: {log['total_cost']: 4.4f}, "
+            f"violation: {log['total_violation']: 4.4f}, "
+        )
         wandb.log(log)
         scheduler.step()
+
+        # every 20% of len(collector) validate
+        if step % (len(collector) // (1/validation_freq)) == 0:
+            pass
+            # todo: add validation here for every
 
     # Generate a timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -237,6 +234,8 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     # Log the model checkpoint to wandb
     wandb.save(model_save_path)
 
+    # Close environments
+    env.close()
 
 def main(config: Optional[DotMap] = None):
     # todo: clean-up and refactor all hyperparameters etc.
