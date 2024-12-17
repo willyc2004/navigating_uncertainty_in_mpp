@@ -156,9 +156,9 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     entropy_lambda = kwargs["algorithm"]["entropy_lambda"]
 
     # Loss modules
-    advantage_module = GAE(
-        gamma=gamma, lmbda=gae_lambda, value_network=critic, average_gae=True
-    )
+    # advantage_module = GAE(
+    #     gamma=gamma, lmbda=gae_lambda, value_network=critic, average_gae=True
+    # )
     if kwargs["algorithm"]["type"] == "reinforce":
         loss_module = ReinforceLoss(
             actor_network=policy,
