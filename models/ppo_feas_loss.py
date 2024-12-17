@@ -40,9 +40,12 @@ from torchrl.objectives.value import (
     TDLambdaEstimator,
     VTrace,
 )
+from torchrl.objectives.ppo import PPOLoss
 
+# Custom
+from environment.utils import compute_violation
 
-class ClipPPOLoss(PPOLoss):
+class FeasibilityClipPPOLoss(PPOLoss):
     """Clipped PPO loss.
 
     The clipped importance weighted loss is computed as follows:
@@ -161,6 +164,8 @@ class ClipPPOLoss(PPOLoss):
         samples_mc_entropy: int = 1,
         entropy_coef: float = 0.01,
         critic_coef: float = 1.0,
+        feasibility_coef: float = 1.0,
+        aggregate_feasibility: str = "sum",
         loss_critic_type: str = "smooth_l1",
         normalize_advantage: bool = False,
         gamma: float = None,
@@ -173,7 +178,7 @@ class ClipPPOLoss(PPOLoss):
         if isinstance(clip_value, bool):
             clip_value = clip_epsilon if clip_value else None
 
-        super(ClipPPOLoss, self).__init__(
+        super(FeasibilityClipPPOLoss, self).__init__(
             actor_network,
             critic_network,
             entropy_bonus=entropy_bonus,
@@ -194,6 +199,8 @@ class ClipPPOLoss(PPOLoss):
         else:
             device = None
         self.register_buffer("clip_epsilon", torch.tensor(clip_epsilon, device=device))
+        self.register_buffer("feasibility_coef", torch.tensor(feasibility_coef, device=device))
+        self.aggregate_feasibility = aggregate_feasibility
 
     @property
     def _clip_bounds(self):
@@ -201,6 +208,18 @@ class ClipPPOLoss(PPOLoss):
             (-self.clip_epsilon).log1p(),
             self.clip_epsilon.log1p(),
         )
+
+    def loss_feasibility(self, td, dist):
+        loc = dist.base_dist.loc
+        lhs_A, rhs = td.get("lhs_A"), td.get("rhs")
+        violation = compute_violation(loc, lhs_A, rhs)
+
+        # Get aggregation dimensions
+        if self.aggregate_feasibility == "sum":
+            sum_dims = [-x for x in range(1, violation.dim())]
+            return self.feasibility_coef * violation.sum(dim=sum_dims).mean()
+        elif self.aggregate_feasibility == "mean":
+            return self.feasibility_coef * violation.mean()
 
     @property
     def out_keys(self):
@@ -267,6 +286,9 @@ class ClipPPOLoss(PPOLoss):
             td_out.set("loss_critic", loss_critic)
             if value_clip_fraction is not None:
                 td_out.set("value_clip_fraction", value_clip_fraction)
+        if self.feasibility_coef is not None:
+            feasibility_loss = self.loss_feasibility(tensordict, dist)
+            td_out.set("loss_feasibility", feasibility_loss)
 
         td_out.set("ESS", _reduce(ess, self.reduction) / batch)
         td_out = td_out.named_apply(
