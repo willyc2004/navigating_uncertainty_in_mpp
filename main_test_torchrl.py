@@ -3,11 +3,12 @@ import os
 import tqdm
 import time
 from datetime import datetime
+import copy
 
 # Datatypes
 import yaml
 from collections import defaultdict
-from typing import Optional
+from typing import Optional, Tuple, Dict
 from dotmap import DotMap
 from tensordict.nn import TensorDictModule
 
@@ -21,7 +22,9 @@ import wandb
 # TorchRL
 from torchrl.envs import EnvBase
 from torchrl.envs.utils import check_env_specs
-from torchrl.modules import ProbabilisticActor, IndependentNormal
+from torchrl.modules import ProbabilisticActor, IndependentNormal, TruncatedNormal
+from torchrl.objectives.sac import SACLoss
+from torchrl.objectives.ddpg import DDPGLoss
 from torchrl.objectives.ppo import ClipPPOLoss
 from torchrl.objectives.reinforce import ReinforceLoss
 from torchrl.objectives.value import GAE
@@ -36,6 +39,7 @@ from rl4co.models.zoo.am.encoder import AttentionModelEncoder
 # Custom
 from environment.env_torchrl import MasterPlanningEnv
 from environment.embeddings import MPPInitEmbedding, StaticEmbedding, MPPContextEmbedding
+from environment.utils import compute_violation
 from models.encoder import MLPEncoder
 from models.decoder import AttentionDecoderWithCache, MLPDecoderWithCache
 from models.critic import CriticNetwork
@@ -61,6 +65,55 @@ def init_weights(m):
     if isinstance(m, torch.nn.LayerNorm):
         torch.nn.init.constant_(m.weight, 1.0)
         torch.nn.init.constant_(m.bias, 0.0)
+
+def compute_surrogate_loss(ll, td, clip_epsilon, normalize_advantage=False) -> Dict:
+    """Compute the surrogate loss for PPO."""
+    # Unpack the tensors
+    old_ll = td["sample_log_prob"].clone()  # already detached
+    advantage = td["advantage"].clone().squeeze(-1)  # already detached
+    # Normalize the advantage
+    if normalize_advantage:
+        advantage = (advantage - advantage.mean()) / (advantage.std() + 1e-8)
+
+    if torch.isnan(ll).any():
+        raise ValueError("Log likelihood is NaN.")
+    if torch.isnan(old_ll).any():
+        raise ValueError("Old log likelihood is NaN.")
+    if torch.isnan(advantage).any():
+        raise ValueError("Advantage is NaN.")
+
+    # Compute the surrogate loss
+    ratio = torch.exp(ll - old_ll)
+    clipped_ratio = torch.clamp(ratio, 1 - clip_epsilon, 1 + clip_epsilon)
+    clip_fraction = (torch.abs(ratio - 1) > clip_epsilon).float().mean()
+    surrogate_loss = -torch.min(ratio * advantage, clipped_ratio * advantage).mean()
+
+    # if nan, raise error
+    if torch.isnan(ratio).any():
+        raise ValueError("Ratio is NaN.")
+    if torch.isnan(surrogate_loss):
+        raise ValueError("Surrogate loss is NaN.")
+
+    # Return dictionary with loss and metrics
+    return {"surrogate_loss": surrogate_loss,
+            "clip_fraction": clip_fraction,
+            "kl_approx": (old_ll - ll).mean(),
+            "ratio": ratio.mean(),
+            "advantage": advantage.mean(),
+            }
+
+
+def compute_loss_feasibility(td, action, feasibility_coef, aggregate_feasibility="sum"):
+    """Compute feasibility loss based on the action, lhs_A, and rhs tensors."""
+    lhs_A, rhs = td.get("lhs_A"), td.get("rhs")
+    violation = compute_violation(action, lhs_A, rhs)
+
+    # Get aggregation dimensions
+    if aggregate_feasibility == "sum":
+        sum_dims = [-x for x in range(1, violation.dim())]
+        return feasibility_coef * violation.sum(dim=sum_dims).mean(), violation
+    elif aggregate_feasibility == "mean":
+        return feasibility_coef * violation.mean(), violation
 
 ## Classes
 class Actor(nn.Module):
@@ -121,6 +174,20 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             critic_coef=vf_lambda,
             loss_critic_type="smooth_l1",
         )
+    elif kwargs["algorithm"]["type"] == "sac":
+        # Create the SAC loss module
+        loss_module = SACLoss(
+            actor_network=policy,
+            value_network=critic[0],
+            qvalue_network=critic[1],
+        )
+    elif kwargs["algorithm"]["type"] == "ddpg":
+        # Create the DDPG loss module
+        loss_module = DDPGLoss(
+            actor_network=policy,
+            value_network=critic,
+        )
+
     elif kwargs["algorithm"]["type"] == "ppo_feas":
         loss_module = FeasibilityClipPPOLoss(
             actor_network=policy,
@@ -151,30 +218,42 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     )
 
     # Optimizer and scheduler
-    optim = torch.optim.Adam(policy.parameters(), lr=lr)
+    actor_optim = torch.optim.Adam(policy.parameters(), lr=lr)
+    critic_optim = torch.optim.Adam(critic.parameters(), lr=lr)
     train_updates = train_data_size // (batch_size * n_step)
     pbar = tqdm.tqdm(range(train_updates))
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, train_data_size)
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, train_data_size)
 
-    # todo: collector/pbar not the same right now
+    # Training loop
+    # torch.autograd.set_detect_anomaly(True)
     for step, td in enumerate(collector):
-        for _ in range(num_epochs):
-            advantage_module(td)
-            replay_buffer.extend(td)
-            for _ in range(batch_size // mini_batch_size):
-                subdata = replay_buffer.sample(mini_batch_size)
-                loss_vals = loss_module(subdata.to(device))
-                loss = (loss_vals["loss_objective"]
-                        + loss_vals["loss_critic"]
-                        + loss_vals["loss_entropy"]
-                        + loss_vals["loss_feasibility"]
-                )
+        # for _ in range(num_epochs):
+            # advantage_module(td)
+        replay_buffer.extend(td)
+        for _ in range(batch_size // mini_batch_size):
+            # Sample mini-batch (including actions, n-step returns, old log likelihoods, target_values)
+            subdata = replay_buffer.sample(mini_batch_size).to(device)
 
-                # Optimization: backward, grad clipping and optimization step
-                loss.backward()
-                gn = torch.nn.utils.clip_grad_norm_(loss_module.parameters(), max_grad_norm)
-                optim.step()
-                optim.zero_grad()
+            # Loss
+            loss_out = loss_module(subdata)
+
+            # Update critics
+            critic_optim.zero_grad()
+            loss_out["loss_value"].backward()
+            critic_optim.step()
+
+            # Feasibility loss
+            action = policy.get_dist(subdata).rsample()
+            loss_out["loss_feasibility"], loss_out["violation"] = \
+                compute_loss_feasibility(subdata, action, feasibility_lambda, "sum")
+            actor_loss = loss_out["loss_actor"] + loss_out["loss_feasibility"]
+
+            # Update actor
+            actor_optim.zero_grad()
+            # gn = torch.nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
+            actor_loss.backward()
+            actor_optim.step()
+
 
         # Log metrics
         pbar.update(1)
@@ -182,19 +261,18 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             # General
             "step": step,
             # Losses
-            "loss": loss.item(),
-            "loss_actor": loss_vals["loss_objective"],
-            "loss_critic": loss_vals["loss_critic"],
-            "loss_feasibility":loss_vals["loss_feasibility"],
-            "loss_entropy": loss_vals["loss_entropy"],
-            # Gradient, return and loss support
-            "grad_norm": gn.item(),
-            "return":subdata['next', 'reward'].mean().item(),
-            "kl_approx": loss_vals["loss_entropy"],
-            "clip_fraction": loss_vals["clip_fraction"],
-            "entropy": loss_vals["entropy"],
+            # "loss": loss.item(),
+            "loss_actor": loss_out["loss_actor"],
+            "loss_critic": loss_out["loss_value"],
+            "loss_feasibility":loss_out["loss_feasibility"],
+            # "loss_entropy": loss_out["loss_entropy"],
+            # Return, gradient norm and loss support
+            "return": subdata['next', 'reward'].mean().item(),
+            # "grad_norm": gn.item(),
+            # "clip_fraction": loss_out["clip_fraction"],
+            # todo: add kl_approx, ratio, advantage
             # Constraints
-            "mean_total_violation": loss_vals["mean_violation"].sum(dim=(-2,-1)).mean().item(),
+            "mean_total_violation": loss_out["violation"].sum(dim=(-2,-1)).mean().item(),
             "total_violation": subdata['next', 'violation'].sum(dim=(-2,-1)).mean().item(),
             "demand_violation": subdata['next', 'violation'][...,0].sum(dim=(1)).mean().item(),
             "LCG_violation": subdata['next', 'violation'][..., 1:3].sum(dim=(1,2)).mean().item(),
@@ -211,22 +289,24 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
         pbar.set_description(
             # Loss, gn and rewards
             f"return: {log['return']: 4.4f}, "
-            f"loss:  {log['loss']: 4.4f}, "
+            # f"loss:  {log['loss']: 4.4f}, "
+            f"loss_actor:  {log['loss_actor']: 4.4f}, "
+            f"loss_critic:  {log['loss_critic']: 4.4f}, "
             f"mean_violation: {log['mean_total_violation']: 4.4f}, "                
             f"feasibility_loss: {log['loss_feasibility']: 4.4f}, "
-            f"gradient norm: {log['grad_norm']: 4.4}, "
+            # f"gradient norm: {log['grad_norm']: 4.4}, "
             # Performance
             f"total_revenue: {log['total_revenue']: 4.4f}, "
             f"total_cost: {log['total_cost']: 4.4f}, "
             f"violation: {log['total_violation']: 4.4f}, "
         )
         wandb.log(log)
-        scheduler.step()
+        # scheduler.step()
 
-        # every 20% of len(collector) validate
-        if step % (len(collector) // (1/validation_freq)) == 0:
-            validate_policy(env, policy, num_episodes=val_data_size//batch_size)
-            # todo: add validation here for every
+        # # Validation
+        # if (step + 1) % (train_updates * validation_freq) == 0:
+        #     # todo: add validation here for every
+        #     validate_policy(env, policy, num_episodes=val_data_size//batch_size)
 
     # Generate a timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -385,22 +465,22 @@ def main(config: Optional[DotMap] = None):
     actor = TensorDictModule(
         actor,
         in_keys=["observation",],  # Input tensor key in TensorDict
-        out_keys=["loc"]  # Output tensor key in TensorDict
+        out_keys=["loc","scale"]  # Output tensor key in TensorDict
     )
     policy = ProbabilisticActor(
         module=actor,
-        in_keys=["loc", ],
+        in_keys=["loc", "scale"],
         distribution_class=IndependentNormal,
-        distribution_kwargs={"scale": 1.0},
+        # distribution_kwargs={"low": 0.0, "high": 50.0},
+        # distribution_kwargs={"scale": 1.0},
         return_log_prob=True,
     )
     # Get critic
     critic = TensorDictModule(
         critic,
-        in_keys=["observation", ],  # Input tensor key in TensorDict
-        out_keys=["state_value"]  # Output tensor key in TensorDict
+        in_keys=["observation", "action"],  # Input tensor key in TensorDict
+        out_keys=["state_action_value"], #["state_action_value"]  # Output tensor key in TensorDict
     )
-
     # AM Model initialization
     model_params = {
         "decoder": decoder,
