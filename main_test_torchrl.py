@@ -62,22 +62,6 @@ def init_weights(m):
         torch.nn.init.constant_(m.bias, 0.0)
 
 ## Classes
-class SimplePolicy(nn.Module):
-    def __init__(self, hidden_dim, act_dim, device: torch.device = torch.device("cuda"), dtype=torch.float32):
-        super().__init__()
-        self.net = nn.Sequential(
-        nn.LazyLinear(hidden_dim),
-        nn.ReLU(),
-        nn.LazyLinear(hidden_dim),
-        nn.ReLU(),
-        nn.LazyLinear(hidden_dim),
-        nn.ReLU(),
-        nn.LazyLinear(act_dim),
-    ).to(device).to(dtype)
-
-    def forward(self, x):
-        return self.net(x)
-
 class Actor(nn.Module):
     def __init__(self, encoder, decoder):
         super().__init__()
@@ -125,7 +109,6 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
         clip_epsilon=clip_epsilon,
         entropy_bonus=bool(entropy_lambda),
         entropy_coef=entropy_lambda,
-        # these keys match by default but we set this for completeness
         critic_coef=vf_lambda,
         loss_critic_type="smooth_l1",
     )
@@ -148,53 +131,69 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     optim = torch.optim.Adam(policy.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, train_data_size)
 
-    pbar = tqdm.tqdm(range(train_data_size // batch_size))
+    pbar = tqdm.tqdm(range(len(collector)))
     for step, td in enumerate(collector):
-        # run through shapes in td
-        for key, value in td.items():
-            print(f"{key}: {value.shape}")
         for _ in range(num_epochs):
             advantage_module(td)
             replay_buffer.extend(td)
             for _ in range(batch_size // mini_batch_size):
                 subdata = replay_buffer.sample(mini_batch_size)
                 loss_vals = loss_module(subdata.to(device))
-                violation = subdata["next", "state", "violation"]
-                loss_value = (
-                        loss_vals["loss_objective"]
+                loss_vals["violation"] = subdata["next", "violation"]
+                loss_vals["loss_feasibility"] = feasibility_lambda * loss_vals["violation"].sum(dim=(-2,-1)).mean()
+                loss = (loss_vals["loss_objective"]
                         + loss_vals["loss_critic"]
                         + loss_vals["loss_entropy"]
-                        + feasibility_lambda * violation.mean()
+                        + loss_vals["loss_feasibility"]
                 )
 
                 # Optimization: backward, grad clipping and optimization step
-                loss_value.backward()
-                torch.nn.utils.clip_grad_norm_(loss_module.parameters(), max_grad_norm)
+                loss.backward()
+                gn = torch.nn.utils.clip_grad_norm_(loss_module.parameters(), max_grad_norm)
                 optim.step()
                 optim.zero_grad()
 
             # Log metrics
-            pbar.update(td.numel())
+            pbar.update(1)
+            log = {
+                # General
+                "step": step,
+                # Losses
+                "loss": loss.item(),
+                "loss_actor": loss_vals["loss_objective"],
+                "loss_critic": loss_vals["loss_critic"],
+                "loss_feasibility":loss_vals["loss_feasibility"],
+                "loss_entropy": loss_vals["loss_entropy"],
+                # Gradient, return and loss support
+                "grad_norm": gn.item(),
+                "return":subdata['next', 'reward'].sum(dim=(-2,-1)).mean().item(),
+                "kl_approx": loss_vals["loss_entropy"],
+                "clip_fraction": loss_vals["clip_fraction"],
+                "entropy": loss_vals["entropy"],
+                # Constraints
+                "total_violation": loss_vals["violation"].sum(dim=(-2,-1)).mean().item(),
+                "demand_violation":loss_vals["violation"][...,0].sum(dim=(1)).mean().item(),
+                "LCG_violation": loss_vals["violation"][..., 1:3].sum(dim=(1,2)).mean().item(),
+                "VCG_violation": loss_vals["violation"][..., 3:5].sum(dim=(1,2)).mean().item(),
 
-            # # Log metrics
-            # pbar.set_description(
-            #     # Loss, gn and rewards
-            #     f"traj_return: {traj_return.mean(): 4.4f}, "
-            #     f"last reward: {rollout[..., -1]['next', 'reward'].mean(): 4.4f}, "
-            #     f"loss :  {loss: 4.4f}, "
-            #     f"gradient norm: {gn: 4.4}, "
-            #     # Constraints
-            #     f"total_violation: {rollout[..., -1]['next', 'state', 'total_violation'].sum(dim=-1).mean(): 4.4f}, "
-            #     f"demand_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,0].mean(): 4.4f}, "
-            #     f"LCG_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,1:3].sum(dim=-1).mean(): 4.4f}, "
-            #     f"VCG_violation: {rollout[..., -1]['next', 'state', 'total_violation'][...,3:5].sum(dim=-1).mean(): 4.4f}, "
-            #     # Env
-            #     f"total_revenue: {rollout[..., -1]['next', 'state', 'total_revenue'].mean(): 4.4f}, "
-            #     f"total_cost: {rollout[..., -1]['next', 'state', 'total_cost'].mean(): 4.4f}, "
-            #     f"total_loaded: {rollout[..., -1]['next', 'state', 'total_loaded'].mean(): 4.4f}, "
-            #     f"total demand: {rollout[..., -1]['next', 'realized_demand'].sum(dim=-1).mean(): 4.4f}, "
-            #     f"total e[x] demand: {init_td['expected_demand'].sum(dim=-1).mean(): 4.4f}, "
-            # )
+                # Environment
+                "total_revenue": subdata["next", "state", "total_revenue"][...,-1].mean().item(),
+                "total_cost": subdata["next", "state", "total_cost"][...,-1].mean().item(),
+                "total_loaded": subdata["next", "state", "total_loaded"][...,-1].mean().item(),
+                "total_demand":subdata['realized_demand'][:,0,:].sum(dim=-1).mean(),
+                "total_e[x]_demand": subdata['init_expected_demand'][:, 0, :].sum(dim=-1).mean(),
+            }
+            # Log metrics
+            pbar.set_description(
+                # Loss, gn and rewards
+                f"return: {log['return']: 4.4f}, "
+                f"loss:  {log['loss']: 4.4f}, "
+                f"violation: {log['total_violation']: 4.4f}, "                
+                f"feasibility_loss: {log['loss_feasibility']: 4.4f}, "
+                f"gradient norm: {log['grad_norm']: 4.4}, "
+            )
+        wandb.log(log)
+
         # log = {
         #     # General
         #     "step": step,
@@ -218,7 +217,6 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
         #     "total_demand":rollout[..., -1]['next', 'realized_demand'].sum(dim=-1).mean().item(),
         #     "total_e_x_demand": init_td['expected_demand'].sum(dim=-1).mean().item(),
         # }
-        # wandb.log(log)
         scheduler.step()
 
     # Generate a timestamp
@@ -309,7 +307,7 @@ def main(config: Optional[DotMap] = None):
         raise ValueError(f"Decoder type {config.model.decoder_type} not recognized.")
     critic = CriticNetwork(encoder, embed_dim=embed_dim, hidden_dim=hidden_dim, num_layers=1,
                            context_embedding=context_embed, normalization=config.model.normalization,
-                           dropout_rate=dropout_rate, customized=False).to(device)
+                           dropout_rate=dropout_rate, customized=True).to(device)
     actor = Actor(encoder, decoder).to(device)
 
     # Get ProbabilisticActor (for stochastic policies)
@@ -331,11 +329,6 @@ def main(config: Optional[DotMap] = None):
         in_keys=["observation", ],  # Input tensor key in TensorDict
         out_keys=["state_value"]  # Output tensor key in TensorDict
     )
-
-    ## Hyperparameters
-    batch_size = config.model.batch_size
-    train_data_size = config.am_ppo.train_data_size
-    lr = config.am_ppo.lr
 
     # AM Model initialization
     model_params = {
@@ -361,7 +354,7 @@ def main(config: Optional[DotMap] = None):
         # "critic_kwargs": {"embed_dim": embed_dim, "hidden_dim": hidden_dim, "customized": False},
         # "projection_kwargs": projection_kwargs,
         "decoder_type": config.model.decoder_type,
-        "batch_size": batch_size,
+        "batch_size": config.model.batch_size,
         "env_kwargs": env_kwargs,
         "model_kwargs": model_params,
         **config.ppo,
@@ -379,13 +372,15 @@ def main(config: Optional[DotMap] = None):
         pth_name = f"/trained_model_{datestamp}.pth"
         pth = torch.load(checkpoint_path + pth_name,)
         model.load_state_dict(pth, strict=True)
+        # todo: extract trained hyper-parameters
+        # todo: check if two models can be re-loaded
+
         # Wrap in a TensorDictModule
         test_td_module = TensorDictModule(
             model,
             in_keys=["observation", ],  # Input tensor key in TensorDict
             out_keys=["loc"]  # Output tensor key in TensorDict
         )
-        # todo: check if two models can be re-loaded
 
         # ProbabilisticActor (for stochastic policies)
         test_policy = ProbabilisticActor(
@@ -394,6 +389,7 @@ def main(config: Optional[DotMap] = None):
             distribution_class=IndependentNormal,
             distribution_kwargs={"scale": 1.0}
         )
+
 
         # Initialize policy
         env_kwargs["float_type"] = torch.float32
