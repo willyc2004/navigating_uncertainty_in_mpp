@@ -212,14 +212,14 @@ class FeasibilityClipPPOLoss(PPOLoss):
     def loss_feasibility(self, td, dist):
         loc = dist.base_dist.loc
         lhs_A, rhs = td.get("lhs_A"), td.get("rhs")
-        violation = compute_violation(loc, lhs_A, rhs)
+        mean_violation = compute_violation(loc, lhs_A, rhs)
 
         # Get aggregation dimensions
         if self.aggregate_feasibility == "sum":
-            sum_dims = [-x for x in range(1, violation.dim())]
-            return self.feasibility_coef * violation.sum(dim=sum_dims).mean()
+            sum_dims = [-x for x in range(1, mean_violation.dim())]
+            return self.feasibility_coef * mean_violation.sum(dim=sum_dims).mean(), mean_violation
         elif self.aggregate_feasibility == "mean":
-            return self.feasibility_coef * violation.mean()
+            return self.feasibility_coef * mean_violation.mean(), mean_violation
 
     @property
     def out_keys(self):
@@ -287,8 +287,9 @@ class FeasibilityClipPPOLoss(PPOLoss):
             if value_clip_fraction is not None:
                 td_out.set("value_clip_fraction", value_clip_fraction)
         if self.feasibility_coef is not None:
-            feasibility_loss = self.loss_feasibility(tensordict, dist)
+            feasibility_loss, mean_violation = self.loss_feasibility(tensordict, dist)
             td_out.set("loss_feasibility", feasibility_loss)
+            td_out.set("mean_violation", mean_violation)
 
         td_out.set("ESS", _reduce(ess, self.reduction) / batch)
         td_out = td_out.named_apply(
