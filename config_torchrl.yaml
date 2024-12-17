@@ -28,7 +28,7 @@ env:
 # Model settings
 model:
   lr_end_factor: 0.5
-  batch_size: 256
+  batch_size: 128
   init_dim: 8
   embed_dim: 128
   feedforward_hidden: 256
@@ -53,7 +53,7 @@ model:
 
 # PPO parameters
 algorithm:
-  type: "ppo_feas" # reinforce, ppo, ppo_feas
+  type: "ddpg" # reinforce, ppo, ppo_feas
   clip_range: 0.2
   ppo_epochs: 5 # 2, 3, 5, 7, 10
   mini_batch_size: 0.5
