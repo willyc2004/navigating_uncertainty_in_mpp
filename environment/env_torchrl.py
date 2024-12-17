@@ -47,7 +47,6 @@ class MasterPlanningEnv(EnvBase):
         self.generator = MPP_Generator(**kwargs)
         if td_gen == None:
             self.td_gen = self.generator(batch_size=batch_size,)
-            print("self.td_gen", self.td_gen)
         self._make_spec(self.td_gen)
         self.zero = th.tensor([0], device=self.generator.device, dtype=self.float_type)
         self.padding = th.tensor([self.P-1], device=self.generator.device, dtype=th.int32)
