@@ -69,7 +69,7 @@ class CriticNetwork(nn.Module):
             Value of the input state
         """
         h, _ = self.encoder(x)  # [batch_size, N, embed_dim] -> [batch_size, N]
-        h = self.context_embedding(h, x)  # Apply context embedding
+        h = self.context_embedding(x, h)  # Apply context embedding
         if not self.customized:  # for for most of costructive tasks
             output = self.value_head(h).sum(dim=1, keepdims=True)  # [batch_size, N] -> [batch_size, 1]
         else:  # customized encoder and value head with hidden input
