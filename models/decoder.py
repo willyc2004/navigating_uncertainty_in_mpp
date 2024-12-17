@@ -1,5 +1,5 @@
 # Import libraries and modules
-from typing import Tuple, Callable, Optional
+from typing import Tuple, Callable, Optional, Dict
 from dataclasses import dataclass
 import torch
 import torch.nn as nn
@@ -213,18 +213,19 @@ class MLPDecoderWithCache(nn.Module):
         # Temperature for the policy
         self.temperature = temperature
 
-    def forward(self, obs, hidden) -> Tensor:
+    def forward(self, obs, hidden) -> Dict[str, Tensor]:
         # Context embedding
         context = self.context_embedding(obs, hidden)
 
         # Compute mask and logits
         hidden = self.policy_mlp(context)
         mean = self.mean_head(hidden)
-        # todo: add std head
-        # std = F.softplus(self.std_head(hidden))
-        # output_logits = torch.stack([mean, std], dim=-1)
+        mean = mean/self.temperature
+        std = F.softplus(self.std_head(hidden))
+        std = torch.clamp(std, 1e-6, 1.0)
         # todo: add mask
-        return mean/self.temperature
+        return mean, std
+        # return mean
 
     def pre_decoder_hook(self, td, env, embeddings, num_starts: int = 0):
         return td, env, self._precompute_cache(embeddings, num_starts)
