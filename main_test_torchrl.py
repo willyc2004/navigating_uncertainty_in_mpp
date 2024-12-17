@@ -38,7 +38,7 @@ from environment.embeddings import MPPInitEmbedding, StaticEmbedding, MPPContext
 from models.encoder import MLPEncoder
 from models.decoder import AttentionDecoderWithCache, MLPDecoderWithCache
 from models.critic import CriticNetwork
-
+from models.ppo_feas_loss import FeasibilityClipPPOLoss
 
 ## Helper functions
 def adapt_env_kwargs(config):
@@ -103,15 +103,34 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     advantage_module = GAE(
         gamma=gamma, lmbda=gae_lambda, value_network=critic, average_gae=True
     )
-    loss_module = ClipPPOLoss(
-        actor_network=policy,
-        critic_network=critic,
-        clip_epsilon=clip_epsilon,
-        entropy_bonus=bool(entropy_lambda),
-        entropy_coef=entropy_lambda,
-        critic_coef=vf_lambda,
-        loss_critic_type="smooth_l1",
-    )
+    if kwargs["algorithm"]["type"] == "reinforce":
+        loss_module = ReinforceLoss(
+            actor_network=policy,
+            critic_network=critic,
+        )
+    elif kwargs["algorithm"]["type"] == "ppo":
+        loss_module = ClipPPOLoss(
+            actor_network=policy,
+            critic_network=critic,
+            clip_epsilon=clip_epsilon,
+            entropy_bonus=bool(entropy_lambda),
+            entropy_coef=entropy_lambda,
+            critic_coef=vf_lambda,
+            loss_critic_type="smooth_l1",
+        )
+    elif kwargs["algorithm"]["type"] == "ppo_feas":
+        loss_module = FeasibilityClipPPOLoss(
+            actor_network=policy,
+            critic_network=critic,
+            clip_epsilon=clip_epsilon,
+            entropy_bonus=bool(entropy_lambda),
+            entropy_coef=entropy_lambda,
+            critic_coef=vf_lambda,
+            loss_critic_type="smooth_l1",
+            feasibility_lambda=feasibility_lambda,
+        )
+    else:
+        raise ValueError(f"Algorithm {kwargs['algorithm']['type']} not recognized.")
 
     # Data collector and replay buffer
     collector = SyncDataCollector(
@@ -138,7 +157,19 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             replay_buffer.extend(td)
             for _ in range(batch_size // mini_batch_size):
                 subdata = replay_buffer.sample(mini_batch_size)
+                # print(subdata.keys())
+                for k, v in subdata.items():
+                    if v.requires_grad:
+                        print(k, v.requires_grad)
+
                 loss_vals = loss_module(subdata.to(device))
+                print(loss_vals.keys())
+                for k, v in loss_vals.items():
+                    if v.requires_grad:
+                        print(k, v.requires_grad)
+
+                # print(loss_vals["loss_objective"].requires_grad)
+                breakpoint()
                 loss_vals["violation"] = subdata["next", "violation"]
                 loss_vals["loss_feasibility"] = feasibility_lambda * loss_vals["violation"].sum(dim=(-2,-1)).mean()
                 loss = (loss_vals["loss_objective"]
@@ -193,30 +224,6 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
                 f"gradient norm: {log['grad_norm']: 4.4}, "
             )
         wandb.log(log)
-
-        # log = {
-        #     # General
-        #     "step": step,
-        #     # Trajectory
-        #     "traj_return": traj_return.mean().item(),
-        #     "traj_violation": traj_violation.mean().item(),
-        #     "last_reward": rollout[..., -1]["next", "reward"].mean().item(),
-        #     # Loss and gradients
-        #     "loss": loss.item(),
-        #     "grad_norm": gn.item(),
-        #     # Constraints
-        #     "total_violation": rollout[..., -1]["next", "state", "total_violation"].sum(dim=-1).mean().item(),
-        #     "demand_violation": rollout[..., -1]["next", "state", "total_violation"][...,0].mean().item(),
-        #     "LCG_violation": rollout[..., -1]["next", "state", "total_violation"][..., 1:3].sum(dim=-1).mean().item(),
-        #     "VCG_violation": rollout[..., -1]["next", "state", "total_violation"][..., 3:5].sum(dim=-1).mean().item(),
-        #
-        #     # Environment
-        #     "total_revenue": rollout[..., -1]["next", "state", "total_revenue"].mean().item(),
-        #     "total_cost": rollout[..., -1]["next", "state", "total_cost"].mean().item(),
-        #     "total_loaded": rollout[..., -1]["next", "state", "total_loaded"].mean().item(),
-        #     "total_demand":rollout[..., -1]['next', 'realized_demand'].sum(dim=-1).mean().item(),
-        #     "total_e_x_demand": init_td['expected_demand'].sum(dim=-1).mean().item(),
-        # }
         scheduler.step()
 
     # Generate a timestamp
