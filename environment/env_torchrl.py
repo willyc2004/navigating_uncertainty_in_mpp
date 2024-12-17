@@ -147,7 +147,7 @@ class MasterPlanningEnv(EnvBase):
 
             # Action, batch_updates, timestep
             action=Unbounded(shape=(*batch_size, self.B * self.D), dtype=self.float_type),
-            batch_updates=Unbounded(shape=(*batch_size,), dtype=torch.float32),
+            batch_updates=Unbounded(shape=(*batch_size,1), dtype=torch.float32),
             timestep=Unbounded(shape=(*batch_size,1), dtype=th.int64),
 
             # Performance

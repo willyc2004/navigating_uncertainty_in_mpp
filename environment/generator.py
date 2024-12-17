@@ -103,7 +103,7 @@ class MPP_Generator(Generator):
         # Get initial demand if not provided
         if td is None or td.is_empty():
             e_x_init_demand, _ = self._initial_contract_demand(batch_size)
-            batch_updates = th.zeros(batch_size, device=self.device)
+            batch_updates = th.zeros(batch_size, device=self.device).view(*batch_size, 1)
         else:
             e_x_init_demand = td["init_expected_demand"].view(-1, self.T, self.K)
             batch_updates = td["batch_updates"].clone()
