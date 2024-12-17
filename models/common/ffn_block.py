@@ -3,7 +3,7 @@ from torch import nn
 class ResidualBlock(nn.Module):
     """Residual Block with normalization, activation, and optional dropout."""
 
-    def __init__(self, dim, activation, norm_fn, dropout_rate=None): #, normalization="batch"):
+    def __init__(self, dim, activation, norm_fn, dropout_rate=None):
         super().__init__()
 
         # Define layers
