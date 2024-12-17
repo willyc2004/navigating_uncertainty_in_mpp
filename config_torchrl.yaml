@@ -35,11 +35,11 @@ model:
   num_encoder_layers: 2
   num_decoder_layers: 2
   num_heads: 4
-  dropout_rate: 0.0
+  dropout_rate: 0.1
   normalization: "layer" # layer, batch
   out_bias_pointer_attn: False
-  temperature: 0.5
-  critic_temperature: 1.0
+  temperature: 0.1
+  critic_temperature: 0.5
   tanh_clipping: 0
   tanh_squashing: False
   train_decode_type: "continuous_sampling"

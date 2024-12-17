@@ -186,6 +186,8 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
         loss_module = DDPGLoss(
             actor_network=policy,
             value_network=critic,
+            delay_actor=True,
+            delay_value=True,
         )
 
     elif kwargs["algorithm"]["type"] == "ppo_feas":
