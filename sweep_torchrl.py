@@ -13,7 +13,7 @@ if __name__ == "__main__":
     def train():
         try:
             # Load static configuration from the YAML file
-            with open('config.yaml', 'r') as file:
+            with open('config_torchrl.yaml', 'r') as file:
                 config = yaml.safe_load(file)
                 config = DotMap(config)
                 config = adapt_env_kwargs(config)
@@ -34,22 +34,18 @@ if __name__ == "__main__":
             # config['model']['lr_end_factor'] = sweep_config.lr_end_factor
 
             # PPO hyperparameters
-            config['ppo']['ppo_epochs'] = sweep_config.ppo_epochs
-            config['ppo']['mini_batch_size'] = sweep_config.mini_batch_size
-            config['ppo']['feasibility_lambda'] = sweep_config.feasibility_lambda
-            config['ppo']['entropy_lambda'] = sweep_config.entropy_lambda
-            config['ppo']['normalize_adv'] = sweep_config.normalize_adv
-            config['ppo']['normalize_return'] = sweep_config.normalize_return
-            # config['ppo']['kl_threshold'] = sweep_config.kl_threshold
-            # config['ppo']['clip_range'] = sweep_config.clip_range
-            # config['ppo']['gamma'] = sweep_config.gamma
-            # config['ppo']['gae_lambda'] = sweep_config.gae_lambda
+            config['algorithm']['ppo_epochs'] = sweep_config.ppo_epochs
+            config['algorithm']['mini_batch_size'] = sweep_config.mini_batch_size
+            config['algorithm']['feasibility_lambda'] = sweep_config.feasibility_lambda
+            config['algorithm']['entropy_lambda'] = sweep_config.entropy_lambda
+            config['algorithm']['normalize_adv'] = sweep_config.normalize_adv
+            config['algorithm']['normalize_return'] = sweep_config.normalize_return
 
             # # AM-PPO hyperparameters
-            config['am_ppo']['lr'] = sweep_config.lr
-            # config['am_ppo']['projection_kwargs']['iters'] = sweep_config.projection_iters
-            # config['am_ppo']['train_data_size'] = sweep_config.train_data_size
-            # config['am_ppo']['val_data_size'] = sweep_config.val_data_size
+            config['training']['lr'] = sweep_config.lr
+            # config['training']['projection_kwargs']['iters'] = sweep_config.projection_iters
+            # config['training']['train_data_size'] = sweep_config.train_data_size
+            # config['training']['val_data_size'] = sweep_config.val_data_size
 
             # Call your main() function
             model = main(config)
