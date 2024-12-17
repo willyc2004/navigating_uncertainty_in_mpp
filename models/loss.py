@@ -6,6 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Tuple
 
+
 import torch
 from tensordict import (
     is_tensor_collection,
@@ -41,6 +42,7 @@ from torchrl.objectives.value import (
     VTrace,
 )
 from torchrl.objectives.ppo import PPOLoss
+from torchrl.objectives.reinforce import ReinforceLoss
 
 # Custom
 from environment.utils import compute_violation
