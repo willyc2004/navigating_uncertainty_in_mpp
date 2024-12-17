@@ -53,7 +53,7 @@ model:
 
 # PPO parameters
 algorithm:
-  type: "ppo" # reinforce, ppo
+  type: "ppo_feas" # reinforce, ppo, ppo_feas
   clip_range: 0.2
   ppo_epochs: 5 # 2, 3, 5, 7, 10
   mini_batch_size: 0.5
@@ -74,7 +74,6 @@ algorithm:
   n_step: 72
 
 # AM PPO parameters
-# todo: possibly change from am_ppo to "training"
 training:
   lr: 0.0003
   projection_type: "linear_violation"
