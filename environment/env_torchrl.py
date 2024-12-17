@@ -46,8 +46,9 @@ class MasterPlanningEnv(EnvBase):
         self._compact_form_shapes()
         self.generator = MPP_Generator(**kwargs)
         if td_gen == None:
-            td_gen = self.generator(batch_size=batch_size,)
-        self._make_spec(td_gen)
+            self.td_gen = self.generator(batch_size=batch_size,)
+            print("self.td_gen", self.td_gen)
+        self._make_spec(self.td_gen)
         self.zero = th.tensor([0], device=self.generator.device, dtype=self.float_type)
         self.padding = th.tensor([self.P-1], device=self.generator.device, dtype=th.int32)
 
@@ -352,7 +353,10 @@ class MasterPlanningEnv(EnvBase):
         batch_size = getattr(td, 'batch_size', self.batch_size)
         if td is None or td.is_empty():
             # Generate new demand
-            td = self.generator(batch_size=batch_size)
+            td = self.generator(batch_size=batch_size, td=self.td_gen)
+        else:
+            #todo: implement non-iid demand generation
+            pass
 
         # Reordering on demand
         td["realized_demand"] = td["realized_demand"].view(*batch_size, self.T, self.K)
