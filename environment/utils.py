@@ -97,6 +97,8 @@ def get_transport_from_pol_pod(pol, pod, transport_idx):
 
 def compute_violation(action, lhs_A, rhs, ) -> th.Tensor:
     """Compute violations and loss of compact form"""
+    if action.dim() == 3 and lhs_A.dim() == 4:
+        action = action.unsqueeze(-2)
     lhs = (lhs_A * action).sum(dim=(-1))
     output = th.clamp(lhs-rhs, min=0)
     return output
