@@ -8,9 +8,10 @@ import copy
 # Datatypes
 import yaml
 from collections import defaultdict
-from typing import Optional, Tuple, Dict
 from dotmap import DotMap
+from typing import Optional, Tuple, Dict, Union, Sequence
 from tensordict.nn import TensorDictModule
+from tensordict.utils import NestedKey
 
 # Machine learning
 import random
@@ -33,6 +34,7 @@ from torchrl.collectors import SyncDataCollector
 from torchrl.data.replay_buffers import ReplayBuffer
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
 from torchrl.data.replay_buffers.storages import LazyTensorStorage
+from torchrl.data.tensor_specs import Composite, TensorSpec
 
 # RL4CO
 from rl4co.models.zoo.am.encoder import AttentionModelEncoder
@@ -45,6 +47,7 @@ from models.encoder import MLPEncoder
 from models.decoder import AttentionDecoderWithCache, MLPDecoderWithCache
 from models.critic import CriticNetwork
 from models.loss import FeasibilityClipPPOLoss
+from models.projection import ProjectionFactory
 
 ## Helper functions
 def adapt_env_kwargs(config):
@@ -118,6 +121,25 @@ class Actor(nn.Module):
         hidden, init_embed = self.encoder(obs)
         dec_out = self.decoder(obs, hidden)
         return dec_out
+
+class CustomProbabilisticActor(ProbabilisticActor):
+    def __init__(self,
+                 module: TensorDictModule,
+                 in_keys: Union[NestedKey, Sequence[NestedKey]],
+                 out_keys: Optional[Sequence[NestedKey]] = None,
+                 *,
+                 spec: Optional[TensorSpec] = None,
+                 projection_layer: Optional[nn.Module] = None,
+                 **kwargs):
+        super().__init__(module, in_keys, out_keys, spec=spec, **kwargs)
+        self.projection_layer = projection_layer
+
+    def forward(self, *args, **kwargs):
+        out = super().forward(*args, **kwargs)
+        if self.projection_layer is not None:
+            action = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
+            out["action"] = action
+        return out
 
 ## Main function
 def main(config: Optional[DotMap] = None):
@@ -223,14 +245,17 @@ def main(config: Optional[DotMap] = None):
         in_keys=["observation",],  # Input tensor key in TensorDict
         out_keys=["loc","scale"]  # Output tensor key in TensorDict
     )
-    policy = ProbabilisticActor(
+    if config.training.projection_type in ["linear_violation", "linear_program", "convex_program"]:
+        projection_layer = ProjectionFactory.create_class(config.training.projection_type, config.training.projection_kwargs)
+    else:
+        projection_layer = None
+    policy = CustomProbabilisticActor(
         module=actor,
         in_keys=["loc", "scale"],
         distribution_class=TruncatedNormal,
         distribution_kwargs={"low": 0.0, "high": 50.0},
-        # distribution_kwargs={"low": 0.0,, "high": 50.0},
-        # distribution_kwargs={"scale": 1.0},
         return_log_prob=True,
+        projection_layer=projection_layer,
     )
 
     ## Main loop
@@ -551,12 +576,11 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             # f"loss:  {log['loss']: 4.4f}, "
             f"loss_actor:  {log['loss_actor']: 4.4f}, "
             f"loss_critic:  {log['loss_critic']: 4.4f}, "
-            f"mean_violation: {log['mean_total_violation']: 4.4f}, "                
             f"feasibility_loss: {log['loss_feasibility']: 4.4f}, "
+            f"mean_violation: {log['mean_total_violation']: 4.4f}, "                
             # f"gradient norm: {log['grad_norm']: 4.4}, "
             # Performance
-            f"total_revenue: {log['total_revenue']: 4.4f}, "
-            f"total_cost: {log['total_cost']: 4.4f}, "
+            f"total_profit: {log['total_profit']: 4.4f}, "
             f"violation: {log['total_violation']: 4.4f}, "
         )
         wandb.log(log)
