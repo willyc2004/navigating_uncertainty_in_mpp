@@ -39,7 +39,7 @@ class ConvexProgramLayer(th.nn.Module):
         }
         # check code: https://github.com/INFERLab/PROF/blob/main/agents/nn_policy.py
 
-    def forward(self, x, A, b, t, **kwargs):
+    def forward(self, x, A, b, **kwargs):
         # Get the dimensions of the input
         batch_size = A.shape[0]
         x_out = []
@@ -49,9 +49,9 @@ class ConvexProgramLayer(th.nn.Module):
             A_i = A[i].T
             b_i = b[i]
             x_i = x[i]
-            Ax = A_i.T @ x_i
-            print("-"*50)
-            print(f"Batch {i}: \n A_i: {A_i},\n b_i: {b_i},\n x_i: {x_i}, \n A_i x_i: {Ax} \n t: {t[0]}")
+            # Ax = A_i.T @ x_i
+            # print("-"*50)
+            # print(f"Batch {i}: \n A_i: {A_i},\n b_i: {b_i},\n x_i: {x_i}, \n A_i x_i: {Ax}")
             try:
                 # Solve the convex problem for each batch element
                 _, x_ = self.cvxpylayer(A_i, b_i, x_i, solver_args=self.solver_options)
