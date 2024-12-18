@@ -149,7 +149,7 @@ def main(config: Optional[DotMap] = None):
     action_dim = env.action_spec.shape[0]
     # Embedding initialization
     init_embed = MPPInitEmbedding(embed_dim, action_dim, env)
-    context_embed = MPPContextEmbedding(action_dim, embed_dim, env, config.model.demand_aggregation)
+    context_embed = MPPContextEmbedding(obs_dim, embed_dim, env, config.model.demand_aggregation)
     dynamic_embed = StaticEmbedding(obs_dim, embed_dim)
 
     # Model initialization
