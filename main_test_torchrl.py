@@ -320,6 +320,75 @@ def main(config: Optional[DotMap] = None):
     #     # rollout_results(test_env, outs, td, batch_size, checkpoint_path,
     #     #                 am_ppo_params["projection_type"], config["env"]["utilization_rate_initial_demand"], times)
 
+def optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwargs):
+    ## Hyperparameters
+    gamma = kwargs["algorithm"]["gamma"]
+    tau = kwargs["algorithm"]["tau"]
+    max_grad_norm = kwargs["algorithm"]["max_grad_norm"]
+    entropy_lambda = kwargs["algorithm"]["entropy_lambda"]
+    feasibility_lambda = kwargs["algorithm"]["feasibility_lambda"]
+
+    ## Unpack critics
+    critic1 = critics["critic1"]
+    critic2 = critics["critic2"]
+    target_critic1 = critics["target_critic1"]
+    target_critic2 = critics["target_critic2"]
+
+    ## Loss optimization
+    loss_out = {}
+    # Critic loss calculation
+    with torch.no_grad():
+        # Next action
+        next_policy_out = policy(subdata)
+        next_action = next_policy_out["action"]
+        next_log_prob = next_policy_out["sample_log_prob"].unsqueeze(-1)
+        next_log_prob = torch.clamp(next_log_prob, -20, 2)  # Clip log_prob to avoid NaNs
+
+        # Target value
+        target_q1 = target_critic1(next_policy_out["observation"], next_action)
+        target_q2 = target_critic2(next_policy_out["observation"], next_action)
+        target_q_min = torch.min(target_q1, target_q2) - entropy_lambda * next_log_prob
+        target_value = subdata["next", "reward"] + (1 - subdata["done"].float()) * gamma * target_q_min
+
+    # Current value
+    current_q1 = critic1(subdata["observation"], subdata["action"])
+    current_q2 = critic2(subdata["observation"], subdata["action"])
+
+    # Update critic
+    loss_out["loss_critic"] = F.mse_loss(current_q1, target_value) + F.mse_loss(current_q2, target_value)
+    critic_optim.zero_grad()
+    loss_out["loss_critic"].backward()
+    torch.nn.utils.clip_grad_norm_(critic1.parameters(), max_grad_norm)
+    torch.nn.utils.clip_grad_norm_(critic2.parameters(), max_grad_norm)
+    critic_optim.step()
+
+    # Soft update target critics
+    for target_param, param in zip(target_critic1.parameters(), critic1.parameters()):
+        target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+    for target_param, param in zip(target_critic2.parameters(), critic2.parameters()):
+        target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+
+    # Compute Actor Loss
+    policy_out = policy(subdata)
+    new_action = policy_out["action"]
+    log_prob = policy_out["sample_log_prob"].unsqueeze(-1)
+    log_prob = torch.clamp(log_prob, -20, 2)  # Clip log_prob to avoid NaNs
+
+    # Feasibility loss
+    loss_out["loss_feasibility"], loss_out["violation"] = \
+        compute_loss_feasibility(policy_out, new_action, feasibility_lambda, "sum")
+    q1 = critic1(policy_out["observation"], new_action)
+    q2 = critic2(policy_out["observation"], new_action)
+    q_min = torch.min(q1, q2)
+
+    # Update actor
+    loss_out["loss_actor"] = (entropy_lambda * log_prob - q_min).mean() + loss_out["loss_feasibility"]
+    actor_optim.zero_grad()
+    loss_out["loss_actor"].backward()
+    torch.nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
+    actor_optim.step()
+    return loss_out, policy_out
+
 ## Training
 def train(policy, critic, device=torch.device("cuda"), **kwargs):
     # todo: extend with mini-batch training, data loader, REINFORCE, PPO, etc.
@@ -328,14 +397,12 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     mini_batch_size = int(kwargs["algorithm"]["mini_batch_size"] * batch_size)
     n_step = kwargs["algorithm"]["n_step"]
     num_epochs = kwargs["algorithm"]["ppo_epochs"]
-    max_grad_norm = kwargs["algorithm"]["max_grad_norm"]
     vf_lambda = kwargs["algorithm"]["vf_lambda"]
     feasibility_lambda = kwargs["algorithm"]["feasibility_lambda"]
     lr = kwargs["training"]["lr"]
     train_data_size = kwargs["training"]["train_data_size"]
     val_data_size = kwargs["training"]["val_data_size"]
     validation_freq = kwargs["training"]["validation_freq"]
-    tau = 0.005 # soft-updates
 
     # Environment
     env = make_env(env_kwargs=kwargs["env"], batch_size=[batch_size], device=device)
@@ -378,6 +445,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
         critic2 = critic[1]
         target_critic1 = copy.deepcopy(critic1).to(device)
         target_critic2 = copy.deepcopy(critic2).to(device)
+        critics = {"critic1": critic1, "critic2": critic2, "target_critic1": target_critic1, "target_critic2": target_critic2}
 
     elif kwargs["algorithm"]["type"] == "ddpg":
         # Create the DDPG loss module
@@ -428,68 +496,18 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, train_data_size)
 
     # Training loop
-    # torch.autograd.set_detect_anomaly(True)
     for step, td in enumerate(collector):
-        # for _ in range(num_epochs):
-            # advantage_module(td)
+        # advantage_module(td)
         replay_buffer.extend(td)
         for _ in range(batch_size // mini_batch_size):
             # Sample mini-batch (including actions, n-step returns, old log likelihoods, target_values)
             subdata = replay_buffer.sample(mini_batch_size).to(device)
+            if kwargs["algorithm"]["type"] == "sac":
+                # Optimize sac loss
+                loss_out, policy_out = optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwargs)
 
-            ## Loss optimization
-            loss_out = {}
-            # Critic loss calculation
-            with torch.no_grad():
-                # Next action
-                next_policy_out = policy(subdata)
-                next_action = next_policy_out["action"]
-                next_log_prob = next_policy_out["sample_log_prob"].unsqueeze(-1)
-                next_log_prob = torch.clamp(next_log_prob, -20, 2)  # Clip log_prob to avoid NaNs
-
-                # Target value
-                target_q1 = target_critic1(next_policy_out["observation"], next_action)
-                target_q2 = target_critic2(next_policy_out["observation"], next_action)
-                target_q_min = torch.min(target_q1, target_q2) - entropy_lambda * next_log_prob
-                target_value = subdata["next", "reward"] + (1 - subdata["done"].float()) * gamma * target_q_min
-
-            # Current value
-            current_q1 = critic1(subdata["observation"], subdata["action"])
-            current_q2 = critic2(subdata["observation"], subdata["action"])
-
-            # Update critic
-            loss_out["loss_critic"] = F.mse_loss(current_q1, target_value) + F.mse_loss(current_q2, target_value)
-            critic_optim.zero_grad()
-            loss_out["loss_critic"].backward()
-            torch.nn.utils.clip_grad_norm_(critic1.parameters(), max_grad_norm)
-            torch.nn.utils.clip_grad_norm_(critic2.parameters(), max_grad_norm)
-            critic_optim.step()
-
-            # Soft update target critics
-            for target_param, param in zip(target_critic1.parameters(), critic1.parameters()):
-                target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
-            for target_param, param in zip(target_critic2.parameters(), critic2.parameters()):
-                target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
-
-            # Compute Actor Loss
-            policy_out = policy(subdata)
-            new_action = policy_out["action"]
-            log_prob = policy_out["sample_log_prob"].unsqueeze(-1)
-            log_prob = torch.clamp(log_prob, -20, 2)  # Clip log_prob to avoid NaNs
-
-            # Feasibility loss
-            loss_out["loss_feasibility"], loss_out["violation"] = \
-                compute_loss_feasibility(policy_out, new_action, feasibility_lambda, "sum")
-            q1 = critic1(policy_out["observation"], new_action)
-            q2 = critic2(policy_out["observation"], new_action)
-            q_min = torch.min(q1, q2)
-
-            # Update actor
-            loss_out["loss_actor"] = (entropy_lambda * log_prob - q_min).mean() + loss_out["loss_feasibility"]
-            actor_optim.zero_grad()
-            loss_out["loss_actor"].backward()
-            torch.nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
-            actor_optim.step()
+            # elif kwargs["algorithm"]["type"] == "ppo":
+            #     for _ in range(num_epochs):
 
         # Log metrics
         pbar.update(1)
