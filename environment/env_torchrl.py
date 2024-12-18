@@ -521,27 +521,27 @@ class MasterPlanningEnv(EnvBase):
         """Get observation from the TensorDict."""
         # normalize demand
         max_demand = next_state_dict["realized_demand"].max()
-        current_demand = next_state_dict["current_demand"].view(*batch_size, 1) / max_demand
-        observed_demand = next_state_dict["observed_demand"].view(*batch_size, self.T * self.K) / max_demand
-        expected_demand = next_state_dict["expected_demand"].view(*batch_size, self.T * self.K) / max_demand
-        std_demand = next_state_dict["std_demand"].view(*batch_size, self.T * self.K) / max_demand
-        print("-"*50)
-        print(f"mean_current_demand t:{t[0]}", current_demand.mean(dim=0))
-        print(f"mean_observed_demand t:{t[0]}", observed_demand.mean(dim=0))
-        print(f"mean_expected_demand t:{t[0]}", expected_demand.mean(dim=0))
-        print(f"mean_std_demand t:{t[0]}", std_demand.mean(dim=0))
-        lcg = next_state_dict["lcg"].view(*batch_size, 1)
-        vcg = next_state_dict["vcg"].view(*batch_size, 1)
-        print(f"mean_lcg t:{t[0]}", lcg.mean(dim=0))
-        print(f"mean_vcg t:{t[0]}", vcg.mean(dim=0))
-        residual_capacity = residual_capacity / self.capacity.unsqueeze(0)
-        residual_lc_capacity = (next_state_dict["residual_lc_capacity"]/next_state_dict["target_long_crane"].unsqueeze(0))
-        print(f"mean_residual_capacity t:{t[0]}", residual_capacity.mean(dim=0))
-        print(f"mean_residual_lc_capacity t:{t[0]}", residual_lc_capacity.mean(dim=0))
-        agg_pol_location = agg_pol_location / (self.P)
-        agg_pod_location = agg_pod_location / (self.P)
-        print(f"mean_agg_pol_location t:{t[0]}", agg_pol_location.mean(dim=0).T)
-        print(f"mean_agg_pod_location t:{t[0]}", agg_pod_location.mean(dim=0).T)
+        # current_demand = next_state_dict["current_demand"].view(*batch_size, 1) / max_demand
+        # observed_demand = next_state_dict["observed_demand"].view(*batch_size, self.T * self.K) / max_demand
+        # expected_demand = next_state_dict["expected_demand"].view(*batch_size, self.T * self.K) / max_demand
+        # std_demand = next_state_dict["std_demand"].view(*batch_size, self.T * self.K) / max_demand
+        # print("-"*50)
+        # print(f"mean_current_demand t:{t[0]}", current_demand.mean(dim=0))
+        # print(f"mean_observed_demand t:{t[0]}", observed_demand.mean(dim=0))
+        # print(f"mean_expected_demand t:{t[0]}", expected_demand.mean(dim=0))
+        # print(f"mean_std_demand t:{t[0]}", std_demand.mean(dim=0))
+        # lcg = next_state_dict["lcg"].view(*batch_size, 1)
+        # vcg = next_state_dict["vcg"].view(*batch_size, 1)
+        # print(f"mean_lcg t:{t[0]}", lcg.mean(dim=0))
+        # print(f"mean_vcg t:{t[0]}", vcg.mean(dim=0))
+        # residual_capacity = residual_capacity / self.capacity.unsqueeze(0)
+        # residual_lc_capacity = (next_state_dict["residual_lc_capacity"]/next_state_dict["target_long_crane"].unsqueeze(0))
+        # print(f"mean_residual_capacity t:{t[0]}", residual_capacity.mean(dim=0))
+        # print(f"mean_residual_lc_capacity t:{t[0]}", residual_lc_capacity.mean(dim=0))
+        # agg_pol_location = agg_pol_location / (self.P)
+        # agg_pod_location = agg_pod_location / (self.P)
+        # print(f"mean_agg_pol_location t:{t[0]}", agg_pol_location.mean(dim=0).T)
+        # print(f"mean_agg_pod_location t:{t[0]}", agg_pod_location.mean(dim=0).T)
 
         return th.cat([
             t.view(*batch_size, 1) / (self.T * self.K),
