@@ -222,10 +222,9 @@ class MLPDecoderWithCache(nn.Module):
         mean = self.mean_head(hidden)
         mean = mean/self.temperature
         std = F.softplus(self.std_head(hidden))
-        std = torch.clamp(std, 1e-6, 1.0)
+        # std = torch.clamp(std, 1e-6, 1.0)
         # todo: add mask
         return mean, std
-        # return mean
 
     def pre_decoder_hook(self, td, env, embeddings, num_starts: int = 0):
         return td, env, self._precompute_cache(embeddings, num_starts)
