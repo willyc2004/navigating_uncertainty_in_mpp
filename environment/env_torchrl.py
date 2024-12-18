@@ -120,7 +120,7 @@ class MasterPlanningEnv(EnvBase):
     def _make_spec(self, td:TensorDict = None) -> None:
         """Define the specs for observations, actions, rewards, and done flags."""
         batch_size = td.batch_size
-        observation_spec = Unbounded(shape=(*batch_size,307), dtype=self.float_type) # 287
+        observation_spec = Unbounded(shape=(*batch_size,289), dtype=self.float_type) # 287, 307
         state_spec = Composite(
             utilization=Unbounded(shape=(*batch_size,self.B*self.D*self.T*self.K), dtype=self.float_type),
             target_long_crane=Unbounded(shape=(*batch_size,1), dtype=self.float_type),
@@ -134,14 +134,13 @@ class MasterPlanningEnv(EnvBase):
             observed_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
             expected_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
             std_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
-            residual_capacity=Unbounded(shape=(*batch_size, self.B * self.D),
-                                                            dtype=self.float_type),
-            location_weight=Unbounded(shape=(*batch_size, self.B * self.D), dtype=self.float_type),
+            # Vessel
+            lcg=Unbounded(shape=(*batch_size, 1), dtype=self.float_type),
+            vcg=Unbounded(shape=(*batch_size, 1), dtype=self.float_type),
+            residual_capacity=Unbounded(shape=(*batch_size, self.B * self.D),  dtype=self.float_type),
             residual_lc_capacity=Unbounded(shape=(*batch_size, self.B - 1), dtype=self.float_type),
-            pol_location=Unbounded(shape=(*batch_size, self.B * self.D * self.P),
-                                                       dtype=self.float_type),
-            pod_location=Unbounded(shape=(*batch_size, self.B * self.D * self.P),
-                                                       dtype=self.float_type),
+            pol_location=Unbounded(shape=(*batch_size, self.B * self.D * self.P), dtype=self.float_type),
+            pod_location=Unbounded(shape=(*batch_size, self.B * self.D * self.P), dtype=self.float_type),
             agg_pol_location=Unbounded(shape=(*batch_size, self.B * self.D), dtype=self.float_type),
             agg_pod_location=Unbounded(shape=(*batch_size, self.B * self.D), dtype=self.float_type),
             shape=batch_size,
@@ -319,8 +318,9 @@ class MasterPlanningEnv(EnvBase):
                 "expected_demand": next_state_dict["expected_demand"].view(*batch_size, self.T * self.K),
                 "std_demand": next_state_dict["std_demand"].view(*batch_size, self.T * self.K),
                 # Vessel (in range [0, 1])
+                "lcg": next_state_dict["lcg"].view(*batch_size, 1),
+                "vcg": next_state_dict["vcg"].view(*batch_size, 1),
                 "residual_capacity": residual_capacity.view(*batch_size, self.B * self.D),
-                "location_weight": next_state_dict["location_weight"].view(*batch_size, self.B * self.D),
                 "residual_lc_capacity": next_state_dict["residual_lc_capacity"].view(*batch_size, self.B - 1),
                 "pol_location": pol_locations.view(*batch_size, self.B * self.D * self.P).to(self.float_type),
                 "pod_location": pod_locations.view(*batch_size, self.B * self.D * self.P).to(self.float_type),
@@ -419,7 +419,8 @@ class MasterPlanningEnv(EnvBase):
             "std_demand": td["std_demand"].view(*batch_size, self.T * self.K),
             # Vessel
             "residual_capacity": th.ones_like(residual_capacity).view(*batch_size, self.B * self.D),
-            "location_weight": th.zeros_like(residual_capacity).view(*batch_size, self.B * self.D),
+            "lcg": th.ones_like(t, dtype=self.float_type).view(*batch_size, 1),
+            "vcg": th.ones_like(t, dtype=self.float_type).view(*batch_size, 1),
             "residual_lc_capacity": residual_lc_capacity.view(*batch_size, self.B - 1),
             "pol_location": th.zeros_like(port_locations, dtype=self.float_type),
             "pod_location": th.zeros_like(port_locations, dtype=self.float_type),
@@ -522,8 +523,9 @@ class MasterPlanningEnv(EnvBase):
             next_state_dict["expected_demand"].view(*batch_size, self.T * self.K),
             next_state_dict["std_demand"].view(*batch_size, self.T * self.K),
             # Vessel
+            next_state_dict["lcg"].view(*batch_size, 1),
+            next_state_dict["vcg"].view(*batch_size, 1),
             residual_capacity.view(*batch_size, self.B * self.D),
-            next_state_dict["location_weight"].view(*batch_size, self.B * self.D),
             next_state_dict["residual_lc_capacity"].view(*batch_size, self.B - 1),
             agg_pol_location.view(*batch_size, self.B * self.D),
             agg_pod_location.view(*batch_size, self.B * self.D),
@@ -699,6 +701,11 @@ class MasterPlanningEnv(EnvBase):
         long_crane_moves = long_crane_moves_load + long_crane_moves_discharge
         residual_lc_capacity = (target_long_crane - long_crane_moves) / target_long_crane
 
+        # Compute stability
+        location_weight = (utilization * self.weights.view(1,1,1,1,-1)).sum(dim=(-2,-1))
+        total_weight = location_weight.sum(dim=(1,2))
+        lcg = (location_weight * self.longitudinal_position.view(1, -1, 1)).sum(dim=(1,2)) / total_weight
+        vcg = (location_weight * self.vertical_position.view(1, 1, -1)).sum(dim=(1,2)) / total_weight
         # Get output
         return {
             "current_demand": realized_demand[..., tau, k],
@@ -707,7 +714,8 @@ class MasterPlanningEnv(EnvBase):
             "std_demand":demand_state["std_demand"],
             "utilization": utilization,
             "location_utilization": (utilization * self.teus.view(1,1,1,1,-1)).sum(dim=(-2,-1)),
-            "location_weight": (utilization * self.weights.view(1,1,1,1,-1)).sum(dim=(-2,-1)),
+            "lcg": lcg,
+            "vcg": vcg,
             "target_long_crane": target_long_crane,
             "residual_lc_capacity": residual_lc_capacity,
             "long_crane_moves_discharge": long_crane_moves_discharge,
