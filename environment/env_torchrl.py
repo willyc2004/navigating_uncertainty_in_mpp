@@ -204,8 +204,8 @@ class MasterPlanningEnv(EnvBase):
         # print("env action", action.mean())
         # # print("clip_min", td["clip_min"].mean())
         # # print("clip_max", td["clip_max"].mean())
-        # action = action.clamp(min=td["clip_min"].view(*batch_size, self.B, self.D))
-        #                       #max=td["clip_max"].view(*batch_size, self.B, self.D))
+        # action = action.clamp(min=td["clip_min"].view(*batch_size, self.B, self.D),
+        #                       max=td["clip_max"].view(*batch_size, self.B, self.D))
         # print("env action", action.mean())
 
         # Check done, update utilization, and compute violation
