@@ -136,12 +136,17 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         super().__init__(module, in_keys, out_keys, spec=spec, **kwargs)
         self.projection_layer = projection_layer
         if action_rescale_min is not None and action_rescale_max is not None:
-            self.rescale_action = lambda x: (x - action_rescale_min) / (action_rescale_max - action_rescale_min)
+            self.rescale_action = lambda x: x * (action_rescale_max - action_rescale_min) + action_rescale_min
 
     def forward(self, *args, **kwargs):
         out = super().forward(*args, **kwargs)
         if self.rescale_action is not None:
+            print("---")
+            print("mean(action)", out["action"].mean(), "std(action)", out["action"].std(),
+                  "min(action)", out["action"].min(), "max(action)", out["action"].max())
             out["action"] = self.rescale_action((out["action"] + 1)/2)  # Rescale (-1,1) to (0,1), then to (min, max)
+            print("mean(action)", out["action"].mean(), "std(action)", out["action"].std(),
+                  "min(action)", out["action"].min(), "max(action)", out["action"].max())
         if self.projection_layer is not None:
             action = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
             out["action"] = action
