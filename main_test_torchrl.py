@@ -128,6 +128,206 @@ class Actor(nn.Module):
         dec_out = self.decoder(obs, hidden)
         return dec_out
 
+## Main function
+def main(config: Optional[DotMap] = None):
+    # todo: clean-up and refactor all hyperparameters etc.
+    # Environment kwargs
+    env_kwargs = config.env
+
+    # Initialize torch and cuda
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    torch.cuda.empty_cache()
+    torch._dynamo.config.cache_size_limit = 64  # or some higher value
+    torch.set_num_threads(1)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    ## Environment initialization
+    env = make_env(env_kwargs)
+    seed = env_kwargs.seed
+    env.set_seed(seed)
+    # env = ParallelEnv(4, make_env)     # todo: fix parallel env
+    check_env_specs(env)  # this must pass for ParallelEnv to work
+
+    ## Model initialization
+    # Embedding dimensions
+    init_dim = config.model.init_dim
+    embed_dim = config.model.embed_dim
+    sequence_dim = env.K * env.T
+    obs_dim = env.observation_spec["observation"].shape[0]
+    action_dim = env.action_spec.shape[0]
+    # Embedding initialization
+    init_embed = MPPInitEmbedding(embed_dim, action_dim, env)
+    context_embed = MPPContextEmbedding(action_dim, embed_dim, env, config.model.demand_aggregation)
+    dynamic_embed = StaticEmbedding(obs_dim, embed_dim)
+
+    # Model initialization
+    hidden_dim = config.model.feedforward_hidden
+    encoder_layers = config.model.num_encoder_layers
+    decoder_layers = config.model.num_decoder_layers
+    num_heads = config.model.num_heads
+    dropout_rate = config.model.dropout_rate
+    decoder_args = {
+        "embed_dim": embed_dim,
+        "num_heads": num_heads,
+        "num_hidden_layers": decoder_layers,
+        "hidden_dim": hidden_dim,
+        "dropout_rate": dropout_rate,
+        "action_size": action_dim,
+        "state_size": obs_dim,
+        "total_steps": sequence_dim,
+        "init_embedding": init_embed,
+        "context_embedding": context_embed,
+        "dynamic_embedding": dynamic_embed,
+        "normalization": config.model.normalization,
+        "temperature": config.model.temperature,
+    }
+    encoder_args = {
+        "embed_dim": embed_dim,
+        "num_heads": num_heads,
+        "init_embedding": init_embed,
+        "env_name": env.name,
+        "num_layers": encoder_layers,
+        "feedforward_hidden": hidden_dim,
+        "normalization": config.model.normalization,
+    }
+
+    # Setup model
+    if config.model.encoder_type == "attention":
+        encoder = AttentionModelEncoder(**encoder_args,)
+    else:
+        encoder = MLPEncoder(**encoder_args)
+    if config.model.decoder_type == "attention":
+        decoder = AttentionDecoderWithCache(**decoder_args)
+    elif config.model.decoder_type == "mlp":
+        decoder = MLPDecoderWithCache(**decoder_args)
+    else:
+        raise ValueError(f"Decoder type {config.model.decoder_type} not recognized.")
+    if config.algorithm.type == "sac":
+        # Define two Q-networks for the critics
+        critic1 = ValueOperator(
+            CriticNetwork(encoder, embed_dim=embed_dim, hidden_dim=hidden_dim, num_layers=decoder_layers,
+                          context_embedding=context_embed, normalization=config.model.normalization,
+                          dropout_rate=dropout_rate, temperature=config.model.critic_temperature, customized=True,
+                          use_q_value=True, action_dim=action_dim).to(device),
+            in_keys=["observation", "action"],  # Input tensor key in TensorDict
+            out_keys=["state_action_value"],
+        )
+        critic2 = copy.deepcopy(critic1)  # Second critic network
+        critic = [critic1, critic2]
+    else:
+        # Get critic
+        critic = TensorDictModule(
+            CriticNetwork(encoder, embed_dim=embed_dim, hidden_dim=hidden_dim, num_layers=decoder_layers,
+                          context_embedding=context_embed, normalization=config.model.normalization,
+                          dropout_rate=dropout_rate, temperature=config.model.critic_temperature,
+                          customized=True).to(device),
+            in_keys=["observation",],  # Input tensor key in TensorDict
+            out_keys=["state_value"],  # ["state_action_value"]  # Output tensor key in TensorDict
+        )
+
+    # Get ProbabilisticActor (for stochastic policies)
+    actor = TensorDictModule(
+        Actor(encoder, decoder).to(device),
+        in_keys=["observation",],  # Input tensor key in TensorDict
+        out_keys=["loc","scale"]  # Output tensor key in TensorDict
+    )
+    policy = ProbabilisticActor(
+        module=actor,
+        in_keys=["loc", "scale"],
+        distribution_class=TruncatedNormal,
+        distribution_kwargs={"low": 0.0, "high": 50.0},
+        # distribution_kwargs={"scale": 1.0},
+        return_log_prob=True,
+    )
+
+    ## Main loop
+    # Train the model
+    if config.model.phase == "train":
+        train(policy, critic, **config)
+    # Test the model
+    elif config.model.phase == "test":
+        raise NotImplementedError("Testing not implemented yet.")
+    #     datestamp = "20241214_065732"
+    #     checkpoint_path = f"./saved_models"
+    #     pth_name = f"/trained_model_{datestamp}.pth"
+    #     pth = torch.load(checkpoint_path + pth_name,)
+    #     model.load_state_dict(pth, strict=True)
+    #     # todo: extract trained hyper-parameters
+    #     # todo: check if two models can be re-loaded
+    #
+    #     # Wrap in a TensorDictModule
+    #     test_td_module = TensorDictModule(
+    #         model,
+    #         in_keys=["observation", ],  # Input tensor key in TensorDict
+    #         out_keys=["loc"]  # Output tensor key in TensorDict
+    #     )
+    #
+    #     # ProbabilisticActor (for stochastic policies)
+    #     test_policy = ProbabilisticActor(
+    #         module=test_td_module,
+    #         in_keys=["loc", ],
+    #         distribution_class=IndependentNormal,
+    #         distribution_kwargs={"scale": 1.0}
+    #     )
+    #
+    #
+    #     # Initialize policy
+    #     env_kwargs["float_type"] = torch.float32
+    #     test_env = make_env(env_kwargs)  # Re-initialize the environment
+    #
+    #     # Run multiple iterations to measure inference time
+    #     num_runs = 5
+    #     outs = []
+    #     returns = []
+    #     times = []
+    #     revenues = []
+    #     costs = []
+    #     violations = []
+    #
+    #     init_td = test_env.generator(batch_size).clone()
+    #     for i in range(num_runs):
+    #         # Set a new seed for each run
+    #         print(f"Run {i + 1}/{num_runs}")
+    #         seed = i
+    #         torch.manual_seed(seed)
+    #
+    #         # Sync GPU before starting timer if using CUDA
+    #         if torch.cuda.is_available():
+    #             torch.cuda.synchronize()
+    #         start_time = time.perf_counter()
+    #
+    #         # Run inference
+    #         td = test_env.reset(test_env.generator(batch_size=batch_size, td=init_td), )
+    #         rollout = test_env.rollout(env.K*env.T, test_policy, tensordict=td, auto_reset=True)
+    #         # todo: add rollout_results to outs
+    #
+    #         # Sync GPU again after inference if using CUDA
+    #         if torch.cuda.is_available():
+    #             torch.cuda.synchronize()
+    #         end_time = time.perf_counter()
+    #
+    #         # Calculate and record inference time for each run
+    #         returns.append(rollout["next", "reward"].mean())
+    #         times.append(end_time - start_time)
+    #         revenues.append(rollout[..., -1]["next", "state", "total_revenue"].mean())
+    #         costs.append(rollout[..., -1]["next", "state", "total_cost"].mean())
+    #         violations.append(rollout[..., -1]["next", "state", "total_violation"].sum(dim=(-1, -2)).mean())
+    #     returns = torch.tensor(returns)
+    #     times = torch.tensor(times)
+    #     revenues = torch.tensor(revenues)
+    #     costs = torch.tensor(costs)
+    #     violations = torch.tensor(violations)
+    #     print("-"*50)
+    #     print(f"Mean return: {returns.mean():.4f}")
+    #     print(f"Mean inference time: {times.mean():.4f} seconds")
+    #     print(f"Mean revenue: {revenues.mean():.4f}")
+    #     print(f"Mean cost: {costs.mean():.4f}")
+    #     print(f"Mean violation: {violations.mean():.4f}")
+    #
+    #     # rollout_results(test_env, outs, td, batch_size, checkpoint_path,
+    #     #                 am_ppo_params["projection_type"], config["env"]["utilization_rate_initial_demand"], times)
+
 ## Training
 def train(policy, critic, device=torch.device("cuda"), **kwargs):
     # todo: extend with mini-batch training, data loader, REINFORCE, PPO, etc.
@@ -245,18 +445,22 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             # Sample mini-batch (including actions, n-step returns, old log likelihoods, target_values)
             subdata = replay_buffer.sample(mini_batch_size).to(device)
 
-
             ## Loss optimization
             loss_out = {}
             # Critic loss calculation
             with torch.no_grad():
-                policy_out = policy(subdata)
-                target_q1 = target_critic1(policy_out["observation"], policy_out["next","action"])
-                target_q2 = target_critic2(policy_out["observation"], policy_out["next","action"])
-                target_q_min = torch.min(target_q1, target_q2) - entropy_lambda * policy_out["sample_log_prob"].unsqueeze(-1)
-                target_value = subdata["next","reward"] + (1 - subdata["done"].float()) * gamma * target_q_min
-            current_q1 = critic1(policy_out["observation"], policy_out["next","action"])
-            current_q2 = critic2(policy_out["observation"], policy_out["next","action"])
+                # Nex action
+                # print(policy)
+                next_policy_out = policy(subdata)
+                next_action = torch.clamp(next_policy_out["action"], min=next_policy_out["clip_min"])  # , max=subdata["clip_max"])
+                target_q1 = target_critic1(next_policy_out["observation"], next_action)
+                target_q2 = target_critic2(next_policy_out["observation"], next_action)
+                target_q_min = torch.min(target_q1, target_q2) - entropy_lambda * next_policy_out["sample_log_prob"].unsqueeze(-1)
+                target_value = subdata["next", "reward"] + (1 - subdata["done"].float()) * gamma * target_q_min
+
+            # Current action
+            current_q1 = critic1(subdata["observation"], subdata["action"])
+            current_q2 = critic2(subdata["observation"], subdata["action"])
 
             # Update critic
             loss_out["loss_critic"] = F.mse_loss(current_q1, target_value) + F.mse_loss(current_q2, target_value)
@@ -273,15 +477,16 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             for target_param, param in zip(target_critic2.parameters(), critic2.parameters()):
                 target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
-
             # Compute Actor Loss
-            policy_out2 = policy(subdata)
-            new_action = torch.clamp(policy_out2["action"], min=0)
+            policy_out = policy(subdata)
+            new_action = policy_out["action"]
             log_prob = policy_out["sample_log_prob"].unsqueeze(-1)
+            print(new_action.mean())
+            print(subdata["action"].mean())
 
             # Feasibility loss
             loss_out["loss_feasibility"], loss_out["violation"] = \
-                compute_loss_feasibility(subdata, new_action, feasibility_lambda, "sum")
+                compute_loss_feasibility(policy_out, new_action, feasibility_lambda, "sum")
             q1 = critic1(policy_out["observation"], new_action)
             q2 = critic2(policy_out["observation"], new_action)
             q_min = torch.min(q1, q2)
@@ -311,15 +516,15 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             # todo: add kl_approx, ratio, advantage
             # Constraints
             "mean_total_violation": loss_out["violation"].sum(dim=(-2,-1)).mean().item(),
-            "total_violation": subdata['next', 'violation'].sum(dim=(-2,-1)).mean().item(),
-            "demand_violation": subdata['next', 'violation'][...,0].sum(dim=(1)).mean().item(),
-            "LCG_violation": subdata['next', 'violation'][..., 1:3].sum(dim=(1,2)).mean().item(),
-            "VCG_violation": subdata['next', 'violation'][..., 3:5].sum(dim=(1,2)).mean().item(),
+            "total_violation": policy_out['violation'].sum(dim=(-2,-1)).mean().item(),
+            "demand_violation": policy_out['violation'][...,0].sum(dim=(1)).mean().item(),
+            "LCG_violation": policy_out['violation'][..., 1:3].sum(dim=(1,2)).mean().item(),
+            "VCG_violation": policy_out['violation'][..., 3:5].sum(dim=(1,2)).mean().item(),
 
             # Environment
-            "total_revenue": subdata["next", "state", "total_revenue"][...,-1].mean().item(),
-            "total_cost": subdata["next", "state", "total_cost"][...,-1].mean().item(),
-            "total_loaded": subdata["next", "state", "total_loaded"][...,-1].mean().item(),
+            "total_revenue": subdata["state", "total_revenue"][...,-1].mean().item(),
+            "total_cost": subdata["state", "total_cost"][...,-1].mean().item(),
+            "total_loaded": subdata["state", "total_loaded"][...,-1].mean().item(),
             "total_demand":subdata['realized_demand'][:,0,:].sum(dim=-1).mean(),
             "total_e[x]_demand": td['init_expected_demand'][:, 0, :].sum(dim=-1).mean(),
         }
@@ -363,7 +568,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     # Close environments
     env.close()
 
-
+## Validation
 def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episodes: int = 10, device: str = "cuda"):
     """
     Perform validation rollouts for a given policy in an environment.
@@ -416,207 +621,6 @@ def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episode
 
     policy_module.train()  # Set the policy back to training mode
     return avg_reward
-
-
-
-def main(config: Optional[DotMap] = None):
-    # todo: clean-up and refactor all hyperparameters etc.
-    # Environment kwargs
-    env_kwargs = config.env
-
-    # Initialize torch and cuda
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    torch.cuda.empty_cache()
-    torch._dynamo.config.cache_size_limit = 64  # or some higher value
-    torch.set_num_threads(1)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-
-    ## Environment initialization
-    env = make_env(env_kwargs)
-    seed = env_kwargs.seed
-    env.set_seed(seed)
-    # env = ParallelEnv(4, make_env)     # todo: fix parallel env
-    check_env_specs(env)  # this must pass for ParallelEnv to work
-
-    ## Model initialization
-    # Embedding dimensions
-    init_dim = config.model.init_dim
-    embed_dim = config.model.embed_dim
-    sequence_dim = env.K * env.T
-    obs_dim = env.observation_spec["observation"].shape[0]
-    action_dim = env.action_spec.shape[0]
-    # Embedding initialization
-    init_embed = MPPInitEmbedding(embed_dim, action_dim, env)
-    context_embed = MPPContextEmbedding(action_dim, embed_dim, env, config.model.demand_aggregation)
-    dynamic_embed = StaticEmbedding(obs_dim, embed_dim)
-
-    # Model initialization
-    hidden_dim = config.model.feedforward_hidden
-    encoder_layers = config.model.num_encoder_layers
-    decoder_layers = config.model.num_decoder_layers
-    num_heads = config.model.num_heads
-    dropout_rate = config.model.dropout_rate
-    decoder_args = {
-        "embed_dim": embed_dim,
-        "num_heads": num_heads,
-        "num_hidden_layers": decoder_layers,
-        "hidden_dim": hidden_dim,
-        "dropout_rate": dropout_rate,
-        "action_size": action_dim,
-        "state_size": obs_dim,
-        "total_steps": sequence_dim,
-        "init_embedding": init_embed,
-        "context_embedding": context_embed,
-        "dynamic_embedding": dynamic_embed,
-        "normalization": config.model.normalization,
-        "temperature": config.model.temperature,
-    }
-    encoder_args = {
-        "embed_dim": embed_dim,
-        "num_heads": num_heads,
-        "init_embedding": init_embed,
-        "env_name": env.name,
-        "num_layers": encoder_layers,
-        "feedforward_hidden": hidden_dim,
-        "normalization": config.model.normalization,
-    }
-
-    # Setup model
-    if config.model.encoder_type == "attention":
-        encoder = AttentionModelEncoder(**encoder_args,)
-    else:
-        encoder = MLPEncoder(**encoder_args)
-    if config.model.decoder_type == "attention":
-        decoder = AttentionDecoderWithCache(**decoder_args)
-    elif config.model.decoder_type == "mlp":
-        decoder = MLPDecoderWithCache(**decoder_args)
-    else:
-        raise ValueError(f"Decoder type {config.model.decoder_type} not recognized.")
-    if config.algorithm.type == "sac":
-        # Define two Q-networks for the critics
-        critic1 = ValueOperator(
-            CriticNetwork(encoder, embed_dim=embed_dim, hidden_dim=hidden_dim, num_layers=decoder_layers,
-                          context_embedding=context_embed, normalization=config.model.normalization,
-                          dropout_rate=dropout_rate, temperature=config.model.critic_temperature, customized=True,
-                          use_q_value=True, action_dim=action_dim).to(device),
-            in_keys=["observation", "action"],  # Input tensor key in TensorDict
-            out_keys=["state_action_value"],
-        )
-        critic2 = copy.deepcopy(critic1)  # Second critic network
-        critic = [critic1, critic2]
-    else:
-        # Get critic
-        critic = TensorDictModule(
-            CriticNetwork(encoder, embed_dim=embed_dim, hidden_dim=hidden_dim, num_layers=decoder_layers,
-                          context_embedding=context_embed, normalization=config.model.normalization,
-                          dropout_rate=dropout_rate, temperature=config.model.critic_temperature,
-                          customized=True).to(device),
-            in_keys=["observation",],  # Input tensor key in TensorDict
-            out_keys=["state_value"],  # ["state_action_value"]  # Output tensor key in TensorDict
-        )
-
-    # Get ProbabilisticActor (for stochastic policies)
-    actor = TensorDictModule(
-        Actor(encoder, decoder).to(device),
-        in_keys=["observation",],  # Input tensor key in TensorDict
-        out_keys=["loc","scale"]  # Output tensor key in TensorDict
-    )
-    policy = ProbabilisticActor(
-        module=actor,
-        in_keys=["loc", "scale"],
-        distribution_class=IndependentNormal,
-        # distribution_kwargs={"low": 0.0, "high": 50.0},
-        # distribution_kwargs={"scale": 1.0},
-        return_log_prob=True,
-    )
-
-    ## Main loop
-    # Train the model
-    if config.model.phase == "train":
-        train(policy, critic, **config)
-    # Test the model
-    elif config.model.phase == "test":
-        raise NotImplementedError("Testing not implemented yet.")
-    #     datestamp = "20241214_065732"
-    #     checkpoint_path = f"./saved_models"
-    #     pth_name = f"/trained_model_{datestamp}.pth"
-    #     pth = torch.load(checkpoint_path + pth_name,)
-    #     model.load_state_dict(pth, strict=True)
-    #     # todo: extract trained hyper-parameters
-    #     # todo: check if two models can be re-loaded
-    #
-    #     # Wrap in a TensorDictModule
-    #     test_td_module = TensorDictModule(
-    #         model,
-    #         in_keys=["observation", ],  # Input tensor key in TensorDict
-    #         out_keys=["loc"]  # Output tensor key in TensorDict
-    #     )
-    #
-    #     # ProbabilisticActor (for stochastic policies)
-    #     test_policy = ProbabilisticActor(
-    #         module=test_td_module,
-    #         in_keys=["loc", ],
-    #         distribution_class=IndependentNormal,
-    #         distribution_kwargs={"scale": 1.0}
-    #     )
-    #
-    #
-    #     # Initialize policy
-    #     env_kwargs["float_type"] = torch.float32
-    #     test_env = make_env(env_kwargs)  # Re-initialize the environment
-    #
-    #     # Run multiple iterations to measure inference time
-    #     num_runs = 5
-    #     outs = []
-    #     returns = []
-    #     times = []
-    #     revenues = []
-    #     costs = []
-    #     violations = []
-    #
-    #     init_td = test_env.generator(batch_size).clone()
-    #     for i in range(num_runs):
-    #         # Set a new seed for each run
-    #         print(f"Run {i + 1}/{num_runs}")
-    #         seed = i
-    #         torch.manual_seed(seed)
-    #
-    #         # Sync GPU before starting timer if using CUDA
-    #         if torch.cuda.is_available():
-    #             torch.cuda.synchronize()
-    #         start_time = time.perf_counter()
-    #
-    #         # Run inference
-    #         td = test_env.reset(test_env.generator(batch_size=batch_size, td=init_td), )
-    #         rollout = test_env.rollout(env.K*env.T, test_policy, tensordict=td, auto_reset=True)
-    #         # todo: add rollout_results to outs
-    #
-    #         # Sync GPU again after inference if using CUDA
-    #         if torch.cuda.is_available():
-    #             torch.cuda.synchronize()
-    #         end_time = time.perf_counter()
-    #
-    #         # Calculate and record inference time for each run
-    #         returns.append(rollout["next", "reward"].mean())
-    #         times.append(end_time - start_time)
-    #         revenues.append(rollout[..., -1]["next", "state", "total_revenue"].mean())
-    #         costs.append(rollout[..., -1]["next", "state", "total_cost"].mean())
-    #         violations.append(rollout[..., -1]["next", "state", "total_violation"].sum(dim=(-1, -2)).mean())
-    #     returns = torch.tensor(returns)
-    #     times = torch.tensor(times)
-    #     revenues = torch.tensor(revenues)
-    #     costs = torch.tensor(costs)
-    #     violations = torch.tensor(violations)
-    #     print("-"*50)
-    #     print(f"Mean return: {returns.mean():.4f}")
-    #     print(f"Mean inference time: {times.mean():.4f} seconds")
-    #     print(f"Mean revenue: {revenues.mean():.4f}")
-    #     print(f"Mean cost: {costs.mean():.4f}")
-    #     print(f"Mean violation: {violations.mean():.4f}")
-    #
-    #     # rollout_results(test_env, outs, td, batch_size, checkpoint_path,
-    #     #                 am_ppo_params["projection_type"], config["env"]["utilization_rate_initial_demand"], times)
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
