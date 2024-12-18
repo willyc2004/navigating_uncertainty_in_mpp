@@ -414,6 +414,32 @@ def optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwa
     actor_optim.step()
     return loss_out, policy_out
 
+## Early stopping
+def early_stopping(val_rewards, patience=2):
+    """
+    Check for early stopping based on consecutive decreases in validation rewards.
+
+    Args:
+        val_rewards (list): A list of validation rewards.
+        patience (int): Number of consecutive decreases allowed before triggering early stopping.
+
+    Returns:
+        bool: True if early stopping condition is met, otherwise False.
+    """
+    # Track the number of consecutive decreases
+    decrease_count = 0
+
+    for i in range(1, len(val_rewards)):
+        if val_rewards[i] < val_rewards[i - 1]:
+            decrease_count += 1
+            if decrease_count >= patience:
+                return True
+        else:
+            decrease_count = 0  # Reset if the reward improves or stays the same
+
+    return False
+
+
 ## Training
 def train(policy, critic, device=torch.device("cuda"), **kwargs):
     # todo: extend with mini-batch training, data loader, REINFORCE, PPO, etc.
@@ -518,7 +544,13 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
         critic_optim = torch.optim.Adam(critic.parameters(), lr=lr)
     train_updates = train_data_size // (batch_size * n_step)
     pbar = tqdm.tqdm(range(train_updates))
-    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, train_data_size)
+    actor_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(actor_optim, train_data_size)
+    critic_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(critic_optim, train_data_size)
+
+    # Validation
+    val_rewards = []
+    decrease_count = 0
+    patience = 2
 
     # Training loop
     for step, td in enumerate(collector):
@@ -584,26 +616,43 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             f"violation: {log['total_violation']: 4.4f}, "
         )
         wandb.log(log)
-        # scheduler.step()
+        actor_scheduler.step()
+        critic_scheduler.step()
 
-        # # Validation
-        # if (step + 1) % (train_updates * validation_freq) == 0:
-        #     # todo: add validation here for every
-        #     validate_policy(env, policy, num_episodes=val_data_size//batch_size)
+        # Validation
+        if (step + 1) % (train_updates * validation_freq) == 0:
+            val_reward = validate_policy(env, policy, num_episodes=val_data_size//batch_size)
+            val_rewards.append(val_reward)
+
+            if early_stopping(val_rewards, patience):
+                print(f"Early stopping at epoch {step} due to {patience} consecutive decreases in validation reward.")
+                break
 
     # Generate a timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # Save the model checkpoint with timestamp
-    policy_save_path = f"saved_models/trained_policy_{timestamp}.pth"
-    critic_save_path = f"saved_models/trained_critic_{timestamp}.pth"
+    policy_save_path = f"saved_models/policy_{timestamp}.pth"
+    critic_save_path = f"saved_models/critic_{timestamp}.pth"
     os.makedirs(os.path.dirname(policy_save_path), exist_ok=True)
-    torch.save(policy.state_dict(), policy_save_path)
-    torch.save(critic.state_dict(), critic_save_path)
 
-    # Log the model checkpoint to wandb
+    # Save the policy model
+    torch.save(policy.state_dict(), policy_save_path)
     wandb.save(policy_save_path)
-    wandb.save(critic_save_path)
+
+    # Save the critic model
+    if kwargs["algorithm"]["type"] == "sac":
+        torch.save(critic1.state_dict(), f"saved_models/critic1_{timestamp}.pth")
+        torch.save(critic2.state_dict(), f"saved_models/critic2_{timestamp}.pth")
+        torch.save(target_critic1.state_dict(), f"saved_models/target_critic1_{timestamp}.pth")
+        torch.save(target_critic2.state_dict(), f"saved_models/target_critic2_{timestamp}.pth")
+        wandb.save(f"saved_models/critic1_{timestamp}.pth")
+        wandb.save(f"saved_models/critic2_{timestamp}.pth")
+        wandb.save(f"saved_models/target_critic1_{timestamp}.pth")
+        wandb.save(f"saved_models/target_critic2_{timestamp}.pth")
+    else:
+        torch.save(critic.state_dict(), critic_save_path)
+        wandb.save(critic_save_path)
 
     # Close environments
     env.close()
