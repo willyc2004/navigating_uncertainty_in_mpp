@@ -257,7 +257,7 @@ def main(config: Optional[DotMap] = None):
         projection_layer = ProjectionFactory.create_class(config.training.projection_type, config.training.projection_kwargs)
     else:
         projection_layer = None
-    # todo: TruncatedNormal not working well
+    # todo: not sure if truncation or tanh work well.
     policy = ProjectionProbabilisticActor(
         module=actor,
         in_keys=["loc", "scale"],
@@ -534,6 +534,10 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             if early_stopping(val_rewards, patience):
                 print(f"Early stopping at epoch {step} due to {patience} consecutive decreases in validation reward.")
                 break
+        # NaN check in loss
+        if torch.isnan(loss_out["loss_actor"]) or torch.isnan(loss_out["loss_critic"]):
+            print(f"NaN detected in loss at epoch {step}.")
+            break
 
         # Update wandb and scheduler
         wandb.log(log)
