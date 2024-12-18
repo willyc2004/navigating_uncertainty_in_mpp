@@ -515,20 +515,21 @@ class MasterPlanningEnv(EnvBase):
     def _get_observation(self, next_state_dict, residual_capacity,
                          agg_pol_location, agg_pod_location, t, batch_size) -> Tensor:
         """Get observation from the TensorDict."""
+        # normalize demand
+        max_demand = next_state_dict["current_demand"].max()
         return th.cat([
-            t.view(*batch_size, 1),
-            # Demand
-            next_state_dict["current_demand"].view(*batch_size, 1),
-            next_state_dict["observed_demand"].view(*batch_size, self.T * self.K),
-            next_state_dict["expected_demand"].view(*batch_size, self.T * self.K),
-            next_state_dict["std_demand"].view(*batch_size, self.T * self.K),
+            t.view(*batch_size, 1) / (self.T * self.K),
+            next_state_dict["current_demand"].view(*batch_size, 1) / max_demand,
+            next_state_dict["observed_demand"].view(*batch_size, self.T * self.K) / max_demand,
+            next_state_dict["expected_demand"].view(*batch_size, self.T * self.K) / max_demand,
+            next_state_dict["std_demand"].view(*batch_size, self.T * self.K) / max_demand,
             # Vessel
             next_state_dict["lcg"].view(*batch_size, 1),
             next_state_dict["vcg"].view(*batch_size, 1),
-            residual_capacity.view(*batch_size, self.B * self.D),
+            (residual_capacity/self.capacity.unsqueeze(0)).view(*batch_size, self.B * self.D),
             next_state_dict["residual_lc_capacity"].view(*batch_size, self.B - 1),
-            agg_pol_location.view(*batch_size, self.B * self.D),
-            agg_pod_location.view(*batch_size, self.B * self.D),
+            agg_pol_location.view(*batch_size, self.B * self.D) / (self.P-1),
+            agg_pod_location.view(*batch_size, self.B * self.D) / (self.P-1),
         ], dim=-1)
 
     # Reward/costs functions
