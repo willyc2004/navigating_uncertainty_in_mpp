@@ -236,7 +236,7 @@ def main(config: Optional[DotMap] = None):
         module=actor,
         in_keys=["loc", "scale"],
         distribution_class=TanhNormal,
-        distribution_kwargs={"min": 0.0, "max": 50.0},
+        distribution_kwargs={"low": 0.0, "high": 50.0},
         # distribution_kwargs={"low": 0.0,, "high": 50.0},
         # distribution_kwargs={"scale": 1.0},
         return_log_prob=True,
@@ -517,8 +517,9 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             "mean_total_violation": loss_out["violation"].sum(dim=(-2,-1)).mean().item(),
             "total_violation": policy_out['violation'].sum(dim=(-2,-1)).mean().item(),
             "demand_violation": policy_out['violation'][...,0].sum(dim=(1)).mean().item(),
-            "LCG_violation": policy_out['violation'][..., 1:3].sum(dim=(1,2)).mean().item(),
-            "VCG_violation": policy_out['violation'][..., 3:5].sum(dim=(1,2)).mean().item(),
+            "capacity_violation": policy_out['violation'][...,1:-4].sum(dim=(1)).mean().item(),
+            "LCG_violation": policy_out['violation'][..., -4:-2].sum(dim=(1,2)).mean().item(),
+            "VCG_violation": policy_out['violation'][..., -2:].sum(dim=(1,2)).mean().item(),
 
             # Environment
             "total_revenue": subdata["state", "total_revenue"][...,-1].mean().item(),

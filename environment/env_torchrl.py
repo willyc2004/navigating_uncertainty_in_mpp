@@ -255,9 +255,6 @@ class MasterPlanningEnv(EnvBase):
         if not done.any():
             # Update feasibility: lhs_A, rhs, clip_max based on next state
             lhs_A = self.create_lhs_A(t,)
-            print("-----------------")
-            print("time", t[0])
-
             rhs = self.create_rhs(next_state_dict["utilization"], next_state_dict["current_demand"], batch_size)
 
             # Express residual capacity in teu
@@ -265,7 +262,6 @@ class MasterPlanningEnv(EnvBase):
                                          @ self.teus, min=self.zero) / self.capacity
         else:
             residual_capacity = th.zeros_like(td["state"]["residual_capacity"], dtype=self.float_type).view(*batch_size, self.B, self.D, )
-            breakpoint()
 
         # # Update action mask
         # # action_mask[t] = 0
