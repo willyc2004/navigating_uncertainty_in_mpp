@@ -452,7 +452,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     feasibility_lambda = kwargs["algorithm"]["feasibility_lambda"]
     lr = kwargs["training"]["lr"]
     train_data_size = kwargs["training"]["train_data_size"]
-    val_data_size = kwargs["training"]["val_data_size"]
+    validation_episodes = kwargs["training"]["validation_episodes"]
     validation_freq = kwargs["training"]["validation_freq"]
 
     # Environment
@@ -615,18 +615,20 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             f"total_profit: {log['total_profit']: 4.4f}, "
             f"violation: {log['total_violation']: 4.4f}, "
         )
-        wandb.log(log)
-        actor_scheduler.step()
-        critic_scheduler.step()
 
-        # Validation
+        # Validation step
         if (step + 1) % (train_updates * validation_freq) == 0:
-            val_reward = validate_policy(env, policy, num_episodes=val_data_size//batch_size)
+            val_reward = validate_policy(env, policy, n_step=n_step, )
+            log["val_reward"] = val_reward
             val_rewards.append(val_reward)
-
             if early_stopping(val_rewards, patience):
                 print(f"Early stopping at epoch {step} due to {patience} consecutive decreases in validation reward.")
                 break
+
+        # Update wandb and scheduler
+        wandb.log(log)
+        actor_scheduler.step()
+        critic_scheduler.step()
 
     # Generate a timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -658,7 +660,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     env.close()
 
 ## Validation
-def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episodes: int = 10, device: str = "cuda"):
+def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episodes: int = 10, n_step: int = 100,):
     """
     Perform validation rollouts for a given policy in an environment.
 
@@ -672,43 +674,17 @@ def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episode
         float: The average reward over the validation episodes.
     """
     policy_module.eval()  # Set the policy to evaluation mode
-    total_rewards = []
 
+    # Perform a rollout to evaluate the policy
     with torch.no_grad():
-        for episode in range(num_episodes):
-            # Reset the environment and get the initial observation
-            tensordict = env.reset()
-            tensordict = tensordict.to(device)
-            done = False
-            episode_reward = 0
+        trajectory = env.rollout(policy=policy_module, max_steps=n_step, auto_reset=True)
 
-            while not done:
-                # Get action distribution from the policy and sample an action
-                action_dist = policy_module(tensordict)
-                action = action_dist.sample()
-                tensordict.set("action", action)
+    # Access rewards and calculate the average reward
+    rewards = trajectory["reward"]
+    total_reward = rewards.sum().item()
+    num_episodes = trajectory["done"].sum().item()
+    avg_reward = total_reward / num_episodes if num_episodes > 0 else 0
 
-                # Step the environment
-                next_tensordict = env.step(tensordict)
-
-                # Accumulate the reward
-                reward = next_tensordict["reward"]
-                episode_reward += reward.item()
-
-                # Update the current state for the next step
-                tensordict = next_tensordict
-
-                # Check if the episode is done
-                done = next_tensordict["done"].item()
-
-            total_rewards.append(episode_reward)
-            print(f"Episode {episode + 1}/{num_episodes}: Reward = {episode_reward}")
-
-    # Compute the average reward
-    avg_reward = sum(total_rewards) / num_episodes
-    print(f"\nAverage Reward over {num_episodes} Episodes: {avg_reward:.2f}")
-
-    policy_module.train()  # Set the policy back to training mode
     return avg_reward
 
 if __name__ == "__main__":
