@@ -108,8 +108,13 @@ class MasterPlanningEnv(EnvBase):
         self.stability_params_lhs = self._precompute_stability_parameters()
 
         # Constraints
-        self.constraint_signs = th.tensor([1, 1, -1, 1, -1], device=self.generator.device, dtype=self.float_type)
-        self.swap_signs_stability = th.tensor([1, -1, -1, -1, -1], device=self.generator.device, dtype=self.float_type)
+        # todo clean-up
+        ones_cons = th.ones(self.n_constraints, device=self.generator.device, dtype=self.float_type)
+        self.constraint_signs = ones_cons.clone()
+        indices_to_multiply = th.tensor([-3, -1], device=self.generator.device)
+        self.constraint_signs[indices_to_multiply] *= -1
+        self.swap_signs_stability = -ones_cons.clone() # swap signs for constraints
+        self.swap_signs_stability[0] *= -1 # only demand constraint is positive
         self.A = self._create_constraint_matrix(shape=(self.n_constraints, self.n_action, self.T, self.K))
 
     def _make_spec(self, td:TensorDict = None) -> None:
@@ -250,6 +255,9 @@ class MasterPlanningEnv(EnvBase):
         if not done.any():
             # Update feasibility: lhs_A, rhs, clip_max based on next state
             lhs_A = self.create_lhs_A(t,)
+            print("-----------------")
+            print("time", t[0])
+
             rhs = self.create_rhs(next_state_dict["utilization"], next_state_dict["current_demand"], batch_size)
 
             # Express residual capacity in teu
@@ -257,6 +265,7 @@ class MasterPlanningEnv(EnvBase):
                                          @ self.teus, min=self.zero) / self.capacity
         else:
             residual_capacity = th.zeros_like(td["state"]["residual_capacity"], dtype=self.float_type).view(*batch_size, self.B, self.D, )
+            breakpoint()
 
         # # Update action mask
         # # action_mask[t] = 0
@@ -716,14 +725,17 @@ class MasterPlanningEnv(EnvBase):
         self.n_stability = 4
         # self.n_cranes = self.B - 1
         self.n_action = self.B * self.D
-        self.n_constraints = self.n_demand + self.n_stability #+ self.n_cranes
+        self.n_locations = self.B * self.D
+        self.n_constraints = self.n_demand + self.n_locations + self.n_stability #+ self.n_cranes
 
     def _create_constraint_matrix(self, shape: Tuple[int, int, int, int], ):
         """Create constraint matrix A for compact constraints Au <= b"""
         # [1, LM-TW, TW-LM, VM-TW, TW-VM]
         A = th.ones(shape, device=self.generator.device, dtype=self.float_type)
+        diag = self.teus.view(1, 1, 1, -1) * th.eye(self.n_locations, device=self.generator.device, dtype=self.float_type).view(self.n_locations, self.B*self.D, 1, 1)
+        A[self.n_demand:self.n_locations + self.n_demand,] *= diag
         A *= self.constraint_signs.view(-1, 1, 1, 1)
-        A[self.n_demand:self.n_demand + self.n_stability] *= self.stability_params_lhs.view(self.n_stability, self.B*self.D, 1, self.K,)
+        A[self.n_locations + self.n_demand:self.n_locations + self.n_demand + self.n_stability] *= self.stability_params_lhs.view(self.n_stability, self.B*self.D, 1, self.K,)
         return A.view(self.n_constraints, self.B*self.D, -1)
 
     def create_lhs_A(self, t:Tensor) -> Tensor:
@@ -733,14 +745,22 @@ class MasterPlanningEnv(EnvBase):
         return lhs_A
 
     def create_rhs(self, utilization:Tensor, current_demand:Tensor, batch_size) -> Tensor:
-        """Create b_t based on current utilization and demand"""
-        # Get rhs = [current_demand, LM_ub, LM_lb, VM_ub, VM_lb]
-        # Stability constraints
-        A = self.swap_signs_stability.view(-1, 1, 1,) * self.A.clone()
-        # Note util is filled on k,tau derived from order_t, i.e., util and A are static!
+        """Create b_t based on current utilization:
+        - b_t = [current_demand, capacity, LM_ub, LM_lb, VM_ub, VM_lb]
+        - demand -> stepwise current demand [#]
+        - capacity -> residual capacity [TEUs]
+        - stability -> lower and upper bounds for LCG, VCG
+        """
+        # Perform matmul to get initial rhs, including:
+        # note: utilization, A, teus_episode have static shapes
+        A = self.swap_signs_stability.view(-1, 1, 1,) * self.A.clone() # Swap signs for constraints
         rhs = utilization.view(*batch_size, -1) @ A.view(self.n_constraints, -1).T
-        # Demand constraint
+
+        # Update rhs with current demand and add teu capacity to the rhs
         rhs[..., :self.n_demand] = current_demand.view(-1, 1)
+        rhs[..., self.n_demand:self.n_locations + self.n_demand] = \
+            torch.clamp(rhs[..., self.n_demand:self.n_locations + self.n_demand] + self.capacity.view(1, -1),
+                        min=0, max=self.capacity[0,0].item())
         return rhs
 
     # Precomputes
