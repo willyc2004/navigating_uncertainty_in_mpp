@@ -143,6 +143,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     train_data_size = kwargs["training"]["train_data_size"]
     val_data_size = kwargs["training"]["val_data_size"]
     validation_freq = kwargs["training"]["validation_freq"]
+    tau = 0.005 # soft-updates
 
     # Environment
     env = make_env(env_kwargs=kwargs["env"], batch_size=[batch_size], device=device)
@@ -183,6 +184,9 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
         # )
         critic1 = critic[0]
         critic2 = critic[1]
+        target_critic1 = copy.deepcopy(critic1).to(device)
+        target_critic2 = copy.deepcopy(critic2).to(device)
+
     elif kwargs["algorithm"]["type"] == "ddpg":
         # Create the DDPG loss module
         loss_module = DDPGLoss(
@@ -247,8 +251,8 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             # Critic loss calculation
             with torch.no_grad():
                 policy_out = policy(subdata)
-                target_q1 = critic1(policy_out["observation"], policy_out["next","action"])
-                target_q2 = critic2(policy_out["observation"], policy_out["next","action"])
+                target_q1 = target_critic1(policy_out["observation"], policy_out["next","action"])
+                target_q2 = target_critic2(policy_out["observation"], policy_out["next","action"])
                 target_q_min = torch.min(target_q1, target_q2) - entropy_lambda * policy_out["sample_log_prob"].unsqueeze(-1)
                 target_value = subdata["next","reward"] + (1 - subdata["done"].float()) * gamma * target_q_min
             current_q1 = critic1(policy_out["observation"], policy_out["next","action"])
@@ -258,7 +262,17 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             loss_out["loss_critic"] = F.mse_loss(current_q1, target_value) + F.mse_loss(current_q2, target_value)
             critic_optim.zero_grad()
             loss_out["loss_critic"].backward()
+            torch.nn.utils.clip_grad_norm_(critic1.parameters(), max_grad_norm)
+            torch.nn.utils.clip_grad_norm_(critic2.parameters(), max_grad_norm)
             critic_optim.step()
+
+            # Soft update target critics
+            for target_param, param in zip(target_critic1.parameters(), critic1.parameters()):
+                target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+
+            for target_param, param in zip(target_critic2.parameters(), critic2.parameters()):
+                target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+
 
             # Compute Actor Loss
             policy_out2 = policy(subdata)
@@ -276,6 +290,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             loss_out["loss_actor"] = (entropy_lambda * log_prob - q_min).mean() + loss_out["loss_feasibility"]
             actor_optim.zero_grad()
             loss_out["loss_actor"].backward()
+            torch.nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
             actor_optim.step()
 
         # Log metrics
