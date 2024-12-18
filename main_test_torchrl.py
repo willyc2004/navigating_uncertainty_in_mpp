@@ -538,6 +538,8 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             # Environment
             "total_revenue": subdata["state", "total_revenue"][...,-1].mean().item(),
             "total_cost": subdata["state", "total_cost"][...,-1].mean().item(),
+            "total_profit": subdata["state", "total_revenue"][...,-1].mean().item() -
+                            subdata["state", "total_cost"][...,-1].mean().item(),
             "total_loaded": subdata["state", "total_loaded"][...,-1].mean().item(),
             "total_demand":subdata['realized_demand'][:,0,:].sum(dim=-1).mean(),
             "total_e[x]_demand": td['init_expected_demand'][:, 0, :].sum(dim=-1).mean(),
