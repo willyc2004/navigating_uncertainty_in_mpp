@@ -224,18 +224,18 @@ def main(config: Optional[DotMap] = None):
                           customized=True).to(device),
             in_keys=["observation",],  # Input tensor key in TensorDict
             out_keys=["state_value"],  # ["state_action_value"]  # Output tensor key in TensorDict
-        )
+        ).apply(init_weights)
 
     # Get ProbabilisticActor (for stochastic policies)
     actor = TensorDictModule(
-        Actor(encoder, decoder).to(device),
+        Actor(encoder, decoder).to(device).apply(init_weights),
         in_keys=["observation",],  # Input tensor key in TensorDict
         out_keys=["loc","scale"]  # Output tensor key in TensorDict
     )
     policy = ProbabilisticActor(
         module=actor,
         in_keys=["loc", "scale"],
-        distribution_class=TanhNormal,
+        distribution_class=TruncatedNormal,
         distribution_kwargs={"low": 0.0, "high": 50.0},
         # distribution_kwargs={"low": 0.0,, "high": 50.0},
         # distribution_kwargs={"scale": 1.0},
@@ -450,16 +450,19 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             loss_out = {}
             # Critic loss calculation
             with torch.no_grad():
-                # Nex action
-                # print(policy)
+                # Next action
                 next_policy_out = policy(subdata)
                 next_action = next_policy_out["action"]
+                next_log_prob = next_policy_out["sample_log_prob"].unsqueeze(-1)
+                next_log_prob = torch.clamp(next_log_prob, -20, 2)  # Clip log_prob to avoid NaNs
+
+                # Target value
                 target_q1 = target_critic1(next_policy_out["observation"], next_action)
                 target_q2 = target_critic2(next_policy_out["observation"], next_action)
-                target_q_min = torch.min(target_q1, target_q2) - entropy_lambda * next_policy_out["sample_log_prob"].unsqueeze(-1)
+                target_q_min = torch.min(target_q1, target_q2) - entropy_lambda * next_log_prob
                 target_value = subdata["next", "reward"] + (1 - subdata["done"].float()) * gamma * target_q_min
 
-            # Current action
+            # Current value
             current_q1 = critic1(subdata["observation"], subdata["action"])
             current_q2 = critic2(subdata["observation"], subdata["action"])
 
@@ -474,7 +477,6 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             # Soft update target critics
             for target_param, param in zip(target_critic1.parameters(), critic1.parameters()):
                 target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
-
             for target_param, param in zip(target_critic2.parameters(), critic2.parameters()):
                 target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
@@ -482,6 +484,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             policy_out = policy(subdata)
             new_action = policy_out["action"]
             log_prob = policy_out["sample_log_prob"].unsqueeze(-1)
+            log_prob = torch.clamp(log_prob, -20, 2)  # Clip log_prob to avoid NaNs
 
             # Feasibility loss
             loss_out["loss_feasibility"], loss_out["violation"] = \
