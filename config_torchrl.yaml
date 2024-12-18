@@ -38,8 +38,8 @@ model:
   dropout_rate: 0.1
   normalization: "layer" # layer, batch
   out_bias_pointer_attn: False
-  temperature: 0.1
-  critic_temperature: 0.5
+  temperature: 1.0
+  critic_temperature: 1.0
   tanh_clipping: 0
   tanh_squashing: False
   train_decode_type: "continuous_sampling"
@@ -53,7 +53,7 @@ model:
 
 # PPO parameters
 algorithm:
-  type: "ddpg" # reinforce, ppo, ppo_feas
+  type: "sac" # reinforce, ppo, ppo_feas, ddpg, sac
   clip_range: 0.2
   ppo_epochs: 5 # 2, 3, 5, 7, 10
   mini_batch_size: 0.5
@@ -65,8 +65,8 @@ algorithm:
   gamma: 0.99
   gae_lambda: 0.99
   vf_lambda: 0.5
-  entropy_lambda: 0.1
-  feasibility_lambda: 0.05
+  entropy_lambda: 0.01
+  feasibility_lambda: 0.01
   demand_lambda: 1.0
   stability_lambda: 1.0
   projection_lambda: 0.01
@@ -75,7 +75,7 @@ algorithm:
 
 # AM PPO parameters
 training:
-  lr: 0.0003
+  lr: 0.00001
   projection_type: "linear_violation"
   #None, convex_program, worst_case_violation, linear_violation, linear_program
   projection_kwargs:
