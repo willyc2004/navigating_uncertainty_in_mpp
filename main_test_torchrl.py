@@ -618,9 +618,9 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
 
         # Validation step
         if (step + 1) % (train_updates * validation_freq) == 0:
-            val_reward = validate_policy(env, policy, n_step=n_step, )
-            log["val_reward"] = val_reward
-            val_rewards.append(val_reward)
+            val_out = validate_policy(env, policy, n_step=n_step, )
+            log.update(val_out)
+            val_rewards.append(val_out["val_reward"])
             if early_stopping(val_rewards, patience):
                 print(f"Early stopping at epoch {step} due to {patience} consecutive decreases in validation reward.")
                 break
@@ -679,13 +679,10 @@ def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episode
     with torch.no_grad():
         trajectory = env.rollout(policy=policy_module, max_steps=n_step, auto_reset=True)
 
-    # Access rewards and calculate the average reward
-    rewards = trajectory["reward"]
-    total_reward = rewards.sum().item()
-    num_episodes = trajectory["done"].sum().item()
-    avg_reward = total_reward / num_episodes if num_episodes > 0 else 0
-
-    return avg_reward
+    # Return the average reward over the validation episodes
+    avg_reward = trajectory["next", "reward"].sum(dim=(1,2)).mean().item()
+    avg_violation = trajectory["next", "state", "total_violation"].sum(dim=(1,2)).mean().item()
+    return {"val_reward": avg_reward, "val_violation": avg_violation}
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
