@@ -17,12 +17,13 @@ import random
 import numpy as np
 import torch
 from torch import nn
+from torch.nn import functional as F
 import wandb
 
 # TorchRL
 from torchrl.envs import EnvBase
 from torchrl.envs.utils import check_env_specs
-from torchrl.modules import ProbabilisticActor, IndependentNormal, TruncatedNormal
+from torchrl.modules import ProbabilisticActor, IndependentNormal, TruncatedNormal, ValueOperator
 from torchrl.objectives.sac import SACLoss
 from torchrl.objectives.ddpg import DDPGLoss
 from torchrl.objectives.ppo import ClipPPOLoss
@@ -176,11 +177,12 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
         )
     elif kwargs["algorithm"]["type"] == "sac":
         # Create the SAC loss module
-        loss_module = SACLoss(
-            actor_network=policy,
-            value_network=critic[0],
-            qvalue_network=critic[1],
-        )
+        # loss_module = SACLoss(
+        #     actor_network=policy,
+        #     qvalue_network=critic,  # List of two Q-networks
+        # )
+        critic1 = critic[0]
+        critic2 = critic[1]
     elif kwargs["algorithm"]["type"] == "ddpg":
         # Create the DDPG loss module
         loss_module = DDPGLoss(
@@ -221,7 +223,10 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
 
     # Optimizer and scheduler
     actor_optim = torch.optim.Adam(policy.parameters(), lr=lr)
-    critic_optim = torch.optim.Adam(critic.parameters(), lr=lr)
+    if kwargs["algorithm"]["type"] == "sac":
+        critic_optim = torch.optim.Adam(list(critic1.parameters()) + list(critic2.parameters()), lr=lr)
+    else:
+        critic_optim = torch.optim.Adam(critic.parameters(), lr=lr)
     train_updates = train_data_size // (batch_size * n_step)
     pbar = tqdm.tqdm(range(train_updates))
     # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, train_data_size)
@@ -236,26 +241,42 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             # Sample mini-batch (including actions, n-step returns, old log likelihoods, target_values)
             subdata = replay_buffer.sample(mini_batch_size).to(device)
 
-            # Loss
-            loss_out = loss_module(subdata)
 
-            # Update critics
+            ## Loss optimization
+            loss_out = {}
+            # Critic loss calculation
+            with torch.no_grad():
+                policy_out = policy(subdata)
+                target_q1 = critic1(policy_out["observation"], policy_out["next","action"])
+                target_q2 = critic2(policy_out["observation"], policy_out["next","action"])
+                target_q_min = torch.min(target_q1, target_q2) - entropy_lambda * policy_out["sample_log_prob"].unsqueeze(-1)
+                target_value = subdata["next","reward"] + (1 - subdata["done"].float()) * gamma * target_q_min
+            current_q1 = critic1(policy_out["observation"], policy_out["next","action"])
+            current_q2 = critic2(policy_out["observation"], policy_out["next","action"])
+
+            # Update critic
+            loss_out["loss_critic"] = F.mse_loss(current_q1, target_value) + F.mse_loss(current_q2, target_value)
             critic_optim.zero_grad()
-            loss_out["loss_value"].backward()
+            loss_out["loss_critic"].backward()
             critic_optim.step()
 
+            # Compute Actor Loss
+            policy_out2 = policy(subdata)
+            new_action = torch.clamp(policy_out2["action"], min=0)
+            log_prob = policy_out["sample_log_prob"].unsqueeze(-1)
+
             # Feasibility loss
-            action = policy.get_dist(subdata).rsample()
             loss_out["loss_feasibility"], loss_out["violation"] = \
-                compute_loss_feasibility(subdata, action, feasibility_lambda, "sum")
-            actor_loss = loss_out["loss_actor"] + loss_out["loss_feasibility"]
+                compute_loss_feasibility(subdata, new_action, feasibility_lambda, "sum")
+            q1 = critic1(policy_out["observation"], new_action)
+            q2 = critic2(policy_out["observation"], new_action)
+            q_min = torch.min(q1, q2)
 
             # Update actor
+            loss_out["loss_actor"] = (entropy_lambda * log_prob - q_min).mean() + loss_out["loss_feasibility"]
             actor_optim.zero_grad()
-            # gn = torch.nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
-            actor_loss.backward()
+            loss_out["loss_actor"].backward()
             actor_optim.step()
-
 
         # Log metrics
         pbar.update(1)
@@ -265,7 +286,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             # Losses
             # "loss": loss.item(),
             "loss_actor": loss_out["loss_actor"],
-            "loss_critic": loss_out["loss_value"],
+            "loss_critic":  loss_out["loss_critic"],
             "loss_feasibility":loss_out["loss_feasibility"],
             # "loss_entropy": loss_out["loss_entropy"],
             # Return, gradient norm and loss support
@@ -457,15 +478,32 @@ def main(config: Optional[DotMap] = None):
         decoder = MLPDecoderWithCache(**decoder_args)
     else:
         raise ValueError(f"Decoder type {config.model.decoder_type} not recognized.")
-    critic = CriticNetwork(encoder, embed_dim=embed_dim, hidden_dim=hidden_dim, num_layers=decoder_layers,
-                           context_embedding=context_embed, normalization=config.model.normalization,
-                           dropout_rate=dropout_rate, temperature=config.model.critic_temperature,
-                           customized=True).to(device)
-    actor = Actor(encoder, decoder).to(device)
+    if config.algorithm.type == "sac":
+        # Define two Q-networks for the critics
+        critic1 = ValueOperator(
+            CriticNetwork(encoder, embed_dim=embed_dim, hidden_dim=hidden_dim, num_layers=decoder_layers,
+                          context_embedding=context_embed, normalization=config.model.normalization,
+                          dropout_rate=dropout_rate, temperature=config.model.critic_temperature, customized=True,
+                          use_q_value=True, action_dim=action_dim).to(device),
+            in_keys=["observation", "action"],  # Input tensor key in TensorDict
+            out_keys=["state_action_value"],
+        )
+        critic2 = copy.deepcopy(critic1)  # Second critic network
+        critic = [critic1, critic2]
+    else:
+        # Get critic
+        critic = TensorDictModule(
+            CriticNetwork(encoder, embed_dim=embed_dim, hidden_dim=hidden_dim, num_layers=decoder_layers,
+                          context_embedding=context_embed, normalization=config.model.normalization,
+                          dropout_rate=dropout_rate, temperature=config.model.critic_temperature,
+                          customized=True).to(device),
+            in_keys=["observation",],  # Input tensor key in TensorDict
+            out_keys=["state_value"],  # ["state_action_value"]  # Output tensor key in TensorDict
+        )
 
     # Get ProbabilisticActor (for stochastic policies)
     actor = TensorDictModule(
-        actor,
+        Actor(encoder, decoder).to(device),
         in_keys=["observation",],  # Input tensor key in TensorDict
         out_keys=["loc","scale"]  # Output tensor key in TensorDict
     )
@@ -477,42 +515,6 @@ def main(config: Optional[DotMap] = None):
         # distribution_kwargs={"scale": 1.0},
         return_log_prob=True,
     )
-    # Get critic
-    critic = TensorDictModule(
-        critic,
-        in_keys=["observation", "action"],  # Input tensor key in TensorDict
-        out_keys=["state_action_value"], #["state_action_value"]  # Output tensor key in TensorDict
-    )
-    # AM Model initialization
-    model_params = {
-        "decoder": decoder,
-        "encoder": encoder,
-        "init_embedding": init_embed,
-        "context_embedding": context_embed,
-        "dynamic_embedding": dynamic_embed,
-        "projection_type": config.am_ppo.projection_type,
-        "projection_kwargs": config.am_ppo.projection_kwargs,
-        "select_obs_td":["obs", "done", "timestep", "action_mask", "lhs_A", "rhs", "clip_min", "clip_max",
-                              "reward",
-                              ("state", "utilization"), ("state", "target_long_crane"), ("state", "total_loaded"),
-                              ("state", "total_revenue"), ("state", "total_cost"), ("state", "total_rc"),
-                              "realized_demand",
-                              ],
-        **config.model
-    }
-    am_ppo_params = {
-        "env": env,
-        "policy":policy,
-        "critic": critic,
-        # "critic_kwargs": {"embed_dim": embed_dim, "hidden_dim": hidden_dim, "customized": False},
-        # "projection_kwargs": projection_kwargs,
-        "decoder_type": config.model.decoder_type,
-        "batch_size": config.model.batch_size,
-        "env_kwargs": env_kwargs,
-        "model_kwargs": model_params,
-        **config.ppo,
-        **config.am_ppo,
-    }
 
     ## Main loop
     # Train the model
