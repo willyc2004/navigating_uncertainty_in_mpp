@@ -222,7 +222,6 @@ class MLPDecoderWithCache(nn.Module):
         mean = self.mean_head(hidden)
         mean = mean/self.temperature
         std = F.softplus(self.std_head(hidden))
-        # std = torch.clamp(std, 1e-6, 1.0)
         # todo: add mask
         return mean, std
 
