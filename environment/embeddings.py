@@ -52,11 +52,11 @@ class MPPContextEmbedding(nn.Module):
     - Embeds the state of the MPP for the context
     """
 
-    def __init__(self, action_dim, embed_dim, env, demand_aggregation="full",):
+    def __init__(self, obs_dim, embed_dim, env, demand_aggregation="full",):
         super(MPPContextEmbedding, self).__init__()
         self.env = env
         self.seq_size = self.env.T * self.env.K
-        self.project_context = nn.Linear(415, embed_dim,) # 286, 217, 20, 142, embed_dim +
+        self.project_context = nn.Linear(embed_dim + obs_dim, embed_dim,) # embed_dim +
 
         # todo: give options for different demand aggregation methods; e.g. sum, self-attention
         self.demand_aggregation = demand_aggregation
