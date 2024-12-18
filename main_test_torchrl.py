@@ -254,8 +254,8 @@ def main(config: Optional[DotMap] = None):
     policy = ProjectionProbabilisticActor(
         module=actor,
         in_keys=["loc", "scale"],
-        distribution_class=TruncatedNormal,
-        distribution_kwargs={"low": 0.0, "high": 50.0},
+        distribution_class=TanhNormal,
+        distribution_kwargs={"low": env.action_spec.low, "high": env.action_spec.high},
         return_log_prob=True,
         projection_layer=projection_layer,
     )

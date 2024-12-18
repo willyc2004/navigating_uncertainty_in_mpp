@@ -178,7 +178,7 @@ class MasterPlanningEnv(EnvBase):
         self.action_spec = Bounded(
             shape=(*batch_size, self.B*self.D),  # Define shape as needed
             low=0.0,
-            high=10.0,  # Define high value as needed
+            high=50.0,  # Define high value as needed
             dtype=self.float_type,
         )
         self.reward_spec = Unbounded(shape=(*batch_size,1,))
