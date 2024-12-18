@@ -264,86 +264,10 @@ def main(config: Optional[DotMap] = None):
         train(policy, critic, **config)
     # Test the model
     elif config.model.phase == "test":
+            # todo: extract trained hyper-parameters
+            # todo: check if two models can be re-loaded
+            # todo: use validation function, add visualizations per episode
         raise NotImplementedError("Testing not implemented yet.")
-    #     datestamp = "20241214_065732"
-    #     checkpoint_path = f"./saved_models"
-    #     pth_name = f"/trained_model_{datestamp}.pth"
-    #     pth = torch.load(checkpoint_path + pth_name,)
-    #     model.load_state_dict(pth, strict=True)
-    #     # todo: extract trained hyper-parameters
-    #     # todo: check if two models can be re-loaded
-    #
-    #     # Wrap in a TensorDictModule
-    #     test_td_module = TensorDictModule(
-    #         model,
-    #         in_keys=["observation", ],  # Input tensor key in TensorDict
-    #         out_keys=["loc"]  # Output tensor key in TensorDict
-    #     )
-    #
-    #     # ProbabilisticActor (for stochastic policies)
-    #     test_policy = ProbabilisticActor(
-    #         module=test_td_module,
-    #         in_keys=["loc", ],
-    #         distribution_class=IndependentNormal,
-    #         distribution_kwargs={"scale": 1.0}
-    #     )
-    #
-    #
-    #     # Initialize policy
-    #     env_kwargs["float_type"] = torch.float32
-    #     test_env = make_env(env_kwargs)  # Re-initialize the environment
-    #
-    #     # Run multiple iterations to measure inference time
-    #     num_runs = 5
-    #     outs = []
-    #     returns = []
-    #     times = []
-    #     revenues = []
-    #     costs = []
-    #     violations = []
-    #
-    #     init_td = test_env.generator(batch_size).clone()
-    #     for i in range(num_runs):
-    #         # Set a new seed for each run
-    #         print(f"Run {i + 1}/{num_runs}")
-    #         seed = i
-    #         torch.manual_seed(seed)
-    #
-    #         # Sync GPU before starting timer if using CUDA
-    #         if torch.cuda.is_available():
-    #             torch.cuda.synchronize()
-    #         start_time = time.perf_counter()
-    #
-    #         # Run inference
-    #         td = test_env.reset(test_env.generator(batch_size=batch_size, td=init_td), )
-    #         rollout = test_env.rollout(env.K*env.T, test_policy, tensordict=td, auto_reset=True)
-    #         # todo: add rollout_results to outs
-    #
-    #         # Sync GPU again after inference if using CUDA
-    #         if torch.cuda.is_available():
-    #             torch.cuda.synchronize()
-    #         end_time = time.perf_counter()
-    #
-    #         # Calculate and record inference time for each run
-    #         returns.append(rollout["next", "reward"].mean())
-    #         times.append(end_time - start_time)
-    #         revenues.append(rollout[..., -1]["next", "state", "total_revenue"].mean())
-    #         costs.append(rollout[..., -1]["next", "state", "total_cost"].mean())
-    #         violations.append(rollout[..., -1]["next", "state", "total_violation"].sum(dim=(-1, -2)).mean())
-    #     returns = torch.tensor(returns)
-    #     times = torch.tensor(times)
-    #     revenues = torch.tensor(revenues)
-    #     costs = torch.tensor(costs)
-    #     violations = torch.tensor(violations)
-    #     print("-"*50)
-    #     print(f"Mean return: {returns.mean():.4f}")
-    #     print(f"Mean inference time: {times.mean():.4f} seconds")
-    #     print(f"Mean revenue: {revenues.mean():.4f}")
-    #     print(f"Mean cost: {costs.mean():.4f}")
-    #     print(f"Mean violation: {violations.mean():.4f}")
-    #
-    #     # rollout_results(test_env, outs, td, batch_size, checkpoint_path,
-    #     #                 am_ppo_params["projection_type"], config["env"]["utilization_rate_initial_demand"], times)
 
 def optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwargs):
     ## Hyperparameters
@@ -661,18 +585,6 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
 
 ## Validation
 def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episodes: int = 10, n_step: int = 100,):
-    """
-    Perform validation rollouts for a given policy in an environment.
-
-    Args:
-        env (EnvBase): The environment for validation.
-        policy_module (ProbabilisticActor): The trained policy module.
-        num_episodes (int): Number of episodes to run for validation.
-        device (str): Device to run the policy ('cpu' or 'cuda').
-
-    Returns:
-        float: The average reward over the validation episodes.
-    """
     policy_module.eval()  # Set the policy to evaluation mode
 
     # Perform a rollout to evaluate the policy
