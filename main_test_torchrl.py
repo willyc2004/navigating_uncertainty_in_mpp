@@ -137,8 +137,6 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         self.projection_layer = projection_layer
         if action_rescale_min is not None and action_rescale_max is not None:
             self.rescale_action = lambda x: (x - action_rescale_min) / (action_rescale_max - action_rescale_min)
-            print(f"Rescaling action to ({action_rescale_min}, {action_rescale_max})")
-            breakpoint()
 
     def forward(self, *args, **kwargs):
         out = super().forward(*args, **kwargs)
