@@ -22,7 +22,7 @@ env:
   utilization_rate_initial_demand: 1.1
   spot_percentage: 0.3
   iid_demand: True
-  cv_demand: 0.5
+  cv_demand: 0.3
   demand_uncertainty: True
 
 # Model settings
@@ -77,7 +77,7 @@ algorithm:
 # AM PPO parameters
 training:
   lr: 0.0001
-  projection_type: "linear_violation"
+  projection_type: None #"linear_violation"
   #None, convex_program, worst_case_violation, linear_violation, linear_program
   projection_kwargs:
     iters: 5
