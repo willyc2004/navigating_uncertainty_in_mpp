@@ -257,11 +257,13 @@ def main(config: Optional[DotMap] = None):
         projection_layer = ProjectionFactory.create_class(config.training.projection_type, config.training.projection_kwargs)
     else:
         projection_layer = None
+    # todo: TruncatedNormal not working well
     policy = ProjectionProbabilisticActor(
         module=actor,
         in_keys=["loc", "scale"],
-        distribution_class=TanhNormal,
-        # distribution_kwargs={"low": -1, "high": 1},
+        distribution_class=TanhNormal if config.model.tanh_squashing else TruncatedNormal,
+        distribution_kwargs={} if config.model.tanh_squashing
+        else {"low": env.action_spec.low[0], "high": env.action_spec.high[0]},
         return_log_prob=True,
         projection_layer=projection_layer,
         action_rescale_min=env.action_spec.low[0],
