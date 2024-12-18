@@ -23,7 +23,7 @@ import wandb
 # TorchRL
 from torchrl.envs import EnvBase
 from torchrl.envs.utils import check_env_specs
-from torchrl.modules import ProbabilisticActor, IndependentNormal, TruncatedNormal, ValueOperator
+from torchrl.modules import ProbabilisticActor, IndependentNormal, TruncatedNormal, ValueOperator, TanhNormal
 from torchrl.objectives.sac import SACLoss
 from torchrl.objectives.ddpg import DDPGLoss
 from torchrl.objectives.ppo import ClipPPOLoss
@@ -235,8 +235,9 @@ def main(config: Optional[DotMap] = None):
     policy = ProbabilisticActor(
         module=actor,
         in_keys=["loc", "scale"],
-        distribution_class=TruncatedNormal,
-        distribution_kwargs={"low": 0.0, "high": 50.0},
+        distribution_class=TanhNormal,
+        distribution_kwargs={"min": 0.0, "max": 50.0},
+        # distribution_kwargs={"low": 0.0,, "high": 50.0},
         # distribution_kwargs={"scale": 1.0},
         return_log_prob=True,
     )
@@ -452,7 +453,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
                 # Nex action
                 # print(policy)
                 next_policy_out = policy(subdata)
-                next_action = torch.clamp(next_policy_out["action"], min=next_policy_out["clip_min"])  # , max=subdata["clip_max"])
+                next_action = next_policy_out["action"]
                 target_q1 = target_critic1(next_policy_out["observation"], next_action)
                 target_q2 = target_critic2(next_policy_out["observation"], next_action)
                 target_q_min = torch.min(target_q1, target_q2) - entropy_lambda * next_policy_out["sample_log_prob"].unsqueeze(-1)
@@ -481,8 +482,6 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             policy_out = policy(subdata)
             new_action = policy_out["action"]
             log_prob = policy_out["sample_log_prob"].unsqueeze(-1)
-            print(new_action.mean())
-            print(subdata["action"].mean())
 
             # Feasibility loss
             loss_out["loss_feasibility"], loss_out["violation"] = \
