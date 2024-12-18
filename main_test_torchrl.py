@@ -122,7 +122,7 @@ class Actor(nn.Module):
         dec_out = self.decoder(obs, hidden)
         return dec_out
 
-class CustomProbabilisticActor(ProbabilisticActor):
+class ProjectionProbabilisticActor(ProbabilisticActor):
     def __init__(self,
                  module: TensorDictModule,
                  in_keys: Union[NestedKey, Sequence[NestedKey]],
@@ -249,7 +249,7 @@ def main(config: Optional[DotMap] = None):
         projection_layer = ProjectionFactory.create_class(config.training.projection_type, config.training.projection_kwargs)
     else:
         projection_layer = None
-    policy = CustomProbabilisticActor(
+    policy = ProjectionProbabilisticActor(
         module=actor,
         in_keys=["loc", "scale"],
         distribution_class=TruncatedNormal,
@@ -337,32 +337,6 @@ def optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwa
     torch.nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
     actor_optim.step()
     return loss_out, policy_out
-
-## Early stopping
-def early_stopping(val_rewards, patience=2):
-    """
-    Check for early stopping based on consecutive decreases in validation rewards.
-
-    Args:
-        val_rewards (list): A list of validation rewards.
-        patience (int): Number of consecutive decreases allowed before triggering early stopping.
-
-    Returns:
-        bool: True if early stopping condition is met, otherwise False.
-    """
-    # Track the number of consecutive decreases
-    decrease_count = 0
-
-    for i in range(1, len(val_rewards)):
-        if val_rewards[i] < val_rewards[i - 1]:
-            decrease_count += 1
-            if decrease_count >= patience:
-                return True
-        else:
-            decrease_count = 0  # Reset if the reward improves or stays the same
-
-    return False
-
 
 ## Training
 def train(policy, critic, device=torch.device("cuda"), **kwargs):
@@ -483,12 +457,12 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
         for _ in range(batch_size // mini_batch_size):
             # Sample mini-batch (including actions, n-step returns, old log likelihoods, target_values)
             subdata = replay_buffer.sample(mini_batch_size).to(device)
+            # Loss computation and backpropagation
             if kwargs["algorithm"]["type"] == "sac":
-                # Optimize sac loss
                 loss_out, policy_out = optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwargs)
-
-            # elif kwargs["algorithm"]["type"] == "ppo":
-            #     for _ in range(num_epochs):
+            elif kwargs["algorithm"]["type"] == "ppo":
+                raise NotImplementedError("PPO not implemented yet.")
+                # for _ in range(num_epochs):
 
         # Log metrics
         pbar.update(1)
@@ -554,6 +528,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
         actor_scheduler.step()
         critic_scheduler.step()
 
+    # todo: cleanup model saving
     # Generate a timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -595,6 +570,31 @@ def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episode
     avg_reward = trajectory["next", "reward"].sum(dim=(1,2)).mean().item()
     avg_violation = trajectory["next", "state", "total_violation"].sum(dim=(1,2)).mean().item()
     return {"val_reward": avg_reward, "val_violation": avg_violation}
+
+## Early stopping
+def early_stopping(val_rewards, patience=2):
+    """
+    Check for early stopping based on consecutive decreases in validation rewards.
+
+    Args:
+        val_rewards (list): A list of validation rewards.
+        patience (int): Number of consecutive decreases allowed before triggering early stopping.
+
+    Returns:
+        bool: True if early stopping condition is met, otherwise False.
+    """
+    # Track the number of consecutive decreases
+    decrease_count = 0
+
+    for i in range(1, len(val_rewards)):
+        if val_rewards[i] < val_rewards[i - 1]:
+            decrease_count += 1
+            if decrease_count >= patience:
+                return True
+        else:
+            decrease_count = 0  # Reset if the reward improves or stays the same
+
+    return False
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
