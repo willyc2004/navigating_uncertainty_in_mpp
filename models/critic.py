@@ -1,6 +1,7 @@
 import copy
 from typing import Optional, Union
 from tensordict import TensorDict
+import torch
 from torch import Tensor, nn
 from rl4co.utils.pylogger import get_pylogger
 log = get_pylogger(__name__)
@@ -22,6 +23,8 @@ class CriticNetwork(nn.Module):
             dropout_rate: Optional[float] = None,
             temperature: float = 1.0,
             customized: bool = False,
+            use_q_value: Optional[nn.Module] = True,
+            action_dim: Optional[nn.Module] = None,
     ):
         super(CriticNetwork, self).__init__()
 
@@ -29,6 +32,9 @@ class CriticNetwork(nn.Module):
         self.context_embedding = context_embedding  # Store context_embedding
         self.temperature = temperature
         self.customized = customized
+
+        if use_q_value:
+            self.state_action_layer = nn.Linear(embed_dim+action_dim, embed_dim)
 
         if value_head is None:
             # Adjust embed_dim if encoder has a different dimension
@@ -59,7 +65,7 @@ class CriticNetwork(nn.Module):
 
         self.value_head = value_head
 
-    def forward(self, x: Union[Tensor, TensorDict], hidden=None) -> Tensor:
+    def forward(self, obs: Union[Tensor, TensorDict], action:Optional=None, hidden=None) -> Tensor:
         """Forward pass of the critic network: encode the imput in embedding space and return the value
 
         Args:
@@ -68,8 +74,12 @@ class CriticNetwork(nn.Module):
         Returns:
             Value of the input state
         """
-        latent, _ = self.encoder(x)  # [batch_size, N, embed_dim] -> [batch_size, N]
-        hidden = self.context_embedding(x, latent)  # Apply context embedding
+        latent, _ = self.encoder(obs)  # [batch_size, N, embed_dim] -> [batch_size, N]
+        hid = self.context_embedding(obs, latent)  # Apply context embedding
+        if action is not None:
+            hidden = self.state_action_layer(torch.cat([hid, action], dim=-1))
+        else:
+            hidden = hid
         if not self.customized:  # for for most of costructive tasks
             output = self.value_head(hidden).sum(dim=1, keepdims=True)  # [batch_size, N] -> [batch_size, 1]
         else:  # customized encoder and value head with hidden input
