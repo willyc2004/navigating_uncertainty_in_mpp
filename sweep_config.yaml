@@ -23,13 +23,15 @@ parameters:
     max: 0.001
   feasibility_lambda:
     min: 0.01
-    max: 0.2
+    max: 1.0
   entropy_lambda:
-    min: 0.1
+    min: 0.01
     max: 1.0
   normalization:
     values: ["batch", "layer"]
   normalize_adv:
     values: [False, True]
   normalize_return:
+    values: [False, True]
+  tanh_squashing:
     values: [False, True]

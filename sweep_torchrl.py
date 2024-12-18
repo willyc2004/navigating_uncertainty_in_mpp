@@ -29,6 +29,7 @@ if __name__ == "__main__":
             config['model']['num_heads'] = sweep_config.num_heads
             config['model']['batch_size'] = sweep_config.batch_size
             config['model']['normalization'] = sweep_config.normalization
+            config['model']['tanh_squashing'] = sweep_config.tanh_squashing
             # config['model']['embed_dim'] = sweep_config.embed_dim
             # config['model']['dropout_rate'] = sweep_config.dropout_rate
             # config['model']['lr_end_factor'] = sweep_config.lr_end_factor
