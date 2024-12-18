@@ -194,8 +194,14 @@ class MasterPlanningEnv(EnvBase):
             demand_state, total_metrics = self._extract_from_state(td["state"], batch_size)
 
         ## Current state
-        # Action clipping
-        action = action.clamp(min=td["clip_min"].view(*batch_size, self.B, self.D), max=td["clip_max"].view(*batch_size, self.B, self.D))
+        # # Action clipping
+        # print("-----------------")
+        # print("env action", action.mean())
+        # # print("clip_min", td["clip_min"].mean())
+        # # print("clip_max", td["clip_max"].mean())
+        # action = action.clamp(min=td["clip_min"].view(*batch_size, self.B, self.D))
+        #                       #max=td["clip_max"].view(*batch_size, self.B, self.D))
+        # print("env action", action.mean())
 
         # Check done, update utilization, and compute violation
         done = self._check_done(t)
