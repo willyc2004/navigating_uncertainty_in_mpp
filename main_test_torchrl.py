@@ -522,6 +522,8 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             # "loss_entropy": loss_out["loss_entropy"],
             # Return, gradient norm and loss support
             "return": subdata['next', 'reward'].mean().item(),
+            "policy[loc]": policy_out["loc"].mean().item(),
+            "policy[scale]": policy_out["scale"].mean().item(),
             # "grad_norm": gn.item(),
             # "clip_fraction": loss_out["clip_fraction"],
             # todo: add kl_approx, ratio, advantage
