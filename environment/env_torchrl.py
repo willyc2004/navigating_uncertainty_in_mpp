@@ -120,7 +120,7 @@ class MasterPlanningEnv(EnvBase):
     def _make_spec(self, td:TensorDict = None) -> None:
         """Define the specs for observations, actions, rewards, and done flags."""
         batch_size = td.batch_size
-        observation_spec = Unbounded(shape=(*batch_size,287), dtype=self.float_type)
+        observation_spec = Unbounded(shape=(*batch_size,91), dtype=self.float_type) # 287
         state_spec = Composite(
             utilization=Unbounded(shape=(*batch_size,self.B*self.D*self.T*self.K), dtype=self.float_type),
             target_long_crane=Unbounded(shape=(*batch_size,1), dtype=self.float_type),
@@ -136,6 +136,7 @@ class MasterPlanningEnv(EnvBase):
             std_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
             residual_capacity=Unbounded(shape=(*batch_size, self.B * self.D),
                                                             dtype=self.float_type),
+            location_weight=Unbounded(shape=(*batch_size, self.B * self.D), dtype=self.float_type),
             residual_lc_capacity=Unbounded(shape=(*batch_size, self.B - 1), dtype=self.float_type),
             pol_location=Unbounded(shape=(*batch_size, self.B * self.D * self.P),
                                                        dtype=self.float_type),
@@ -200,13 +201,8 @@ class MasterPlanningEnv(EnvBase):
 
         ## Current state
         # # Action clipping
-        # print("-----------------")
-        # print("env action", action.mean())
-        # # print("clip_min", td["clip_min"].mean())
-        # # print("clip_max", td["clip_max"].mean())
         # action = action.clamp(min=td["clip_min"].view(*batch_size, self.B, self.D),
         #                       max=td["clip_max"].view(*batch_size, self.B, self.D))
-        # print("env action", action.mean())
 
         # Check done, update utilization, and compute violation
         done = self._check_done(t)
@@ -324,6 +320,7 @@ class MasterPlanningEnv(EnvBase):
                 "std_demand": next_state_dict["std_demand"].view(*batch_size, self.T * self.K),
                 # Vessel (in range [0, 1])
                 "residual_capacity": residual_capacity.view(*batch_size, self.B * self.D),
+                "location_weight": next_state_dict["location_weight"].view(*batch_size, self.B * self.D),
                 "residual_lc_capacity": next_state_dict["residual_lc_capacity"].view(*batch_size, self.B - 1),
                 "pol_location": pol_locations.view(*batch_size, self.B * self.D * self.P).to(self.float_type),
                 "pod_location": pod_locations.view(*batch_size, self.B * self.D * self.P).to(self.float_type),
@@ -422,6 +419,7 @@ class MasterPlanningEnv(EnvBase):
             "std_demand": td["std_demand"].view(*batch_size, self.T * self.K),
             # Vessel
             "residual_capacity": th.ones_like(residual_capacity).view(*batch_size, self.B * self.D),
+            "location_weight": th.zeros_like(residual_capacity).view(*batch_size, self.B * self.D),
             "residual_lc_capacity": residual_lc_capacity.view(*batch_size, self.B - 1),
             "pol_location": th.zeros_like(port_locations, dtype=self.float_type),
             "pod_location": th.zeros_like(port_locations, dtype=self.float_type),
@@ -520,11 +518,12 @@ class MasterPlanningEnv(EnvBase):
             t.view(*batch_size, 1),
             # Demand
             next_state_dict["current_demand"].view(*batch_size, 1),
-            next_state_dict["observed_demand"].view(*batch_size, self.T * self.K),
-            next_state_dict["expected_demand"].view(*batch_size, self.T * self.K),
-            next_state_dict["std_demand"].view(*batch_size, self.T * self.K),
+            # next_state_dict["observed_demand"].view(*batch_size, self.T * self.K),
+            # next_state_dict["expected_demand"].view(*batch_size, self.T * self.K),
+            # next_state_dict["std_demand"].view(*batch_size, self.T * self.K),
             # Vessel
             residual_capacity.view(*batch_size, self.B * self.D),
+            next_state_dict["location_weight"].view(*batch_size, self.B * self.D),
             next_state_dict["residual_lc_capacity"].view(*batch_size, self.B - 1),
             agg_pol_location.view(*batch_size, self.B * self.D),
             agg_pod_location.view(*batch_size, self.B * self.D),
