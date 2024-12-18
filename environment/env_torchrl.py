@@ -231,8 +231,8 @@ class MasterPlanningEnv(EnvBase):
         total_metrics["total_loaded"] += sum_action
 
         ## Reward
-        revenue = th.clamp(sum_action, min=th.zeros_like(sum_action), max=demand_state["current_demand"]) * self.revenues[t[0]]
-        # revenue = sum_action * self.revenues[t[0]]
+        # revenue = th.clamp(sum_action, min=th.zeros_like(sum_action), max=demand_state["current_demand"]) * self.revenues[t[0]]
+        revenue = sum_action * self.revenues[t[0]]
         profit = revenue.clone()
         if self.next_port_mask[t].any():
             # Compute aggregated: overstowage and long crane excess
