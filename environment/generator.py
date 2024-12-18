@@ -14,6 +14,9 @@ class MPP_Generator(Generator):
         # Input simulation
         self.device = th.device("cuda" if th.cuda.is_available() else "cpu")
         self.seed = kwargs.get("seed")
+        # Create a local generator with a fixed seed
+        self.generator = th.Generator(device=self.device)
+        self.generator.manual_seed(self.seed)
 
         # Input env
         self.P = kwargs.get("ports")  # Number of ports
@@ -118,12 +121,6 @@ class MPP_Generator(Generator):
         # Sample demand
         demand = th.clamp(dist.sample(), min=1)
 
-        # # Manually generate random numbers using the generator
-        # random_tensor = th.rand(e_x.shape, generator=self.rng, device=self.device)
-        # # Transform using the inverse CDF (ppf)
-        # demand = dist.icdf(random_tensor)
-        # demand = th.clamp(demand, min=1)
-
         # Observed demand: only transports of POL=0
         load_tr = get_load_transport(self.transport_idx, th.zeros((1,), device=self.device,))
         observed_demand = th.zeros_like(demand)
@@ -179,7 +176,8 @@ class MPP_Generator(Generator):
         - E[X] = Uniform sample * bound
         - V[X] = (E[X] * cv)^2"""
         # Sample uniformly from 0 to bound (inclusive) using torch.rand
-        expected = th.rand(*batch_size, self.T, self.K, dtype=bound.dtype, device=self.device,) * bound.unsqueeze(0)
+        expected = th.rand(*batch_size, self.T, self.K, dtype=bound.dtype, device=self.device,
+                           generator=self.generator) * bound.unsqueeze(0)
         variance = (expected * cv.view(1, 1, self.K,)) ** 2
         return th.where(expected < eps, eps, expected), variance
 
