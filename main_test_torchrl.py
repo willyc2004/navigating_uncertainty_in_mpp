@@ -58,15 +58,6 @@ def make_env(env_kwargs:DotMap, batch_size:Optional[list] = [], device: torch.de
     """Setup and transform the Pendulum environment."""
     return MasterPlanningEnv(batch_size=batch_size, **env_kwargs).to(device)  # Custom environment
 
-def init_weights(m):
-    if isinstance(m, torch.nn.Linear):
-        torch.nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')  # He initialization for ReLU
-    if isinstance(m, torch.nn.MultiheadAttention):
-        torch.nn.init.normal_(m.in_proj_weight, mean=0.0, std=0.01)  # Small normal init for attention weights
-    if isinstance(m, torch.nn.LayerNorm):
-        torch.nn.init.constant_(m.weight, 1.0)
-        torch.nn.init.constant_(m.bias, 0.0)
-
 def compute_surrogate_loss(ll, td, clip_epsilon, normalize_advantage=False) -> Dict:
     """Compute the surrogate loss for PPO."""
     # Unpack the tensors
@@ -224,11 +215,11 @@ def main(config: Optional[DotMap] = None):
                           customized=True).to(device),
             in_keys=["observation",],  # Input tensor key in TensorDict
             out_keys=["state_value"],  # ["state_action_value"]  # Output tensor key in TensorDict
-        ).apply(init_weights)
+        )
 
     # Get ProbabilisticActor (for stochastic policies)
     actor = TensorDictModule(
-        Actor(encoder, decoder).to(device).apply(init_weights),
+        Actor(encoder, decoder).to(device),
         in_keys=["observation",],  # Input tensor key in TensorDict
         out_keys=["loc","scale"]  # Output tensor key in TensorDict
     )
