@@ -246,6 +246,8 @@ def main(config: Optional[DotMap] = None):
         out_keys=["loc","scale"]  # Output tensor key in TensorDict
     )
     if config.training.projection_type in ["linear_violation", "linear_program", "convex_program"]:
+        config.training.projection_kwargs["n_action"] = action_dim
+        config.training.projection_kwargs["n_constraints"] = env.n_constraints
         projection_layer = ProjectionFactory.create_class(config.training.projection_type, config.training.projection_kwargs)
     else:
         projection_layer = None
