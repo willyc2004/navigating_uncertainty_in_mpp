@@ -120,7 +120,7 @@ class MasterPlanningEnv(EnvBase):
     def _make_spec(self, td:TensorDict = None) -> None:
         """Define the specs for observations, actions, rewards, and done flags."""
         batch_size = td.batch_size
-        observation_spec = Unbounded(shape=(*batch_size,91), dtype=self.float_type) # 287
+        observation_spec = Unbounded(shape=(*batch_size,307), dtype=self.float_type) # 287
         state_spec = Composite(
             utilization=Unbounded(shape=(*batch_size,self.B*self.D*self.T*self.K), dtype=self.float_type),
             target_long_crane=Unbounded(shape=(*batch_size,1), dtype=self.float_type),
@@ -518,9 +518,9 @@ class MasterPlanningEnv(EnvBase):
             t.view(*batch_size, 1),
             # Demand
             next_state_dict["current_demand"].view(*batch_size, 1),
-            # next_state_dict["observed_demand"].view(*batch_size, self.T * self.K),
-            # next_state_dict["expected_demand"].view(*batch_size, self.T * self.K),
-            # next_state_dict["std_demand"].view(*batch_size, self.T * self.K),
+            next_state_dict["observed_demand"].view(*batch_size, self.T * self.K),
+            next_state_dict["expected_demand"].view(*batch_size, self.T * self.K),
+            next_state_dict["std_demand"].view(*batch_size, self.T * self.K),
             # Vessel
             residual_capacity.view(*batch_size, self.B * self.D),
             next_state_dict["location_weight"].view(*batch_size, self.B * self.D),
