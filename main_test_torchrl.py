@@ -130,12 +130,20 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
                  *,
                  spec: Optional[TensorSpec] = None,
                  projection_layer: Optional[nn.Module] = None,
+                 action_rescale_min: Optional[float] = None,
+                 action_rescale_max: Optional[float] = None,
                  **kwargs):
         super().__init__(module, in_keys, out_keys, spec=spec, **kwargs)
         self.projection_layer = projection_layer
+        if action_rescale_min is not None and action_rescale_max is not None:
+            self.rescale_action = lambda x: (x - action_rescale_min) / (action_rescale_max - action_rescale_min)
+            print(f"Rescaling action to ({action_rescale_min}, {action_rescale_max})")
+            breakpoint()
 
     def forward(self, *args, **kwargs):
         out = super().forward(*args, **kwargs)
+        if self.rescale_action is not None:
+            out["action"] = self.rescale_action((out["action"] + 1)/2)  # Rescale (-1,1) to (0,1), then to (min, max)
         if self.projection_layer is not None:
             action = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
             out["action"] = action
@@ -255,9 +263,11 @@ def main(config: Optional[DotMap] = None):
         module=actor,
         in_keys=["loc", "scale"],
         distribution_class=TanhNormal,
-        distribution_kwargs={"low": env.action_spec.low, "high": env.action_spec.high},
+        # distribution_kwargs={"low": -1, "high": 1},
         return_log_prob=True,
         projection_layer=projection_layer,
+        action_rescale_min=env.action_spec.low[0],
+        action_rescale_max=env.action_spec.high[0],
     )
 
     ## Main loop
