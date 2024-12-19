@@ -73,7 +73,7 @@ algorithm:
   stability_lambda: 1.0
   projection_lambda: 0.01
   adaptive_feasibility_lambda: False
-  n_step: 72
+  n_step: 3 #72
 
 # AM PPO parameters
 training:
