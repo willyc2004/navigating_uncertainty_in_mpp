@@ -34,7 +34,7 @@ class PortMasterPlanningEnv(MasterPlanningEnv):
         self.constraint_signs[indices_to_multiply] *= -1
         self.swap_signs_stability = -ones_cons.clone() # swap signs for constraints
         self.swap_signs_stability[0] *= -1 # only demand constraint is positive
-        self.A = self._create_constraint_matrix(shape=(self.n_constraints, self.n_action, self.T, self.K))
+        # self.A = self._create_constraint_matrix(shape=(self.n_constraints, self.n_action, self.T, self.K))
 
     def _make_spec(self, td:TensorDict = None) -> None:
         """Define the specs for observations, actions, rewards, and done flags."""
@@ -115,7 +115,8 @@ class PortMasterPlanningEnv(MasterPlanningEnv):
         # Extraction
         batch_size = td.batch_size
         action, t = self._extract_from_td(td, batch_size)
-        load_idx, disc_idx, moves_idx = self._precompute_for_step(t[0])
+        load_idx, disc_idx, moves_idx = self._precompute_for_step(t[0]) # todo: inherited!
+        ac_transport = self.remain_on_board_transport[t[0]]  # todo: inherited!
         utilization, demand_state = self._extract_from_state(td["state"], batch_size)
 
         # Check done, update utilization and long cranes
@@ -138,7 +139,7 @@ class PortMasterPlanningEnv(MasterPlanningEnv):
         revenue_matrix = (th.clamp(sum_action, min=th.zeros_like(sum_action),max=load_demand) * load_revenues)
         revenue = revenue_matrix.sum(dim=(-2,-1))
         # Costs
-        overstowage = self._compute_hatch_overstowage(utilization, t[0])
+        overstowage = compute_hatch_overstowage(utilization, moves_idx, ac_transport)
         excess_crane_moves = th.clamp(long_crane_moves - target_long_crane.view(-1, 1), min=0)
         ho_costs = overstowage.sum(dim=-1, keepdim=True) * self.ho_costs
         lc_costs = excess_crane_moves.sum(dim=-1, keepdim=True) * self.lc_costs
@@ -222,7 +223,7 @@ class PortMasterPlanningEnv(MasterPlanningEnv):
         # Initialize
         device = td.device
         t = th.zeros((1,) if batch_size == th.Size([]) else (*batch_size,), dtype=th.int64, device=device)
-        _, _, moves_idx = self._precompute_for_step(t[0])
+        _, _, moves_idx = self._precompute_for_step(t[0]) # todo: inherited!
         action_mask = th.ones(self.action_spec.shape, dtype=th.bool, device=device)
         utilization = th.zeros((*batch_size, self.B, self.D, self.T, self.K), device=device, dtype=self.float_type)
         target_long_crane = compute_target_long_crane(td["realized_demand"].view(*batch_size, self.T, self.K),
@@ -311,7 +312,7 @@ class PortMasterPlanningEnv(MasterPlanningEnv):
         vcg = (location_weight * self.vertical_position.view(1, 1, -1)).sum(dim=(1,2)) / (total_weight+eps)
 
         # Origin-destination pairs
-        pol_locations, pod_locations = self._compute_pol_pod_locations(utilization)
+        pol_locations, pod_locations = self._compute_pol_pod_locations(utilization) # todo: inherited!
         # todo: pol_locations is 1.0 initially, which is annoying - try to rewrite.
         # 0 has value of port 0, while pol 1.0 does not exist. However, this does not make sense for model.
         # 0 needs to mean 0, 1/P, 2/P etc.
@@ -344,7 +345,7 @@ class PortMasterPlanningEnv(MasterPlanningEnv):
         load_idx, disc_idx, moves_idx = self._precompute_for_step(t[0])
         # Next port with discharging; Update utilization, observed demand and target long crane
         long_crane_moves = compute_long_crane(utilization, moves_idx, self.T)
-        utilization = self._update_state_discharge(utilization, disc_idx)
+        utilization = self._update_state_discharge(utilization, disc_idx) # todo: inherited!
         target_long_crane = compute_target_long_crane(demand_state["realized_demand"], moves_idx,
                                                       self.capacity, self.B, self.CI_target).view(*batch_size, 1)
         if self.demand_uncertainty:

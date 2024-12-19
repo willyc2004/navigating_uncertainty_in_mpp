@@ -127,6 +127,13 @@ def compute_long_crane(utilization: th.Tensor, moves:th.Tensor, T:int) -> th.Ten
     moves_per_bay = (utilization * moves_idx).sum(dim=(2, 3, 4))
     return moves_per_bay[..., :-1] + moves_per_bay[..., 1:]
 
+def compute_hatch_overstowage(utilization: th.Tensor, moves: th.Tensor, ac_transport:th.Tensor) -> th.Tensor:
+    """Get hatch overstowage based on ac_transport and moves"""
+    # Compute hatch overstowage
+    hatch_open = utilization[..., 1:, moves, :].sum(dim=(-3, -2, -1)) > 0
+    hatch_overstowage = utilization[..., :1, ac_transport, :].sum(dim=(-3, -2, -1)) * hatch_open
+    return hatch_overstowage
+
 if __name__ == "__main__":
     # Test the transport sets
     print(get_pol_pod_pair(tau=th.tensor(7), P=th.tensor(5)))
