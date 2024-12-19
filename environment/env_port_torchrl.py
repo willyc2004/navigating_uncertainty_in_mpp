@@ -93,9 +93,9 @@ class PortMasterPlanningEnv(MasterPlanningEnv):
         ac_transport = self.remain_on_board_transport[t[0]]  # inherited!
         utilization, demand_state = self._extract_from_state(td["state"], batch_size)
 
-        # Check done, update utilization and long cranes
-        # todo: add masking of action on irrelevant actions (when pod < pol)
+        # Check done, mask action, update utilization and long cranes
         done = self._check_done(t)
+        action = self._mask_action_destination(action, t[0])
         utilization = self._update_state_loading(action, utilization, load_idx, t[0])
         target_long_crane = compute_target_long_crane(demand_state["realized_demand"], moves_idx, self.capacity, self.B, self.CI_target)
         long_crane_moves = compute_long_crane(utilization, moves_idx, self.T)
@@ -304,6 +304,11 @@ class PortMasterPlanningEnv(MasterPlanningEnv):
         ], dim=-1)
 
     # Update state
+    def _mask_action_destination(self, action:Tensor, port:Tensor) -> Tensor:
+        """Mask actions of irrelevant destination, as destination <= current port is irrelevant"""
+        action[...,:port,:] = 0
+        return action
+
     def _update_state_loading(self, action: Tensor, utilization: Tensor, load_idx: Tensor, t) -> Tensor:
         """Transition to load action to utilization."""
         new_utilization = utilization.clone()
