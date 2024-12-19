@@ -134,11 +134,11 @@ def compute_pol_pod_locations(utilization: th.Tensor, transform_tau_to_pol, tran
     return pol_locations, pod_locations
 
 def aggregate_indices(binary_matrix, get_highest=True):
-    # Shape: [batch_size, columns]
-    batch_size, columns = binary_matrix.shape
+    # Shape: [bays, ports]
+    bays, ports = binary_matrix.shape[-2:]
 
     # Create a tensor of indices [0, 1, ..., columns - 1]
-    indices = th.arange(columns, device=binary_matrix.device).expand(batch_size, -1) + 1
+    indices = th.arange(ports, device=binary_matrix.device).expand(bays, -1) + 1
     if get_highest:
         # Find the highest True index
         # Reverse the indices and binary matrix along the last dimension
