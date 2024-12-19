@@ -121,12 +121,13 @@ class PortMasterPlanningEnv(MasterPlanningEnv):
         # Check done, update utilization and long cranes
         done = self._check_done(t)
         utilization = self._update_state_loading(action, utilization, load_idx, t[0])
-        # todo: check if long crane moves is correct
-        target_long_crane = compute_target_long_crane(demand_state["realized_demand"], moves_idx,
-                                                      self.capacity, self.B, self.CI_target)
-        print(target_long_crane)
+        # todo: check if long crane moves is correct with load + discharge
+        #  (loading only works)
+        target_long_crane = compute_target_long_crane(demand_state["realized_demand"], moves_idx, self.capacity, self.B, self.CI_target)
+        long_crane_moves = compute_long_crane(utilization, moves_idx, self.T)
+        print(long_crane_moves)
+        print(action.sum(dim=(-3,-2,-1)))
         breakpoint()
-        long_crane_moves = self._compute_long_crane(utilization, t[0])
 
         ## Reward
         # Precompute
@@ -165,7 +166,7 @@ class PortMasterPlanningEnv(MasterPlanningEnv):
         # todo: implement final port costs
         # if t[0] == self.T*self.K:
         #     # Compute last port long crane excess
-        #     lc_moves_last_port = self._compute_long_crane(utilization, pol)
+        #     lc_moves_last_port = compute_long_crane(utilization, moves_idx, self.T)
         #     lc_excess_last_port = th.clamp(lc_moves_last_port - next_state_dict["target_long_crane"].view(-1,1), min=0)
         #
         #     # Compute metrics
@@ -226,7 +227,7 @@ class PortMasterPlanningEnv(MasterPlanningEnv):
         utilization = th.zeros((*batch_size, self.B, self.D, self.T, self.K), device=device, dtype=self.float_type)
         target_long_crane = compute_target_long_crane(td["realized_demand"].view(*batch_size, self.T, self.K),
                                                             moves_idx, self.capacity, self.B, self.CI_target) # todo: check if long crane moves is correct
-        long_crane_moves = self._compute_long_crane(utilization, t[0])
+        long_crane_moves = compute_long_crane(utilization, moves_idx, self.T)
         initial_state = TensorDict({
             "utilization": utilization.view(*batch_size, self.B*self.D*self.T*self.K),
             "target_long_crane": target_long_crane.view(*batch_size, 1),
@@ -342,7 +343,7 @@ class PortMasterPlanningEnv(MasterPlanningEnv):
         # Check next port with t - 1
         load_idx, disc_idx, moves_idx = self._precompute_for_step(t[0])
         # Next port with discharging; Update utilization, observed demand and target long crane
-        long_crane_moves = self._compute_long_crane(utilization, t[0])
+        long_crane_moves = compute_long_crane(utilization, moves_idx, self.T)
         utilization = self._update_state_discharge(utilization, disc_idx)
         target_long_crane = compute_target_long_crane(demand_state["realized_demand"], moves_idx,
                                                       self.capacity, self.B, self.CI_target).view(*batch_size, 1)

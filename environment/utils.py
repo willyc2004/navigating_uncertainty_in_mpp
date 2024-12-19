@@ -121,6 +121,12 @@ def compute_target_long_crane(realized_demand: th.Tensor, moves: th.Tensor,
     optimal_crane_moves_per_adj_bay = 2 * total_crane_moves / B
     return CI_target * th.minimum(optimal_crane_moves_per_adj_bay, max_capacity)
 
+def compute_long_crane(utilization: th.Tensor, moves:th.Tensor, T:int) -> th.Tensor:
+    """Compute long crane moves based on utilization"""
+    moves_idx = moves.to(utilization.dtype).view(1, 1, 1, T, 1)
+    moves_per_bay = (utilization * moves_idx).sum(dim=(2, 3, 4))
+    return moves_per_bay[..., :-1] + moves_per_bay[..., 1:]
+
 if __name__ == "__main__":
     # Test the transport sets
     print(get_pol_pod_pair(tau=th.tensor(7), P=th.tensor(5)))
