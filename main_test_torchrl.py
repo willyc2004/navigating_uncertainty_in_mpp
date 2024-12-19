@@ -60,11 +60,11 @@ def adapt_env_kwargs(config):
 
 def make_env(env_kwargs:DotMap, batch_size:Optional[list] = [], device: torch.device = torch.device("cuda")):
     """Setup and transform the Pendulum environment."""
-    portwise_env = env_kwargs.pop("portwise_env", False)
-    if portwise_env:
-        return PortMasterPlanningEnv(batch_size=batch_size, **env_kwargs).to(device)
-    else:
-       return MasterPlanningEnv(batch_size=batch_size, **env_kwargs).to(device)
+    # portwise_env = env_kwargs.pop("portwise_env", False)
+    # if portwise_env:
+    return PortMasterPlanningEnv(batch_size=batch_size, **env_kwargs).to(device)
+    # else:
+    #    return MasterPlanningEnv(batch_size=batch_size, **env_kwargs).to(device)
 
 def compute_surrogate_loss(ll, td, clip_epsilon, normalize_advantage=False) -> Dict:
     """Compute the surrogate loss for PPO."""
@@ -103,10 +103,10 @@ def compute_surrogate_loss(ll, td, clip_epsilon, normalize_advantage=False) -> D
             }
 
 
-def compute_loss_feasibility(td, action, feasibility_coef, aggregate_feasibility="sum"):
+def compute_loss_feasibility(td, action, lhs_A, feasibility_coef, aggregate_feasibility="sum"):
     """Compute feasibility loss based on the action, lhs_A, and rhs tensors."""
-    lhs_A, rhs = td.get("lhs_A"), td.get("rhs")
-    violation = compute_violation(action, lhs_A, rhs)
+    rhs = td.get("rhs")
+    violation = compute_violation(action, lhs_A.view(1,1,*lhs_A.shape), rhs)
 
     # Get aggregation dimensions
     if aggregate_feasibility == "sum":
@@ -188,8 +188,8 @@ def main(config: Optional[DotMap] = None):
     action_dim = env.action_spec.shape[0]
     sequence_dim = env.K * env.T if env.action_spec.shape[0] == env.B*env.D else env.P-1
     # Embedding initialization
-    init_embed = MPPInitEmbedding(embed_dim, sequence_dim, env)
-    context_embed = MPPContextEmbedding(obs_dim, embed_dim, sequence_dim, env, config.model.demand_aggregation)
+    init_embed = MPPInitEmbedding(obs_dim, action_dim, embed_dim, sequence_dim, env)
+    context_embed = MPPContextEmbedding(obs_dim, action_dim, embed_dim, sequence_dim, env, config.model.demand_aggregation)
     dynamic_embed = StaticEmbedding(obs_dim, embed_dim)
 
     # Model initialization
@@ -259,7 +259,7 @@ def main(config: Optional[DotMap] = None):
 
     # Get ProbabilisticActor (for stochastic policies)
     actor = TensorDictModule(
-        Actor(encoder, decoder).to(device),
+        decoder.to(device), # Actor(encoder, decoder).to(device),
         in_keys=["observation",],  # Input tensor key in TensorDict
         out_keys=["loc","scale"]  # Output tensor key in TensorDict
     )
@@ -299,6 +299,7 @@ def optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwa
     max_grad_norm = kwargs["algorithm"]["max_grad_norm"]
     entropy_lambda = kwargs["algorithm"]["entropy_lambda"]
     feasibility_lambda = kwargs["algorithm"]["feasibility_lambda"]
+    lhs_A = kwargs["lhs_A"]
 
     ## Unpack critics
     critic1 = critics["critic1"]
@@ -347,8 +348,7 @@ def optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwa
     log_prob = torch.clamp(log_prob, -20, 2)  # Clip log_prob to avoid NaNs
 
     # Feasibility loss
-    loss_out["loss_feasibility"], loss_out["violation"] = \
-        compute_loss_feasibility(policy_out, new_action, feasibility_lambda, "sum")
+    loss_out["loss_feasibility"], loss_out["violation"] = compute_loss_feasibility(policy_out, new_action, lhs_A, feasibility_lambda, "sum")
     q1 = critic1(policy_out["observation"], new_action)
     q2 = critic2(policy_out["observation"], new_action)
     q_min = torch.min(q1, q2)
@@ -482,7 +482,8 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             subdata = replay_buffer.sample(mini_batch_size).to(device)
             # Loss computation and backpropagation
             if kwargs["algorithm"]["type"] == "sac":
-                loss_out, policy_out = optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwargs)
+                loss_out, policy_out = optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim,
+                                                         lhs_A = env.lhs_A, **kwargs)
             elif kwargs["algorithm"]["type"] == "ppo":
                 raise NotImplementedError("PPO not implemented yet.")
                 # for _ in range(num_epochs):
@@ -498,10 +499,10 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             "loss_critic":  loss_out["loss_critic"],
             "loss_feasibility":loss_out["loss_feasibility"],
             # "loss_entropy": loss_out["loss_entropy"],
-            # Return, gradient norm and loss support
+            # Return
             "return": subdata['next', 'reward'].mean().item(),
-            "policy[loc]": policy_out["loc"].mean().item(),
-            "policy[scale]": policy_out["scale"].mean().item(),
+            "traj_return": subdata['next', 'reward'].sum(dim=(-2, -1)).item(),
+            # Gradient norm
             "gn_actor": loss_out["gn_actor"].item(),
             "gn_critic1": loss_out["gn_critic1"].item(),
             "gn_critic2": loss_out["gn_critic2"].item(),
@@ -514,18 +515,18 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
 
             # Constraints
             "mean_total_violation": loss_out["violation"].sum(dim=(-2,-1)).mean().item(),
-            "total_violation": policy_out['violation'].sum(dim=(-2,-1)).mean().item(),
-            "demand_violation": policy_out['violation'][...,0].sum(dim=(1)).mean().item(),
-            "capacity_violation": policy_out['violation'][...,1:-4].sum(dim=(1)).mean().item(),
-            "LCG_violation": policy_out['violation'][..., -4:-2].sum(dim=(1,2)).mean().item(),
-            "VCG_violation": policy_out['violation'][..., -2:].sum(dim=(1,2)).mean().item(),
+            # "total_violation": policy_out['violation'].sum(dim=(-2,-1)).mean().item(),
+            # "demand_violation": policy_out['violation'][...,0].sum(dim=(1)).mean().item(),
+            # "capacity_violation": policy_out['violation'][...,1:-4].sum(dim=(1)).mean().item(),
+            # "LCG_violation": policy_out['violation'][..., -4:-2].sum(dim=(1,2)).mean().item(),
+            # "VCG_violation": policy_out['violation'][..., -2:].sum(dim=(1,2)).mean().item(),
 
             # Environment
-            "total_revenue": subdata["state", "total_revenue"][...,-1].mean().item(),
-            "total_cost": subdata["state", "total_cost"][...,-1].mean().item(),
-            "total_profit": subdata["state", "total_revenue"][...,-1].mean().item() -
-                            subdata["state", "total_cost"][...,-1].mean().item(),
-            "total_loaded": subdata["state", "total_loaded"][...,-1].mean().item(),
+            # "total_revenue": subdata["state", "total_revenue"][...,-1].mean().item(),
+            # "total_cost": subdata["state", "total_cost"][...,-1].mean().item(),
+            # "total_profit": subdata["state", "total_revenue"][...,-1].mean().item() -
+            #                 subdata["state", "total_cost"][...,-1].mean().item(),
+            # "total_loaded": subdata["state", "total_loaded"][...,-1].mean().item(),
             "total_demand":subdata['realized_demand'][:,0,:].sum(dim=-1).mean(),
             "total_e[x]_demand": td['init_expected_demand'][:, 0, :].sum(dim=-1).mean(),
         }
@@ -544,8 +545,8 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             f"loc(x): {log['loc(x)']: 4.4f}, "
             f"scale(x): {log['scale(x)']: 4.4f}, "
             # Performance
-            f"total_profit: {log['total_profit']: 4.4f}, "
-            f"violation: {log['total_violation']: 4.4f}, "
+            # f"total_profit: {log['total_profit']: 4.4f}, "
+            # f"violation: {log['total_violation']: 4.4f}, "
         )
 
         # Validation step
