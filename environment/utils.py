@@ -124,7 +124,8 @@ def compute_target_long_crane(realized_demand: th.Tensor, moves: th.Tensor,
 def compute_long_crane(utilization: th.Tensor, moves:th.Tensor, T:int) -> th.Tensor:
     """Compute long crane moves based on utilization"""
     moves_idx = moves.to(utilization.dtype).view(1, 1, 1, T, 1)
-    moves_per_bay = (utilization * moves_idx).sum(dim=(2, 3, 4))
+    moves_per_bay = (utilization * moves_idx).sum(dim=(-3, -2, -1))
+    print("moves_per_bay", moves_per_bay)
     return moves_per_bay[..., :-1] + moves_per_bay[..., 1:]
 
 def compute_hatch_overstowage(utilization: th.Tensor, moves: th.Tensor, ac_transport:th.Tensor) -> th.Tensor:
