@@ -145,8 +145,8 @@ class PortMasterPlanningEnv(EnvBase):
         # Extraction
         batch_size = td.batch_size
         action, t = self._extract_from_td(td, batch_size)
-        load_idx, disc_idx, moves_idx = self._precompute_for_step(t[0]) # inherited!
-        ac_transport = self.remain_on_board_transport[t[0]]  # inherited!
+        load_idx, disc_idx, moves_idx = self._precompute_for_step(t[0])
+        ac_transport = self.remain_on_board_transport[t[0]]
         utilization, demand_state = self._extract_from_state(td["state"], batch_size)
 
         # Check done, mask action, update utilization and long cranes
@@ -154,11 +154,11 @@ class PortMasterPlanningEnv(EnvBase):
         action = self._mask_action_destination(action, t[0])
         utilization = self._update_state_loading(action, utilization, load_idx, t[0])
         target_long_crane = compute_target_long_crane(demand_state["realized_demand"], moves_idx, self.capacity, self.B, self.CI_target)
-        long_crane_moves = compute_long_crane(utilization, moves_idx, self.T)
+        long_crane_moves = compute_long_crane(utilization, moves_idx, self.T,)
 
         ## Reward
         # Precompute
-        sum_action = action.sum(dim=(-4, -3))[...,t:,:]
+        sum_action = action.sum(dim=(-4, -3))[..., t[0]:,:]
         load_demand = demand_state["observed_demand"][..., load_idx, :]
         load_revenues = self.static_revenue[load_idx, :]
         # Revenue
@@ -167,10 +167,11 @@ class PortMasterPlanningEnv(EnvBase):
         # Costs
         overstowage = compute_hatch_overstowage(utilization, moves_idx, ac_transport)
         excess_crane_moves = th.clamp(long_crane_moves - target_long_crane.view(-1, 1), min=0)
-        ho_costs = overstowage.sum(dim=-1, keepdim=True) * self.ho_costs
-        lc_costs = excess_crane_moves.sum(dim=-1, keepdim=True) * self.lc_costs
+        ho_costs = overstowage.sum(dim=-1,) * self.ho_costs
+        lc_costs = excess_crane_moves.sum(dim=-1,) * self.lc_costs
         cost = ho_costs + lc_costs
         # Reward/profit
+        print("revenue", revenue.shape, "cost", cost.shape)
         profit = revenue - cost
         reward = profit.clone()
         # todo: normalization of reward
@@ -185,10 +186,10 @@ class PortMasterPlanningEnv(EnvBase):
             rhs = self.create_port_rhs(next_state_dict["utilization"], next_state_dict["rhs_demand"], batch_size)
 
         # Only for final port
-        if done:
+        if done.any():
             # Compute last port long crane excess
-            _, _, moves_idx = self._precompute_for_step(t[0])  # inherited!
-            lc_moves_last_port = compute_long_crane(utilization, moves_idx, self.T)
+            _, _, moves_idx = self._precompute_for_step(t[0])
+            lc_moves_last_port = compute_long_crane(utilization, moves_idx, self.T,)
             lc_excess_last_port = th.clamp(lc_moves_last_port - next_state_dict["target_long_crane"].view(-1,1), min=0)
 
             # Compute metrics
@@ -197,10 +198,10 @@ class PortMasterPlanningEnv(EnvBase):
             profit -= lc_cost_
             cost += lc_cost_
             lc_costs += lc_cost_
+        print("reward", reward.shape)
 
         # Update td output
-        obs = self._get_obs(next_state_dict, t, batch_size)
-        print("obs.shape", obs.shape)
+        obs = self._get_observation(next_state_dict, t, batch_size)
         out =  TensorDict({
             "state":{
                 # Vessel
@@ -244,15 +245,18 @@ class PortMasterPlanningEnv(EnvBase):
 
         # Initialize
         device = td.device
-        t = th.zeros((1,) if batch_size == th.Size([]) else (*batch_size,), dtype=th.int64, device=device)
-        load_idx, _, moves_idx = self._precompute_for_step(t[0]) # inherited!
+        if batch_size == th.Size([]):
+            t = th.zeros(1, dtype=th.int64, device=device)
+        else:
+            t = th.zeros(*batch_size, dtype=th.int64, device=device)
+        load_idx, _, moves_idx = self._precompute_for_step(t[0])
         action_mask = th.ones(self.action_spec.shape, dtype=th.bool, device=device)
         utilization = th.zeros((*batch_size, self.B, self.D, self.T, self.K), device=device, dtype=self.float_type)
         target_long_crane = compute_target_long_crane(td["realized_demand"].view(*batch_size, self.T, self.K),
                                                             moves_idx, self.capacity, self.B, self.CI_target)
-        long_crane_moves = compute_long_crane(utilization, moves_idx, self.T)
+        long_crane_moves = compute_long_crane(utilization, moves_idx, self.T,)
         rhs_demand = th.zeros((*batch_size, self.P-1, self.K), device=device, dtype=self.float_type)
-        rhs_demand[...,t:,:] = td["observed_demand"].view(*batch_size, self.T, self.K)[...,load_idx,:]
+        rhs_demand[...,t[0]:,:] = td["observed_demand"].view(*batch_size, self.T, self.K)[...,load_idx,:]
         rhs = self.create_port_rhs(utilization, rhs_demand, batch_size)
         initial_state = TensorDict({
             "utilization": utilization.view(*batch_size, self.B*self.D*self.T*self.K),
@@ -263,8 +267,7 @@ class PortMasterPlanningEnv(EnvBase):
             "std_demand": td["std_demand"].view(*batch_size, self.T * self.K).clone(),
             "realized_demand": td["realized_demand"].view(*batch_size, self.T * self.K).clone(),
         }, batch_size=batch_size, device=device,)
-        obs = self._get_obs(initial_state, t, batch_size)
-        print("obs.shape", obs.shape)
+        obs = self._get_observation(initial_state, t, batch_size)
 
         # Initialize td
         out = TensorDict({
@@ -312,11 +315,11 @@ class PortMasterPlanningEnv(EnvBase):
         }
         return utilization, demand
 
-    def _get_obs(self, next_state_dict, t, batch_size, eps=1e-5, **kwargs) -> Tensor:
+    def _get_observation(self, next_state_dict, t, batch_size, eps=1e-5, **kwargs) -> Tensor:
         ## Demand
         # todo: evaluate demand normalization
-        print("-------")
-        print("t", t[0])
+        # print("-------")
+        # print("t", t[0])
         demand_norm = max(next_state_dict["realized_demand"].max().item(), next_state_dict["expected_demand"].max().item())
         observed_demand = next_state_dict["observed_demand"] / demand_norm
         expected_demand = next_state_dict["expected_demand"] / demand_norm
@@ -331,8 +334,8 @@ class PortMasterPlanningEnv(EnvBase):
         residual_capacity = th.clamp(self.capacity - utilization.sum(dim=-2) @ self.teus, min=self.zero) / self.capacity
         residual_lc_capacity = (next_state_dict["target_long_crane"] - next_state_dict["long_crane_moves"]).clamp(min=0) \
                                / next_state_dict["target_long_crane"]
-        print("residual_capacity", residual_capacity.T)
-        print("residual_lc_capacity", residual_lc_capacity)
+        # print("residual_capacity", residual_capacity.T)
+        # print("residual_lc_capacity", residual_lc_capacity)
 
         # Stability
         location_weight = (utilization * self.weights.view(1,1,1,1,-1)).sum(dim=(-2,-1))
@@ -426,7 +429,7 @@ class PortMasterPlanningEnv(EnvBase):
         # Check next port with t - 1
         load_idx, disc_idx, moves_idx = self._precompute_for_step(t[0])
         # Next port with discharging; Update utilization, observed demand and target long crane
-        long_crane_moves = compute_long_crane(utilization, moves_idx, self.T)
+        long_crane_moves = compute_long_crane(utilization, moves_idx, self.T,)
         utilization = update_state_discharge(utilization, disc_idx)
         target_long_crane = compute_target_long_crane(demand_state["realized_demand"], moves_idx,
                                                       self.capacity, self.B, self.CI_target).view(*batch_size, 1)
@@ -438,7 +441,7 @@ class PortMasterPlanningEnv(EnvBase):
 
         # rhs demand # todo: initialize rhs_demand constantly not efficient
         rhs_demand = th.zeros((*batch_size, self.P - 1, self.K), device=self.device, dtype=self.float_type)
-        rhs_demand[..., t:, :] = demand_state["observed_demand"].view(*batch_size, self.T, self.K)[..., load_idx, :]
+        rhs_demand[..., t[0]:, :] = demand_state["observed_demand"].view(*batch_size, self.T, self.K)[..., load_idx, :]
 
         # Get output
         return {
@@ -513,7 +516,7 @@ class PortMasterPlanningEnv(EnvBase):
         b_t = utilization.view(*batch_size, -1) @ A.view(self.n_constraints, -1).T # Matmul -A'u_t
         # Compute b_t = b - A'u_t
         b_t[..., self.demand_idx] = observed_demand.view(*batch_size, -1)
-        capacity = self.capacity.view(*batch_size, -1)
+        capacity = self.capacity.view(1, -1)
         b_t[..., self.location_idx] = th.clamp(b_t[..., self.location_idx] + capacity,
                                                min=th.zeros_like(capacity, device=self.device), max=capacity)
         return b_t
