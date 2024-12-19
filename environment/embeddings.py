@@ -74,7 +74,7 @@ class MPPContextEmbedding(nn.Module):
     def forward(self, obs: Tensor, latent_state: Tensor):
         """Embed the context for the MPP"""
         # Get relevant init embedding (first element of obs)
-        time = (obs[..., 0] * self.env.K * self.env.T).long()
+        time = (obs[..., 0] * self.seq_size).long()
         select_init_embedding = gather_by_index(latent_state, time)
 
         # Project state, concat embeddings, and project concat to output
