@@ -23,31 +23,15 @@ class PortMasterPlanningEnv(MasterPlanningEnv):
 
     def __init__(self, device="cuda", batch_size=[], td_gen=None, **kwargs):
         super().__init__(device=device, batch_size=batch_size, **kwargs)
-        # Spec and td_gen
+
+        # Initialize
+        self._constraint_shapes()
         if td_gen == None:
             self.td_gen = self.generator(batch_size=batch_size,)
         self._make_spec(self.td_gen)
 
         # Revenue
         self.static_revenue = self.revenues_matrix.T # Shape [T, K]
-
-        ## Constraints # todo: clean-up here
-        # Shapes
-        self.n_demand = (self.K * (self.P - 1))
-        self.n_locations = (self.B * self.D)
-        self.n_stability = 4
-        self.n_constraints = self.n_demand + self.n_locations + self.n_stability # (demand + capacity + stability)
-        # Ranges
-        self.demand_idx = th.arange(0, self.n_demand, device=device)
-        self.location_idx = th.arange(self.n_demand, self.n_demand+self.n_locations, device=device)
-        self.stability_idx = th.arange(self.n_demand+self.n_locations, self.n_constraints, device=device)
-        # Add vectors
-        ones = th.ones(self.n_constraints, device=self.generator.device, dtype=self.float_type)
-        self.constraint_signs = ones.clone()
-        indices_to_multiply = th.tensor([-3, -1], device=self.generator.device)
-        self.constraint_signs[indices_to_multiply] *= -1
-        self.swap_signs_stability = -ones.clone()
-        self.swap_signs_stability[0] *= -1 # only demand constraint is positive
 
         # Get A
         self.lhs_A = self._create_port_constraint_matrix(shape=(self.n_constraints, self.B, self.D, self.P-1, self.K))
@@ -83,8 +67,7 @@ class PortMasterPlanningEnv(MasterPlanningEnv):
             batch_updates=Unbounded(shape=(*batch_size, 1), dtype=th.float32),
 
             # Constraints
-            # lhs_A=Unbounded(shape=(*batch_size,self.n_constraints,self.B*self.D),dtype=self.float_type),
-            # rhs=Unbounded(shape=(*batch_size,self.n_constraints),dtype=self.float_type),
+            rhs=Unbounded(shape=(*batch_size,self.n_constraints),dtype=self.float_type),
             shape=batch_size,
         )
         self.action_spec = Bounded(
@@ -360,6 +343,26 @@ class PortMasterPlanningEnv(MasterPlanningEnv):
         }
 
     # Constraints
+    def _constraint_shapes(self):
+        # Shapes
+        self.n_demand = (self.K * (self.P - 1))
+        self.n_locations = (self.B * self.D)
+        self.n_stability = 4
+        self.n_constraints = self.n_demand + self.n_locations + self.n_stability  # (demand + capacity + stability)
+        # Ranges
+        self.demand_idx = th.arange(0, self.n_demand, device=self.device)
+        self.location_idx = th.arange(self.n_demand, self.n_demand + self.n_locations, device=self.device)
+        self.stability_idx = th.arange(self.n_demand + self.n_locations, self.n_constraints, device=self.device)
+
+    def _constraint_vectors(self):
+        # Add vectors
+        ones = th.ones(self.n_constraints, device=self.generator.device, dtype=self.float_type)
+        self.constraint_signs = ones.clone()
+        indices_to_multiply = th.tensor([-3, -1], device=self.generator.device)
+        self.constraint_signs[indices_to_multiply] *= -1
+        self.swap_signs_stability = -ones.clone()
+        self.swap_signs_stability[0] *= -1  # only demand constraint is positive
+
     def _create_port_constraint_matrix(self, shape: Tuple):
         """Create lhs matrix A in Ax <= b_t.
             Shape [M, N]:
