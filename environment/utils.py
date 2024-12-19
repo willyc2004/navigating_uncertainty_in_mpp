@@ -104,6 +104,23 @@ def compute_violation(action, lhs_A, rhs, ) -> th.Tensor:
     output = th.clamp(lhs-rhs, min=0)
     return output
 
+def compute_target_long_crane(realized_demand: th.Tensor, moves: th.Tensor,
+                              capacity:th.Tensor, B:int, CI_target:float) -> th.Tensor:
+    """Compute target crane moves per port:
+    - Get total crane moves per port: load_moves + discharge_moves
+    - Get optimal crane moves per adjacent bay by: 2 * total crane moves / B
+    - Get adjacent capacity by: sum of capacity of adjacent bays
+    - Get max capacity of adjacent bays by: max of adjacent capacity
+
+    Return element-wise minimum of optimal crane moves and max capacity"""
+    # Calculate optimal crane moves based per adjacent bay based on loading and discharging
+    total_crane_moves = realized_demand[..., moves, :].sum(dim=(-1,-2))
+    # Compute adjacent capacity and max capacity
+    max_capacity = ((capacity[:-1] + capacity[1:]).sum(dim=-1)).max()
+    # Compute element-wise minimum of crane moves and target long crane
+    optimal_crane_moves_per_adj_bay = 2 * total_crane_moves / B
+    return CI_target * th.minimum(optimal_crane_moves_per_adj_bay, max_capacity)
+
 if __name__ == "__main__":
     # Test the transport sets
     print(get_pol_pod_pair(tau=th.tensor(7), P=th.tensor(5)))
