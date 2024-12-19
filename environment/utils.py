@@ -6,10 +6,6 @@ def get_transport_idx(P: int, device) -> Union[th.Tensor,]:
     # Get above-diagonal indices of the transport matrix
     origins, destinations = th.triu_indices(P, P, offset=1, device=device)
     return th.stack((origins, destinations), dim=-1)
-# def get_transport_idx(P: Union[th.Tensor],) -> Union[th.Tensor,]:
-#     # Get above-diagonal indices of the transport matrix
-#     origins, destinations = th.triu_indices(P.squeeze(), P.squeeze(), offset=1, device=P.device)
-#     return th.stack((origins, destinations), dim=-1)
 
 def get_load_pods(POD: Union[th.Tensor]):
     # Get non-zero column indices
@@ -95,14 +91,11 @@ def get_transport_from_pol_pod(pol, pod, transport_idx):
 
     return output
 
-def compute_violation(action, lhs_A, rhs, ) -> th.Tensor:
-    """Compute violations and loss of compact form"""
-    # If dimension lhs_A is one more than action, unsqueeze action
-    if (lhs_A.dim() - action.dim()) == 1:
-        action = action.unsqueeze(-2)
-    lhs = (lhs_A * action).sum(dim=(-1))
-    output = th.clamp(lhs-rhs, min=0)
-    return output
+# States
+def update_state_discharge(utilization:th.Tensor, disc_idx:th.Tensor,) -> th.Tensor:
+    """Update state as result of discharge"""
+    utilization[..., disc_idx, :] = 0.0
+    return utilization
 
 def compute_target_long_crane(realized_demand: th.Tensor, moves: th.Tensor,
                               capacity:th.Tensor, B:int, CI_target:float) -> th.Tensor:
@@ -133,6 +126,15 @@ def compute_hatch_overstowage(utilization: th.Tensor, moves: th.Tensor, ac_trans
     hatch_open = utilization[..., 1:, moves, :].sum(dim=(-3, -2, -1)) > 0
     hatch_overstowage = utilization[..., :1, ac_transport, :].sum(dim=(-3, -2, -1)) * hatch_open
     return hatch_overstowage
+
+def compute_violation(action, lhs_A, rhs, ) -> th.Tensor:
+    """Compute violations and loss of compact form"""
+    # If dimension lhs_A is one more than action, unsqueeze action
+    if (lhs_A.dim() - action.dim()) == 1:
+        action = action.unsqueeze(-2)
+    lhs = (lhs_A * action).sum(dim=(-1))
+    output = th.clamp(lhs-rhs, min=0)
+    return output
 
 if __name__ == "__main__":
     # Test the transport sets

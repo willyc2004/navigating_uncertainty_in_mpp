@@ -686,11 +686,6 @@ class MasterPlanningEnv(EnvBase):
         return mask.view(-1, self.B*self.D)
 
     # Update state
-    def _update_state_discharge(self, utilization:Tensor, disc_idx:Tensor,) -> Tensor:
-        """Update state as result of discharge"""
-        utilization[..., disc_idx, :] = 0.0
-        return utilization
-
     def _update_state_loading(self, action: Tensor, utilization: Tensor,
                               tau:Tensor, k:Tensor,) -> Tensor:
         """Transition to the next state based on the action."""
@@ -715,7 +710,7 @@ class MasterPlanningEnv(EnvBase):
         if self.next_port_mask[t-1].any():
             long_crane_moves_load = torch.zeros_like(long_crane_moves_load)
             long_crane_moves_discharge = self._compute_long_crane(utilization, pol)
-            utilization = self._update_state_discharge(utilization, disc_idx)
+            utilization = update_state_discharge(utilization, disc_idx)
             target_long_crane = self._compute_target_long_crane(
                 demand_state["realized_demand"], moves_idx).view(*batch_size, 1)
             if self.demand_uncertainty:
