@@ -134,15 +134,22 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
                  action_rescale_max: Optional[float] = None,
                  **kwargs):
         super().__init__(module, in_keys, out_keys, spec=spec, **kwargs)
+
+        # Rescale actions from [-upscale, upscale] to (min, max)
         self.upscale = kwargs.get("distribution_kwargs", {}).get("upscale", 1.0)
         if action_rescale_min is not None and action_rescale_max is not None:
             self.rescale_action = lambda x: x * (action_rescale_max - action_rescale_min) + action_rescale_min
+        # Initialize projection layer
         self.projection_layer = projection_layer
 
     def forward(self, *args, **kwargs):
         out = super().forward(*args, **kwargs)
-        if self.rescale_action is not None:
-            out["action"] = self.rescale_action((out["action"] + self.upscale)/2)  # Rescale from [-x, x] to (min, max)
+        if not self.training:
+            if self.rescale_action is not None:
+                out["action"] = self.rescale_action((out["loc"] + self.upscale) / 2)
+        else:
+            if self.rescale_action is not None:
+                out["action"] = self.rescale_action((out["action"] + self.upscale) / 2)  # Rescale from [-x, x] to (min, max)
         if self.projection_layer is not None:
             action = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
             out["action"] = action
@@ -538,8 +545,9 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
         )
 
         # Validation step
-        if (step + 1) % (train_updates * validation_freq) == 0:
+        if (step + 1) % int(train_updates * validation_freq) == 0:
             val_out = validate_policy(env, policy, n_step=n_step, )
+            policy.train() # Back to train mode
             log.update(val_out)
             val_rewards.append(val_out["val_reward"])
             if early_stopping(val_rewards, patience):
@@ -547,8 +555,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
                 break
         # NaN check in loss
         if torch.isnan(loss_out["loss_actor"]) or torch.isnan(loss_out["loss_critic"]):
-            print(f"NaN detected in loss at epoch {step}.")
-            break
+            raise ValueError(f"NaN detected in loss at epoch {step}.")
 
         # Update wandb and scheduler
         wandb.log(log)
