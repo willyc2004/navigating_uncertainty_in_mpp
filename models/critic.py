@@ -23,7 +23,7 @@ class CriticNetwork(nn.Module):
             dropout_rate: Optional[float] = None,
             temperature: float = 1.0,
             customized: bool = False,
-            use_q_value: Optional[nn.Module] = True,
+            use_q_value: Optional[nn.Module] = False,
             action_dim: Optional[nn.Module] = None,
     ):
         super(CriticNetwork, self).__init__()
