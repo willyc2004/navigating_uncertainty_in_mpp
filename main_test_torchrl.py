@@ -10,6 +10,7 @@ import yaml
 from collections import defaultdict
 from dotmap import DotMap
 from typing import Optional, Tuple, Dict, Union, Sequence
+from tensordict import TensorDict
 from tensordict.nn import TensorDictModule
 from tensordict.utils import NestedKey
 
@@ -24,7 +25,7 @@ import wandb
 # TorchRL
 from torchrl.envs import EnvBase
 from torchrl.envs.utils import check_env_specs
-from torchrl.modules import ProbabilisticActor, IndependentNormal, TruncatedNormal, ValueOperator, TanhNormal
+from torchrl.modules import ProbabilisticActor, IndependentNormal, TruncatedNormal, ValueOperator, TanhNormal, MLP
 from torchrl.objectives.sac import SACLoss
 from torchrl.objectives.ddpg import DDPGLoss
 from torchrl.objectives.ppo import ClipPPOLoss
@@ -126,6 +127,43 @@ class Actor(nn.Module):
         hidden, init_embed = self.encoder(obs)
         dec_out = self.decoder(obs, hidden)
         return dec_out
+
+
+class ActorMLP(nn.Module):
+    def __init__(self, input_dim, hidden_dims, output_dim):
+        super(ActorMLP, self).__init__()
+        # Ensure hidden_dims is a list
+        if isinstance(hidden_dims, int):
+            hidden_dims = [hidden_dims]
+
+        # Create a list to hold all layers
+        layers = []
+
+        # Input layer
+        layers.append(nn.Linear(input_dim, hidden_dims[0]))
+
+        # Hidden layers
+        for i in range(len(hidden_dims) - 1):
+            layers.append(nn.ReLU())
+            layers.append(nn.Linear(hidden_dims[i], hidden_dims[i + 1]))
+
+        # Combine all layers into a Sequential module
+        self.hidden_layers = nn.Sequential(*layers)
+
+        # Output layers for mean and standard deviation
+        self.mean = nn.Linear(hidden_dims[-1], output_dim)
+        self.std = nn.Linear(hidden_dims[-1], output_dim)
+
+    def forward(self, x):
+        # Pass input through hidden layers
+        x = self.hidden_layers(x)
+        x = F.relu(x)  # Apply ReLU to the output of the last hidden layer
+
+        # Compute mean and standard deviation
+        mean = self.mean(x)
+        std = torch.exp(self.std(x))  # Ensure std is positive
+
+        return mean, std
 
 class ProjectionProbabilisticActor(ProbabilisticActor):
     def __init__(self,
@@ -259,7 +297,8 @@ def main(config: Optional[DotMap] = None):
 
     # Get ProbabilisticActor (for stochastic policies)
     actor = TensorDictModule(
-        decoder.to(device), # Actor(encoder, decoder).to(device),
+        ActorMLP(obs_dim, decoder_layers * [hidden_dim], action_dim).to(device),
+        # Actor(encoder, decoder).to(device),
         in_keys=["observation",],  # Input tensor key in TensorDict
         out_keys=["loc","scale"]  # Output tensor key in TensorDict
     )
@@ -269,7 +308,6 @@ def main(config: Optional[DotMap] = None):
         projection_layer = ProjectionFactory.create_class(config.training.projection_type, config.training.projection_kwargs)
     else:
         projection_layer = None
-    # todo: not sure if truncation or tanh work well.
     policy = ProjectionProbabilisticActor(
         module=actor,
         in_keys=["loc", "scale"],
@@ -322,6 +360,7 @@ def optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwa
         target_q2 = target_critic2(next_policy_out["observation"], next_action)
         target_q_min = torch.min(target_q1, target_q2) - entropy_lambda * next_log_prob
         target_value = subdata["next", "reward"] + (1 - subdata["done"].float()) * gamma * target_q_min
+        check_for_nans(target_value, "target_value")
 
     # Current value
     current_q1 = critic1(subdata["observation"], subdata["action"])
@@ -329,10 +368,14 @@ def optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwa
 
     # Update critic
     loss_out["loss_critic"] = F.mse_loss(current_q1, target_value) + F.mse_loss(current_q2, target_value)
+    check_for_nans(loss_out["loss_critic"], "loss_critic")
     critic_optim.zero_grad()
     loss_out["loss_critic"].backward()
     loss_out["gn_critic1"] = torch.nn.utils.clip_grad_norm_(critic1.parameters(), max_grad_norm)
     loss_out["gn_critic2"] = torch.nn.utils.clip_grad_norm_(critic2.parameters(), max_grad_norm)
+    check_for_nans(loss_out["loss_critic"], "loss_critic")
+    check_for_nans(loss_out["gn_critic1"], "gn_critic1")
+    check_for_nans(loss_out["gn_critic2"], "gn_critic2")
     critic_optim.step()
 
     # Soft update target critics
@@ -343,27 +386,33 @@ def optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwa
 
     # Compute Actor Loss
     policy_out = policy(subdata)
+    recursive_check_for_nans(policy_out)
     new_action = policy_out["action"]
+    check_for_nans(new_action, "log_prob")
     log_prob = policy_out["sample_log_prob"].unsqueeze(-1)
     log_prob = torch.clamp(log_prob, -20, 2)  # Clip log_prob to avoid NaNs
+    check_for_nans(log_prob, "log_prob")
 
     # Feasibility loss
-    loss_out["loss_feasibility"], loss_out["violation"] = compute_loss_feasibility(policy_out, new_action, lhs_A, feasibility_lambda, "sum")
+    loss_out["loss_feasibility"], loss_out["mean_violation"] = compute_loss_feasibility(policy_out, new_action, lhs_A, feasibility_lambda, "sum")
+    check_for_nans(loss_out["loss_feasibility"], "loss_feasibility")
     q1 = critic1(policy_out["observation"], new_action)
     q2 = critic2(policy_out["observation"], new_action)
     q_min = torch.min(q1, q2)
+    check_for_nans(q_min, "q_min")
 
     # Update actor
     loss_out["loss_actor"] = (entropy_lambda * log_prob - q_min).mean() + loss_out["loss_feasibility"]
     actor_optim.zero_grad()
     loss_out["loss_actor"].backward()
+    check_for_nans(loss_out["loss_actor"], "loss_actor")
     loss_out["gn_actor"] = torch.nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
+    check_for_nans(loss_out["gn_actor"], "gn_actor")
     actor_optim.step()
     return loss_out, policy_out
 
 ## Training
 def train(policy, critic, device=torch.device("cuda"), **kwargs):
-    # todo: extend with mini-batch training, data loader, REINFORCE, PPO, etc.
     # Hyperparameters
     batch_size = kwargs["model"]["batch_size"]
     mini_batch_size = int(kwargs["algorithm"]["mini_batch_size"] * batch_size)
@@ -389,9 +438,9 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     entropy_lambda = kwargs["algorithm"]["entropy_lambda"]
 
     # Loss modules
-    # advantage_module = GAE(
-    #     gamma=gamma, lmbda=gae_lambda, value_network=critic, average_gae=True
-    # )
+    advantage_module = GAE(
+        gamma=gamma, lmbda=gae_lambda, value_network=critic, average_gae=True
+    )
     if kwargs["algorithm"]["type"] == "reinforce":
         loss_module = ReinforceLoss(
             actor_network=policy,
@@ -475,7 +524,8 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
 
     # Training loop
     for step, td in enumerate(collector):
-        # advantage_module(td)
+        if kwargs["algorithm"]["type"] == "ppo_feas":
+            advantage_module(td)
         replay_buffer.extend(td)
         for _ in range(batch_size // mini_batch_size):
             # Sample mini-batch (including actions, n-step returns, old log likelihoods, target_values)
@@ -484,9 +534,28 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             if kwargs["algorithm"]["type"] == "sac":
                 loss_out, policy_out = optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim,
                                                          lhs_A = env.lhs_A, **kwargs)
+                # NaN check in loss
+                check_for_nans(subdata["observation"], "observation")
+                recursive_check_for_nans(subdata)
+                recursive_check_for_nans(policy_out)
+                recursive_check_for_nans(loss_out)
             elif kwargs["algorithm"]["type"] == "ppo":
                 raise NotImplementedError("PPO not implemented yet.")
-                # for _ in range(num_epochs):
+            elif kwargs["algorithm"]["type"] == "ppo_feas":
+                for _ in range(num_epochs):
+                    loss_out = loss_module(subdata.to(device), env.lhs_A)
+                    loss = (
+                            loss_out["loss_objective"]
+                            + loss_out["loss_critic"]
+                            + loss_out["loss_entropy"]
+                            + loss_out["loss_feasibility"]
+                    )
+
+                    # Optimization: backward, grad clipping and optimization step
+                    loss.backward()
+                    loss_out["gn_actor"] = torch.nn.utils.clip_grad_norm_(loss_module.parameters(), kwargs["algorithm"]["max_grad_norm"])
+                    actor_optim.step()
+                    actor_optim.zero_grad()
 
         # Log metrics
         pbar.update(1)
@@ -494,27 +563,29 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             # General
             "step": step,
             # Losses
-            # "loss": loss.item(),
-            "loss_actor": loss_out["loss_actor"],
+            "loss": loss.item(),
+            "loss_actor": loss_out.get("loss_actor", loss_out.get("loss_objective")),
             "loss_critic":  loss_out["loss_critic"],
             "loss_feasibility":loss_out["loss_feasibility"],
-            # "loss_entropy": loss_out["loss_entropy"],
+            "loss_entropy": loss_out.get("loss_entropy", 0),
             # Return
             "return": subdata['next', 'reward'].mean().item(),
-            "traj_return": subdata['next', 'reward'].sum(dim=(-2, -1)).item(),
+            "traj_return": subdata['next', 'reward'].sum(dim=(-2, -1)).mean().item(),
             # Gradient norm
             "gn_actor": loss_out["gn_actor"].item(),
-            "gn_critic1": loss_out["gn_critic1"].item(),
-            "gn_critic2": loss_out["gn_critic2"].item(),
+            # "gn_critic1": loss_out["gn_critic1"].item(),
+            # "gn_critic2": loss_out["gn_critic2"].item(),
             # "clip_fraction": loss_out["clip_fraction"],
-            # todo: add kl_approx, ratio, advantage
             # Prediction
-            "x": policy_out['action'].mean().item(),
-            "loc(x)": policy_out['loc'].mean().item(),
-            "scale(x)": policy_out['scale'].mean().item(),
+            "x": subdata['action'].mean().item(),
+            "loc(x)": subdata['loc'].mean().item(),
+            "scale(x)": subdata['scale'].mean().item(),
+            # "x": policy_out['action'].mean().item(),
+            # "loc(x)": policy_out['loc'].mean().item(),
+            # "scale(x)": policy_out['scale'].mean().item(),
 
             # Constraints
-            "mean_total_violation": loss_out["violation"].sum(dim=(-2,-1)).mean().item(),
+            "mean_total_violation": loss_out["mean_violation"].sum(dim=(-2,-1)).mean().item(),
             # "total_violation": policy_out['violation'].sum(dim=(-2,-1)).mean().item(),
             # "demand_violation": policy_out['violation'][...,0].sum(dim=(1)).mean().item(),
             # "capacity_violation": policy_out['violation'][...,1:-4].sum(dim=(1)).mean().item(),
@@ -534,6 +605,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
         pbar.set_description(
             # Loss, gn and rewards
             f"return: {log['return']: 4.4f}, "
+            f"traj_return: {log['traj_return']: 4.4f}, "
             # f"loss:  {log['loss']: 4.4f}, "
             f"loss_actor:  {log['loss_actor']: 4.4f}, "
             f"loss_critic:  {log['loss_critic']: 4.4f}, "
@@ -558,9 +630,6 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             if early_stopping(val_rewards, patience):
                 print(f"Early stopping at epoch {step} due to {patience} consecutive decreases in validation reward.")
                 break
-        # NaN check in loss
-        if torch.isnan(loss_out["loss_actor"]) or torch.isnan(loss_out["loss_critic"]):
-            raise ValueError(f"NaN detected in loss at epoch {step}.")
 
         # Update wandb and scheduler
         wandb.log(log)
@@ -634,6 +703,23 @@ def early_stopping(val_rewards, patience=2):
             decrease_count = 0  # Reset if the reward improves or stays the same
 
     return False
+
+def recursive_check_for_nans(td, parent_key=""):
+    """Recursive check for NaNs and Infs in e.g. TensorDicts and raise an error if found."""
+    for key, value in td.items():
+        full_key = f"{parent_key}.{key}" if parent_key else key
+        if isinstance(value, torch.Tensor):
+            check_for_nans(value, full_key)
+        elif isinstance(value, TensorDict) or  isinstance(value, Dict):
+            # Recursively check nested TensorDicts
+            recursive_check_for_nans(value, full_key)
+
+def check_for_nans(tensor, name):
+    """Check for NaNs and Infs in a tensor and raise an error if found."""
+    if torch.isnan(tensor).any():
+        raise ValueError(f"NaN detected in {name}")
+    if torch.isinf(tensor).any():
+        raise ValueError(f"Inf detected in {name}")
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
