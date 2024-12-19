@@ -200,9 +200,9 @@ class MasterPlanningEnv(EnvBase):
             demand_state, total_metrics = self._extract_from_state(td["state"], batch_size)
 
         ## Current state
-        # # Action clipping
-        # action = action.clamp(min=td["clip_min"].view(*batch_size, self.B, self.D),
-        #                       max=td["clip_max"].view(*batch_size, self.B, self.D))
+        # Action clipping
+        clip_max = td["clip_max"].clamp(max=demand_state["current_demand"]).view(*batch_size, self.B, self.D)
+        action = action.clamp(min=td["clip_min"].view(*batch_size, self.B, self.D), max=clip_max)
 
         # Check done, update utilization, and compute violation
         done = self._check_done(t)
@@ -227,8 +227,8 @@ class MasterPlanningEnv(EnvBase):
         total_metrics["total_loaded"] += sum_action
 
         ## Reward
-        # revenue = th.clamp(sum_action, min=th.zeros_like(sum_action), max=demand_state["current_demand"]) * self.revenues[t[0]]
-        revenue = sum_action * self.revenues[t[0]]
+        revenue = th.clamp(sum_action, min=th.zeros_like(sum_action), max=demand_state["current_demand"]) * self.revenues[t[0]]
+        # revenue = sum_action * self.revenues[t[0]]
         profit = revenue.clone()
         if self.next_port_mask[t].any():
             # Compute aggregated: overstowage and long crane excess
@@ -287,14 +287,14 @@ class MasterPlanningEnv(EnvBase):
         total_metrics["total_cost"] += cost
         # Normalize revenue \in [0,1]:
         # revenue_norm = rev_t / max(rev_t) * min(q_t, sum(a_t)) / q_t
-        # normalize_revenue = self.revenues.max() * demand_state["current_demand"]
+        normalize_revenue = self.revenues.max() * demand_state["current_demand"]
         # Normalize accumulated cost \in [0, t_cost], where t_cost is the time at which we evaluate cost:
         # cost_norm = cost_{t_cost} / E[q_t]
-        # normalize_cost = realized_demand.view(*batch_size, -1)[...,:t[0]].sum(dim=-1, keepdims=True) / t[0]
+        normalize_cost = demand_state["realized_demand"].view(*batch_size, -1)[...,:t[0]].sum(dim=-1, keepdims=True) / t[0]
         # Normalize reward: r_t = revenue_norm - cost_norm
         # We have spikes over delayed costs at specific time steps.
-        # reward = (revenue.clone() / normalize_revenue) - (cost.clone() / normalize_cost)
-        reward = profit
+        reward = (revenue.clone() / normalize_revenue) #- (cost.clone() / normalize_cost)
+        # reward = profit
 
         # Update td output
         obs = self._get_observation(next_state_dict, residual_capacity,  agg_pol_location, agg_pod_location, t, batch_size)
