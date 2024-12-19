@@ -220,8 +220,10 @@ class MasterPlanningEnv(EnvBase):
         # Compute long crane moves
         long_crane_moves_load = self._compute_long_crane(utilization, pol)
         # Compute od-pairs
-        pol_locations, pod_locations = self._compute_pol_pod_locations(utilization)
-        agg_pol_location, agg_pod_location = self._aggregate_pol_pod_location(pol_locations, pod_locations)
+        pol_locations, pod_locations = compute_pol_pod_locations(utilization,
+                                                                 self.transform_tau_to_pol, self.transform_tau_to_pod)
+        agg_pol_location, agg_pod_location = aggregate_pol_pod_location(pol_locations, pod_locations,
+                                                                        self.ports, self.P, self.float_type)
         # Compute total loaded
         sum_action = action.sum(dim=(-2, -1)).unsqueeze(-1)
         total_metrics["total_loaded"] += sum_action
@@ -569,40 +571,6 @@ class MasterPlanningEnv(EnvBase):
         min_pod = th.argmax(pod_locations.to(self.float_type), dim=-1)
         min_pod[min_pod == 0] = self.P
         return min_pod
-
-    def _compute_pol_pod_locations(self, utilization: Tensor) -> Tuple[Tensor, Tensor]:
-        """Compute POL and POD locations based on utilization"""
-        if utilization.dim() == 4:
-            util = utilization.permute(0, 1, 3, 2)
-        elif utilization.dim() == 5:
-            util = utilization.permute(0, 1, 2, 4, 3)
-        else:
-            raise ValueError("Utilization tensor has wrong dimensions.")
-        pol_locations = (util @ self.transform_tau_to_pol).sum(dim=-2) != 0
-        pod_locations = (util @ self.transform_tau_to_pod).sum(dim=-2) != 0
-        return pol_locations, pod_locations
-
-    def _aggregate_pol_pod_location(self, pol_locations: Tensor, pod_locations: Tensor,) -> Tuple:
-        """Aggregate pol_locations and pod_locations into:
-            - pod: [max(pod_d0), min(pod_d1)]
-            - pol: [min(pol_d0), max(pol_d1)]"""
-        ## Get load indicators - we load below deck that is blocked
-        # For above deck (d=0):
-        min_pol_d0 = torch.where(pol_locations[..., 0, :] > 0, self.ports + 1, self.P).min(dim=-1).values
-        min_pol_d0 = torch.where(min_pol_d0 == self.P, 0, min_pol_d0)
-        # For below deck (d=1):
-        max_pol_d1 = torch.where(pol_locations[..., 1, :] > 0, self.ports + 1, 0).max(dim=-1).values
-        agg_pol_locations = torch.stack((min_pol_d0, max_pol_d1), dim=-1)
-
-        ## Get discharge indicators - we discharge below deck that is blocked
-        # For above deck (d=0):
-        max_pod_d0 = torch.where(pod_locations[..., 0, :] > 0, self.ports+1, 0).max(dim=-1).values
-        # For below deck (d=1):
-        min_pod_d1 = torch.where(pod_locations[..., 1, :] > 0, self.ports+1, self.P).min(dim=-1).values
-        min_pod_d1 = torch.where(min_pod_d1 == self.P, 0, min_pod_d1)
-        agg_pod_locations = torch.stack((max_pod_d0, min_pod_d1), dim=-1)
-        # Return indicators
-        return agg_pol_locations.to(self.float_type), agg_pod_locations.to(self.float_type)
 
     def _compute_overstowage_loading_indicator(self, pod_locations: Tensor,) -> Tensor:
         """Indicate if overstowage is present due to discharge by: max(pod_d0) > min(pod_d1)

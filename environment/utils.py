@@ -82,7 +82,7 @@ def get_transport_from_pol_pod(pol, pod, transport_idx):
     """
     # Find rows where both the first column is `pol` and the second column is `pod`
     mask = (transport_idx[:, 0].unsqueeze(1) == pol) & (transport_idx[:, 1].unsqueeze(1) == pod)
-    # Use torch.where to get the indices where the mask is True
+    # Use th.where to get the indices where the mask is True
     output = th.where(mask)[0] # [0] extracts the first dimension (row indices)
 
     # Check if the output is empty
@@ -119,6 +119,43 @@ def compute_long_crane(utilization: th.Tensor, moves:th.Tensor, T:int) -> th.Ten
     moves_idx = moves.to(utilization.dtype).view(1, 1, 1, T, 1)
     moves_per_bay = (utilization * moves_idx).sum(dim=(-3, -2, -1))
     return moves_per_bay[..., :-1] + moves_per_bay[..., 1:]
+
+
+def compute_pol_pod_locations(utilization: th.Tensor, transform_tau_to_pol, transform_tau_to_pod) -> Tuple[th.Tensor, th.Tensor]:
+    """Compute POL and POD locations based on utilization"""
+    if utilization.dim() == 4:
+        util = utilization.permute(0, 1, 3, 2)
+    elif utilization.dim() == 5:
+        util = utilization.permute(0, 1, 2, 4, 3)
+    else:
+        raise ValueError("Utilization tensor has wrong dimensions.")
+    pol_locations = (util @ transform_tau_to_pol).sum(dim=-2) != 0
+    pod_locations = (util @ transform_tau_to_pod).sum(dim=-2) != 0
+    return pol_locations, pod_locations
+
+def aggregate_pol_pod_location(pol_locations: th.Tensor, pod_locations: th.Tensor,
+                               ports:th.Tensor, P:int, float_type:th.dtype) -> Tuple:
+    """Aggregate pol_locations and pod_locations into:
+        - pod: [max(pod_d0), min(pod_d1)]
+        - pol: [min(pol_d0), max(pol_d1)]"""
+    ## Get load indicators - we load below deck that is blocked
+    # For above deck (d=0):
+    min_pol_d0 = th.where(pol_locations[..., 0, :] > 0, ports + 1, P).min(dim=-1).values
+    min_pol_d0 = th.where(min_pol_d0 == P, 0, min_pol_d0)
+    # For below deck (d=1):
+    max_pol_d1 = th.where(pol_locations[..., 1, :] > 0, ports + 1, 0).max(dim=-1).values
+    agg_pol_locations = th.stack((min_pol_d0, max_pol_d1), dim=-1)
+
+    ## Get discharge indicators - we discharge below deck that is blocked
+    # For above deck (d=0):
+    max_pod_d0 = th.where(pod_locations[..., 0, :] > 0, ports+1, 0).max(dim=-1).values
+    # For below deck (d=1):
+    min_pod_d1 = th.where(pod_locations[..., 1, :] > 0, ports+1, P).min(dim=-1).values
+    min_pod_d1 = th.where(min_pod_d1 == P, 0, min_pod_d1)
+    agg_pod_locations = th.stack((max_pod_d0, min_pod_d1), dim=-1)
+    # Return indicators
+    return agg_pol_locations.to(float_type), agg_pod_locations.to(float_type)
+
 
 def compute_hatch_overstowage(utilization: th.Tensor, moves: th.Tensor, ac_transport:th.Tensor) -> th.Tensor:
     """Get hatch overstowage based on ac_transport and moves"""
