@@ -134,9 +134,10 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
                  action_rescale_max: Optional[float] = None,
                  **kwargs):
         super().__init__(module, in_keys, out_keys, spec=spec, **kwargs)
-        self.projection_layer = projection_layer
+        self.upscale = kwargs.get("distribution_kwargs", {}).get("upscale", 1.0)
         if action_rescale_min is not None and action_rescale_max is not None:
             self.rescale_action = lambda x: x * (action_rescale_max - action_rescale_min) + action_rescale_min
+        self.projection_layer = projection_layer
 
     def forward(self, *args, **kwargs):
         out = super().forward(*args, **kwargs)
@@ -529,6 +530,8 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             # f"gradient norm: {log['grad_norm']: 4.4}, "
             # Prediction
             f"x: {log['x']: 4.4f}, "
+            f"loc(x): {log['loc(x)']: 4.4f}, "
+            f"scale(x): {log['scale(x)']: 4.4f}, "
             # Performance
             f"total_profit: {log['total_profit']: 4.4f}, "
             f"violation: {log['total_violation']: 4.4f}, "
