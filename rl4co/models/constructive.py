@@ -11,7 +11,7 @@ from rl4co.envs import RL4COEnvBase, get_env
 from rl4co.utils.ops import calculate_entropy
 from rl4co.utils.pylogger import get_pylogger
 
-from models.decoding import (
+from rl4co.rl4co.decoding import (
     DecodingStrategy,
     get_decoding_strategy,
     get_log_likelihood,

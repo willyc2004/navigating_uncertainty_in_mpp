@@ -6,17 +6,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 from tensordict import TensorDict
-from einops import rearrange
-import math
 
 # Custom rl4co modules
-from rl4co.models.common.constructive.autoregressive.decoder import AutoregressiveDecoder
-from rl4co.envs import RL4COEnvBase
-from rl4co.utils.ops import batchify, unbatchify
-from rl4co.models.nn.attention import PointerAttention, PointerAttnMoE
-from environment.embeddings import MPPInitEmbedding, StaticEmbedding, MPPContextEmbedding
-from torch.cuda.amp import autocast
-from models.projection_n_step_ppo import check_for_nans, recursive_check_for_nans
+from environment.embeddings import StaticEmbedding
 from models.common.ffn_block import ResidualBlock, add_normalization_layer
 
 @dataclass

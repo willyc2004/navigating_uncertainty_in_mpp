@@ -131,9 +131,6 @@ from torchrl.collectors import SyncDataCollector
 from torchrl.data.replay_buffers import ReplayBuffer
 from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
 from torchrl.data.replay_buffers.storages import LazyTensorStorage
-from torchrl.envs import (Compose, DoubleToFloat, ObservationNorm, StepCounter,
-                          TransformedEnv)
-from torchrl.envs.libs.gym import GymEnv
 from torchrl.envs.utils import check_env_specs, ExplorationType, set_exploration_type
 from torchrl.modules import ProbabilisticActor, TanhNormal, ValueOperator
 from torchrl.objectives import ClipPPOLoss
@@ -337,12 +334,8 @@ if torch.cuda.is_available():
 
 
 # Custom environment modules
-from environment.env import MasterPlanningEnv
-from environment.env_port import PortMasterPlanningEnv
-from environment.embeddings import MPPInitEmbedding, StaticEmbedding, MPPContextEmbedding
-from environment.data import StateDependentDataset, custom_collate_fn
-from environment.results import rollout_results
-from environment.trial import trial
+from rl4co.rl4co.env import MasterPlanningEnv
+
 
 # Helper functions
 def adapt_env_kwargs(config):
@@ -361,7 +354,7 @@ import yaml
 from dotmap import DotMap
 
 # Load static configuration from the YAML file
-with open('../../config.yaml', 'r') as file:
+with open('../../rl4co/config.yaml', 'r') as file:
 # with open('test_config.yaml', 'r') as file:
     config = yaml.safe_load(file)
     config = DotMap(config)

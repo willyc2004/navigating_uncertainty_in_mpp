@@ -1,13 +1,9 @@
 import math
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import torch.jit as jit
 from torch import Tensor
 from tensordict import TensorDict
-from torch.cuda.amp import autocast
 from rl4co.utils.ops import gather_by_index
-from models.projection_n_step_ppo import check_for_nans, recursive_check_for_nans
 
 class MPPInitEmbedding(nn.Module):
     def __init__(self, embed_dim, action_dim, env, num_constraints=5):

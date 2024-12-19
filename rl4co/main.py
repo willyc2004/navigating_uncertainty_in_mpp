@@ -25,7 +25,6 @@ from dotmap import DotMap
 import time
 import wandb
 import copy
-from tensordict import TensorDict
 
 # PyTorch, Lightning
 import torch
@@ -34,35 +33,31 @@ from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import LinearLR
 from lightning.pytorch.callbacks import ModelCheckpoint, RichModelSummary, EarlyStopping
 from lightning.pytorch.loggers import WandbLogger
-from torchrl.envs import TransformedEnv
-from torchrl.envs.transforms import ObservationNorm
 
 # RL4CO
-from rl4co.utils.trainer import RL4COTrainer
-from rl4co.models.zoo import AMPPO
-from rl4co.models.zoo.am.encoder import AttentionModelEncoder
-from rl4co.models.common.constructive.autoregressive import AutoregressivePolicy
+from environment.utils.trainer import RL4COTrainer
+from environment.models.zoo import AMPPO
+from environment.models.zoo.am.encoder import AttentionModelEncoder
+from environment.models.common.constructive.autoregressive import AutoregressivePolicy
 # Customized RL4CO modules
 # Models and policy
 from models.encoder import MLPEncoder
 from models.decoder import AttentionDecoderWithCache, MLPDecoderWithCache
 from models.critic import CriticNetwork
-from models.am_policy import AttentionModelPolicy4PPO
-from models.constructive import ConstructivePolicyMPP
+from models.rl4co.am_policy import AttentionModelPolicy4PPO
+from models.rl4co.constructive import ConstructivePolicyMPP
 AutoregressivePolicy.__bases__ = (ConstructivePolicyMPP,) # Adapt base class
 # PPO
-from models.projection_n_step_ppo import Projection_Nstep_PPO
-from models.projection_ppo import Projection_PPO
+from models.rl4co.projection_ppo import Projection_PPO
 AMPPO.__bases__ = (Projection_PPO,)  # Adapt base class
 # AMPPO.__bases__ = (Projection_Nstep_PPO,)  # Adapt base class
 
 # Custom environment modules
-from environment.env import MasterPlanningEnv
-from environment.env_port import PortMasterPlanningEnv
+from environment.rl4co.env import MasterPlanningEnv
 from environment.embeddings import MPPInitEmbedding, StaticEmbedding, MPPContextEmbedding
 from environment.data import StateDependentDataset, custom_collate_fn
 from environment.results import rollout_results
-from environment.trial import trial
+
 
 # Helper functions
 def adapt_env_kwargs(config):

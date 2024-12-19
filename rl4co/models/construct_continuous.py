@@ -9,11 +9,10 @@ from tensordict import TensorDict
 from torch import Tensor
 
 from rl4co.envs import RL4COEnvBase, get_env
-from models.decoding_continuous import (
+from rl4co.rl4co.decoding_continuous import (
     DecodingStrategy,
     get_decoding_strategy,
-    get_log_likelihood,
-    calculate_gaussian_entropy
+    get_log_likelihood
 )
 from rl4co.utils.ops import calculate_entropy
 from rl4co.utils.pylogger import get_pylogger

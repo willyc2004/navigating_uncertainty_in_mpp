@@ -1,46 +1,21 @@
-import time
-import torch
 import os
 
 from lightning.pytorch.callbacks import ModelCheckpoint, RichModelSummary
-from lightning.pytorch.loggers import WandbLogger
-
-from rl4co.envs import TSPEnv, CVRPTWEnv, SDVRPEnv, DenseRewardTSPEnv, SPCTSPEnv
-from rl4co.models.zoo import AttentionModel
-from rl4co.utils.trainer import RL4COTrainer
 
 from typing import Optional
 import torch
-import torch.nn as nn
 
-from tensordict.tensordict import TensorDict
-from torchrl.data import (
-    BoundedTensorSpec,
-    CompositeSpec,
-    UnboundedContinuousTensorSpec,
-    UnboundedDiscreteTensorSpec,
-)
-
-from rl4co.utils.decoding import rollout, random_policy
-from rl4co.models.rl.ppo.stepwise_ppo import StepwisePPO
-from rl4co.models.zoo import AttentionModel, AttentionModelPolicy, AMPPO
-from rl4co.utils.ops import gather_by_index, get_tour_length
-from rl4co.utils.trainer import RL4COTrainer
+from environment.models.zoo import AttentionModelPolicy
 
 # RL4CO
-from rl4co.utils.trainer import RL4COTrainer
-from rl4co.models.zoo import AMPPO
+from environment.utils.trainer import RL4COTrainer
+from environment.models.zoo import AMPPO
 # Customized RL4CO modules
-from models.am_policy import AttentionModelPolicy4PPO
 from models.ppo import ProjectionPPO
-from models.projection_n_step_ppo import Projection_Nstep_PPO
-from models.projection_ppo import Projection_PPO
-from rl4co.models.zoo.am.encoder import AttentionModelEncoder
-from rl4co.models.common.constructive.autoregressive import AutoregressivePolicy
+from environment.models.zoo.am.encoder import AttentionModelEncoder
 from models.examples.decoder2 import AttentionModelDecoder
-from models.constructive import ConstructivePolicyMPP
-from models.construct_continuous import ConstructivePolicy
-from environment.env import MasterPlanningEnv
+from models.rl4co.construct_continuous import ConstructivePolicy
+from environment.rl4co.env import MasterPlanningEnv
 # AMPPO.__bases__ = (StepwisePPO,)  # Adapt base class
 # AMPPO.__bases__ = (Projection_Nstep_PPO,)  # Adapt base class
 # AMPPO.__bases__ = (Projection_PPO,)  # Adapt base class

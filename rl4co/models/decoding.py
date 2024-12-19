@@ -8,11 +8,10 @@ from torch.distributions import Normal
 from tensordict.tensordict import TensorDict
 
 from rl4co.envs import RL4COEnvBase
-from rl4co.utils.ops import batchify, gather_by_index, unbatchify, unbatchify_and_gather
+from rl4co.utils.ops import batchify
 from rl4co.utils.pylogger import get_pylogger
 from models.projection import ProjectionFactory
 from models.clipped_gaussian import ClippedGaussian
-from models.projection_n_step_ppo import recursive_check_for_nans, check_for_nans
 
 log = get_pylogger(__name__)
 
@@ -43,7 +42,7 @@ def get_decoding_strategy(decoding_strategy, **config):
     return strategy_registry.get(decoding_strategy, ContinuousSampling)(**config)
 
 
-def get_log_likelihood(logprobs, actions=None, mask=None, return_sum: bool = True, discrete: bool = True):
+def get_log_likelihood(logprobs, actions=None, mask=None, return_sum: bool = True):
     """Get log likelihood of selected actions.
     Note that mask is a boolean tensor where True means the value should be kept.
 
@@ -53,24 +52,29 @@ def get_log_likelihood(logprobs, actions=None, mask=None, return_sum: bool = Tru
         mask: Action mask. 1 if feasible, 0 otherwise (so we keep if 1 as done in PyTorch).
         return_sum: Whether to return the sum of log probabilities or not. Defaults to True.
     """
-    # Optional: select logp when logp.shape = (bs, dec_steps, N)
-    if actions is not None and logprobs.dim() == 3 and discrete:
+    if actions.dtype == torch.float16 or actions.dtype == torch.float32:
+        if mask is not None:
+            logprobs[~mask] = 0
+        return logprobs
+
+    elif actions.dtype == torch.int64:
         logprobs = logprobs.gather(-1, actions.unsqueeze(-1)).squeeze(-1)
 
-    # Optional: mask out actions irrelevant to objective so they do not get reinforced
-    if mask is not None:
-        logprobs[~mask] = 0
+        # Optional: mask out actions irrelevant to objective so they do not get reinforced
+        if mask is not None:
+            logprobs[~mask] = 0
 
-    assert (
-        logprobs > -1000
-    ).data.all(), "Logprobs should not be -inf, check sampling procedure!"
+        assert (
+            logprobs > -1000
+        ).data.all(), "Logprobs should not be -inf, check sampling procedure!"
 
-    # Calculate log_likelihood
-    if return_sum:
-        return logprobs.sum(1)  # [batch]
+        # Calculate log_likelihood
+        if return_sum:
+            return logprobs.sum(1)  # [batch]
+        else:
+            return logprobs  # [batch, decode_len]
     else:
-        return logprobs  # [batch, decode_len]
-
+        raise ValueError(f"actions.dtype should be torch.float16/32 or torch.int64. It is however {actions.dtype}.")
 
 def decode_logprobs(logprobs, mask, decode_type="sampling"):
     """Decode log probabilities to select actions with mask.
@@ -106,36 +110,112 @@ def calculate_gaussian_entropy(logits):
         entropy = 0.5 * d * (1 + torch.log(torch.tensor(2 * torch.pi))) + torch.log(std + 1e-8).sum(dim=(1))
     return entropy  # Shape [batch]
 
+def modify_logits_for_top_k_filtering(logits, top_k):
+    """Set the logits for none top-k values to -inf. Done out-of-place.
+    Ref: https://github.com/togethercomputer/stripedhyena/blob/7e13f618027fea9625be1f2d2d94f9a361f6bd02/stripedhyena/sample.py#L6
+    """
+    indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
+    return logits.masked_fill(indices_to_remove, float("-inf"))
+
+def modify_logits_for_top_p_filtering(logits, top_p):
+    """Set the logits for none top-p values to -inf. Done out-of-place.
+    Ref: https://github.com/togethercomputer/stripedhyena/blob/7e13f618027fea9625be1f2d2d94f9a361f6bd02/stripedhyena/sample.py#L14
+    """
+    if top_p <= 0.0 or top_p >= 1.0:
+        return logits
+
+    # First sort and calculate cumulative sum of probabilities.
+    sorted_logits, sorted_indices = torch.sort(logits, descending=False)
+    cumulative_probs = sorted_logits.softmax(dim=-1).cumsum(dim=-1)
+
+    # Remove tokens with cumulative top_p above the threshold (token with 0 are kept)
+    sorted_indices_to_remove = cumulative_probs <= (1 - top_p)
+
+    # Scatter sorted tensors to original indexing
+    indices_to_remove = sorted_indices_to_remove.scatter(
+        -1, sorted_indices, sorted_indices_to_remove
+    )
+    return logits.masked_fill(indices_to_remove, float("-inf"))
+
+def process_logits(
+    logits: torch.Tensor,
+    mask: torch.Tensor = None,
+    clip_min: torch.Tensor = None,
+    clip_max: torch.Tensor = None,
+    temperature: float = 1.0,
+    top_p: float = 0.0,
+    top_k: int = 0,
+    mask_logits: bool = True,
+    tanh_clipping: float = 0,
+    discrete: bool = False,
+    eps = 1e-3,
+    ):
+    """Convert logits to log probabilities with additional features like temperature scaling, top-k and top-p sampling.
+
+    Note:
+        We convert to log probabilities instead of probabilities to avoid numerical instability.
+        This is because, roughly, softmax = exp(logits) / sum(exp(logits)) and log(softmax) = logits - log(sum(exp(logits))),
+        and avoiding the division by the sum of exponentials can help with numerical stability.
+        You may check the [official PyTorch documentation](https://pytorch.org/docs/stable/generated/torch.nn.functional.log_softmax.html).
+
+    Args:
+        logits: Logits from the model (batch_size, num_actions).
+        mask: Action mask. 1 if feasible, 0 otherwise (so we keep if 1 as done in PyTorch).
+        temperature: Temperature scaling. Higher values make the distribution more uniform (exploration),
+            lower values make it more peaky (exploitation).
+        top_p: Top-p sampling, a.k.a. Nucleus Sampling (https://arxiv.org/abs/1904.09751). Remove tokens that have a cumulative probability
+            less than the threshold 1 - top_p (lower tail of the distribution). If 0, do not perform.
+        top_k: Top-k sampling, i.e. restrict sampling to the top k logits. If 0, do not perform. Note that we only do filtering and
+            do not return all the top-k logits here.
+        tanh_clipping: Tanh clipping (https://arxiv.org/abs/1611.09940).
+        mask_logits: Whether to mask logits of infeasible actions.
+    """
+    # Tanh clipping from Bello et al. 2016
+    if tanh_clipping > 0:
+        logits = torch.tanh(logits) * tanh_clipping
+
+    # In RL, we want to mask the logits to prevent the agent from selecting infeasible actions
+    if mask_logits and discrete: # todo: allow for continuous as well
+        assert mask is not None, "mask must be provided if mask_logits is True"
+        logits[~mask] = float("-inf")
+
+    logits = logits / temperature  # temperature scaling
+
+    if top_k > 0:
+        top_k = min(top_k, logits.size(-1))  # safety check
+        logits = modify_logits_for_top_k_filtering(logits, top_k)
+
+    if top_p > 0:
+        assert top_p <= 1.0, "top-p should be in (0, 1]."
+        logits = modify_logits_for_top_p_filtering(logits, top_p)
+
+    if discrete:
+        # Compute log probabilities
+        return F.log_softmax(logits, dim=-1)
+    else:
+        # For continuous action space, we have logits and std_x
+        if logits.dim() == 2:
+            e_x = logits
+            std_x = torch.ones_like(logits)
+        elif logits.dim() == 3 or logits.dim() == 4:
+            e_x, std_x = logits[..., 0], logits[..., 1]
+        else:
+            raise ValueError(f"Invalid logits shape: {logits.shape}")
+
+        # Apply lower bound
+        if clip_min is not None:
+            e_x = torch.clamp(e_x, min=clip_min)
+
+        # Apply upper bound
+        if clip_max is not None:
+            e_x = torch.clamp(e_x, max=clip_max)
+        return e_x, std_x
 
 def random_policy(td):
     """Helper function to select a random action from available actions"""
     action = torch.multinomial(td["action_mask"].float(), 1).squeeze(-1)
     td.set("action", action)
     return td
-
-
-def rollout(env, td, policy, max_steps: int = None):
-    """Helper function to rollout a policy. Currently, TorchRL does not allow to step
-    over envs when done with `env.rollout()`. We need this because for environments that complete at different steps.
-    """
-
-    max_steps = float("inf") if max_steps is None else max_steps
-    actions = []
-    steps = 0
-
-    while not td["done"].all():
-        td = policy(td)
-        actions.append(td["action"])
-        td = env.step(td)["next"]
-        steps += 1
-        if steps > max_steps:
-            log.info("Max steps reached")
-            break
-    return (
-        env.get_reward(td, torch.stack(actions, dim=1)),
-        td,
-        torch.stack(actions, dim=1),
-    )
 
 def rollout_mpp(env, td, policy, max_steps: int = None, EDA=False):
     """Helper function to rollout a policy. Currently, TorchRL does not allow to step
@@ -183,104 +263,28 @@ def rollout_mpp(env, td, policy, max_steps: int = None, EDA=False):
         results,
     )
 
-
-def modify_logits_for_top_k_filtering(logits, top_k):
-    """Set the logits for none top-k values to -inf. Done out-of-place.
-    Ref: https://github.com/togethercomputer/stripedhyena/blob/7e13f618027fea9625be1f2d2d94f9a361f6bd02/stripedhyena/sample.py#L6
+def rollout(env, td, policy, max_steps: int = None):
+    """Helper function to rollout a policy. Currently, TorchRL does not allow to step
+    over envs when done with `env.rollout()`. We need this because for environments that complete at different steps.
     """
-    indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
-    return logits.masked_fill(indices_to_remove, float("-inf"))
 
+    max_steps = float("inf") if max_steps is None else max_steps
+    actions = []
+    steps = 0
 
-def modify_logits_for_top_p_filtering(logits, top_p):
-    """Set the logits for none top-p values to -inf. Done out-of-place.
-    Ref: https://github.com/togethercomputer/stripedhyena/blob/7e13f618027fea9625be1f2d2d94f9a361f6bd02/stripedhyena/sample.py#L14
-    """
-    if top_p <= 0.0 or top_p >= 1.0:
-        return logits
+    while not td["done"].all():
+        td = policy(td)
+        actions.append(td["action"])
+        td = env.step(td)["next"]
+        steps += 1
+        if steps > max_steps:
+            log.info("Max steps reached")
 
-    # First sort and calculate cumulative sum of probabilities.
-    sorted_logits, sorted_indices = torch.sort(logits, descending=False)
-    cumulative_probs = sorted_logits.softmax(dim=-1).cumsum(dim=-1)
-
-    # Remove tokens with cumulative top_p above the threshold (token with 0 are kept)
-    sorted_indices_to_remove = cumulative_probs <= (1 - top_p)
-
-    # Scatter sorted tensors to original indexing
-    indices_to_remove = sorted_indices_to_remove.scatter(
-        -1, sorted_indices, sorted_indices_to_remove
+    return (
+        env.get_reward(td, torch.stack(actions, dim=1)),
+        td,
+        torch.stack(actions, dim=1),
     )
-    return logits.masked_fill(indices_to_remove, float("-inf"))
-
-
-def process_logits(
-    logits: torch.Tensor,
-    mask: torch.Tensor = None,
-    clip_min: torch.Tensor = None,
-    clip_max: torch.Tensor = None,
-    temperature: float = 1.0,
-    top_p: float = 0.0,
-    top_k: int = 0,
-    mask_logits: bool = True,
-    tanh_clipping: float = 0,
-    discrete: bool = True,
-    eps = 1e-3,
-    ):
-    """Convert logits to log probabilities with additional features like temperature scaling, top-k and top-p sampling.
-
-    Note:
-        We convert to log probabilities instead of probabilities to avoid numerical instability.
-        This is because, roughly, softmax = exp(logits) / sum(exp(logits)) and log(softmax) = logits - log(sum(exp(logits))),
-        and avoiding the division by the sum of exponentials can help with numerical stability.
-        You may check the [official PyTorch documentation](https://pytorch.org/docs/stable/generated/torch.nn.functional.log_softmax.html).
-
-    Args:
-        logits: Logits from the model (batch_size, num_actions).
-        mask: Action mask. 1 if feasible, 0 otherwise (so we keep if 1 as done in PyTorch).
-        temperature: Temperature scaling. Higher values make the distribution more uniform (exploration),
-            lower values make it more peaky (exploitation).
-        top_p: Top-p sampling, a.k.a. Nucleus Sampling (https://arxiv.org/abs/1904.09751). Remove tokens that have a cumulative probability
-            less than the threshold 1 - top_p (lower tail of the distribution). If 0, do not perform.
-        top_k: Top-k sampling, i.e. restrict sampling to the top k logits. If 0, do not perform. Note that we only do filtering and
-            do not return all the top-k logits here.
-        tanh_clipping: Tanh clipping (https://arxiv.org/abs/1611.09940).
-        mask_logits: Whether to mask logits of infeasible actions.
-    """
-    # Tanh clipping from Bello et al. 2016
-    if tanh_clipping > 0:
-        logits = torch.tanh(logits) * tanh_clipping
-
-    # In RL, we want to mask the logits to prevent the agent from selecting infeasible actions
-    if mask_logits and discrete: # todo: allow for continuous as well
-        assert mask is not None, "mask must be provided if mask_logits is True"
-        logits[~mask] = float("-inf")
-
-    logits = logits / temperature  # temperature scaling
-
-    if top_k > 0:
-        top_k = min(top_k, logits.size(-1))  # safety check
-        logits = modify_logits_for_top_k_filtering(logits, top_k)
-
-    if top_p > 0:
-        assert top_p <= 1.0, "top-p should be in (0, 1]."
-        logits = modify_logits_for_top_p_filtering(logits, top_p)
-
-    if discrete:
-        # Compute log probabilities
-        return F.log_softmax(logits, dim=-1)
-    else:
-        # For continuous action space, we have logits and std_x
-        e_x, std_x = logits[..., 0], logits[..., 1].exp()
-
-        # Apply lower bound
-        if clip_min is not None:
-            e_x = torch.clamp(e_x, min=clip_min)
-
-        # Apply upper bound
-        if clip_max is not None:
-            e_x = torch.clamp(e_x, max=clip_max)
-        return e_x, std_x
-
 
 class DecodingStrategy(metaclass=abc.ABCMeta):
     """Base class for decoding strategies. Subclasses should implement the :meth:`_step` method.
@@ -294,7 +298,6 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
         mask_logits: Whether to mask logits of infeasible actions. Defaults to True.
         tanh_clipping: Tanh clipping (https://arxiv.org/abs/1611.09940). Defaults to 0.
         multistart: Whether to use multistart decoding. Defaults to False.
-        multisample: Whether to use sampling decoding. Defaults to False.
         num_starts: Number of starts for multistart decoding. Defaults to None.
     """
 
@@ -308,12 +311,8 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
         mask_logits: bool = True,
         tanh_clipping: float = 0,
         multistart: bool = False,
-        multisample: bool = False,
         num_starts: Optional[int] = None,
         select_start_nodes_fn: Optional[callable] = None,
-        improvement_method_mode: bool = False,
-        select_best: bool = False,
-        store_all_logp: bool = False,
         **kwargs,
     ) -> None:
         self.temperature = temperature
@@ -321,20 +320,22 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
         self.top_k = top_k
         self.mask_logits = mask_logits
         self.tanh_clipping = tanh_clipping
+        self.tanh_squashing = kwargs.get("tanh_squashing", False)
         self.multistart = multistart
-        self.multisample = multisample
         self.num_starts = num_starts
         self.select_start_nodes_fn = select_start_nodes_fn
-        self.improvement_method_mode = improvement_method_mode
-        self.select_best = select_best
-        self.store_all_logp = store_all_logp
         # create projection layer
+        self.env = kwargs.get("env", None)
         self.projection_type = kwargs.get("projection_type", None)
         self.projection_kwargs = kwargs.get("projection_kwargs", None)
-        self.projection_layer = ProjectionFactory.create_class(self.projection_type, kwargs=self.projection_kwargs)
+        self.projection_layer = ProjectionFactory.create_class(
+            self.projection_type, kwargs=self.projection_kwargs)
+        self.select_obs_td = kwargs.get("select_obs_td", None)
         # initialize buffers
         self.actions = []
         self.logprobs = []
+        if self.env.name == "mpp":
+            self.utilization = []
 
     @abc.abstractmethod
     def _step(
@@ -359,15 +360,10 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
         self, td: TensorDict, env: RL4COEnvBase, action: torch.Tensor = None
     ):
         """Pre decoding hook. This method is called before the main decoding operation."""
-
         # Multi-start decoding. If num_starts is None, we use the number of actions in the action mask
-        if self.multistart or self.multisample:
+        if self.multistart:
             if self.num_starts is None:
                 self.num_starts = env.get_num_starts(td)
-                if self.multisample:
-                    log.warn(
-                        f"num_starts is not provided for sampling, using num_starts={self.num_starts}"
-                    )
         else:
             if self.num_starts is not None:
                 if self.num_starts >= 1:
@@ -379,49 +375,45 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
 
         # Multi-start decoding: first action is chosen by ad-hoc node selection
         if self.num_starts >= 1:
-            if self.multistart:
-                if action is None:  # if action is provided, we use it as the first action
-                    if self.select_start_nodes_fn is not None:
-                        action = self.select_start_nodes_fn(td, env, self.num_starts)
-                    else:
-                        action = env.select_start_nodes(td, num_starts=self.num_starts)
-
-                # Expand td to batch_size * num_starts
-                td = batchify(td, self.num_starts)
-
-                td.set("action", action)
-                td = env.step(td)["next"]
-                # first logprobs is 0, so p = logprobs.exp() = 1
-                if self.store_all_logp:
-                    logprobs = torch.zeros_like(td["action_mask"])  # [B, N]
+            if action is None:  # if action is provided, we use it as the first action
+                if self.select_start_nodes_fn is not None:
+                    action = self.select_start_nodes_fn(td, env, self.num_starts)
                 else:
-                    logprobs = torch.zeros_like(action, device=td.device)  # [B]
+                    action = env.select_start_nodes(td, num_starts=self.num_starts)
 
-                self.logprobs.append(logprobs)
-                self.actions.append(action)
-            else:
-                # Expand td to batch_size * num_samplestarts
-                td = batchify(td, self.num_starts)
+            # Expand td to batch_size * num_starts
+            td = batchify(td, self.num_starts)
+            td.set("action", action)
+            td = env.step(td)["next"]
+            logprobs = torch.zeros_like(
+                td["action_mask"], device=td.device
+            )  # first logprobs is 0, so p = logprobs.exp() = 1
+            rewards = torch.zeros_like(
+                td["rewards"], device=td.device
+            )
+            self.logprobs.append(logprobs)
+            self.actions.append(action)
 
         return td, env, self.num_starts
 
     def post_decoder_hook(
-        self, td: TensorDict, env: RL4COEnvBase
-    ) -> Tuple[torch.Tensor, torch.Tensor, TensorDict, RL4COEnvBase]:
-        assert (
-            len(self.logprobs) > 0
-        ), "No logprobs were collected because all environments were done. Check your initial state"
-        logprobs = torch.stack(self.logprobs, 1)
-        actions = torch.stack(self.actions, 1)
-        if self.num_starts > 0 and self.select_best:
-            logprobs, actions, td, env = self._select_best(logprobs, actions, td, env)
-        return logprobs, actions, td, env
+        self, td: TensorDict, env: RL4COEnvBase) -> Tuple[Dict, TensorDict, RL4COEnvBase]:
+        assert (len(self.logprobs) > 0), \
+            "No logprobs were collected because all environments were done. Check your initial state"
+        dict_out = {
+            "logprobs":torch.stack(self.logprobs, 1),
+            "actions":torch.stack(self.actions, 1),
+        }
+        if self.name.startswith("continuous") and self.projection_layer is not None:
+            if self.env.name == "mpp":
+                dict_out["utilization"] = torch.stack(self.utilization, 1)
+        return dict_out, td, env
 
     def step(
         self,
         logits: torch.Tensor,
         mask: torch.Tensor,
-        td: TensorDict = None,
+        td: TensorDict,
         action: torch.Tensor = None,
         **kwargs,
     ) -> TensorDict:
@@ -433,9 +425,6 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
             td: TensorDict containing the current state of the environment.
             action: Optional action to use, e.g. for evaluating log probabilities.
         """
-        if not self.mask_logits:  # set mask_logit to None if mask_logits is False
-            mask = None
-
         if self.name.startswith("continuous"):
             # Continuous action logits processing
             clip_min = td.get("clip_min", None)
@@ -465,40 +454,34 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
                 td=td, clip_min=clip_min, clip_max=clip_max, action=action, **kwargs
             )
             # Track logits, logprobs and actions
-            # todo: allow for efficient passing of unproj_mean_logits
-            logits = torch.stack([mean_logits, std_logits], dim=-1)
-            td.update({#"unproj_mean_logits": unproj_mean_logits.clone(),
-                       "logits": logits.clone(),
+            self.utilization.append(td["state"]["utilization"])
+            td.update({"unproj_mean_logits": unproj_mean_logits.clone(),
+                       "mean_logits": mean_logits.clone(),
+                       "std_logits": std_logits.clone(),
                        "logprobs":logprobs.clone(),
                        "action":selected_action.clone(),
                        "mask":mask.clone()})
         else:
-            # Discrete action logits processing
+            # Discrete action space
             logprobs = process_logits(
                 logits,
                 mask,
+                mask_logits=self.mask_logits,
                 temperature=self.temperature,
                 top_p=self.top_p,
                 top_k=self.top_k,
                 tanh_clipping=self.tanh_clipping,
-                mask_logits=self.mask_logits,
+                discrete=True,
             )
             logprobs, selected_action, td = self._step(
-                logprobs, mask, td, action=action, **kwargs
+                logprobs, mask, td, action=action,
+                **kwargs
             )
-
-            # directly return for improvement methods, since the action for improvement methods is finalized in its own policy
-            if self.improvement_method_mode:
-                return logprobs, selected_action
-
-            # for others
-            if not self.store_all_logp:
-                logprobs = gather_by_index(logprobs, selected_action, dim=1)
+            # Track logprobs and actions
             td.set("action", selected_action)
-
-        # Track logprobs and actions
-        self.actions.append(selected_action)
-        self.logprobs.append(logprobs)
+            td.update({"logprobs":logprobs})
+        self.actions.append(selected_action.clone())
+        self.logprobs.append(logprobs.clone())
         return td
 
     @staticmethod
@@ -529,6 +512,13 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
 
         return selected
 
+    @staticmethod
+    def continuous_eps_greedy(logits, mask=None, epsilon=0.1):
+        """Return the logit with (1-eps) probability, and random logit with eps probability."""
+        if torch.rand(logits.shape) < epsilon:  # Vectorized random sampling
+            return torch.FloatTensor(logits.shape).uniform_(0, 1).masked_fill(~mask, -float("inf"))
+
+        return logits  # Greedy action
 
     @staticmethod
     def continuous_sampling(mean_logits: torch.Tensor, std_logits: torch.Tensor, selected: torch.Tensor = None,
@@ -537,10 +527,10 @@ class DecodingStrategy(metaclass=abc.ABCMeta):
         Get logprobs based on sampled action."""
         clip_min = kwargs.get("clip_min", None)
         clip_max = kwargs.get("clip_max", None)
-        # if clip_min is not None and clip_max is not None:
-        #     dist = ClippedGaussian(mean_logits, std_logits, clip_min, clip_max)
-        # else:
-        dist = Normal(mean_logits, std_logits)
+        if clip_min is not None and clip_max is not None:
+            dist = ClippedGaussian(mean_logits, std_logits, clip_min, clip_max)
+        else:
+            dist = Normal(mean_logits, std_logits)
 
         # sample and get log probs
         if selected is None:
@@ -578,10 +568,9 @@ class Sampling(DecodingStrategy):
     def _step(
         self, logprobs: torch.Tensor, mask: torch.Tensor, td: TensorDict, **kwargs
     ) -> Tuple[torch.Tensor, torch.Tensor, TensorDict]:
-        """Sample an action with a multinomial distribution given by the log probabilities."""
+        """Sample action based on log probability"""
         selected = self.sampling(logprobs, mask)
         return logprobs, selected, td
-
 
 class Evaluate(DecodingStrategy):
     name = "evaluate"
@@ -598,13 +587,10 @@ class Evaluate(DecodingStrategy):
         selected = action
         return logprobs, selected, td
 
-
 class BeamSearch(DecodingStrategy):
     name = "beam_search"
 
     def __init__(self, beam_width=None, select_best=True, **kwargs) -> None:
-        # TODO do we really need all logp in beam search?
-        kwargs["store_all_logp"] = True
         super().__init__(**kwargs)
         self.beam_width = beam_width
         self.select_best = select_best

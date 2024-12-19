@@ -1,17 +1,14 @@
-from typing import Callable, Dict
+from typing import Callable
 from tensordict import TensorDict
 
 import torch
 import torch.nn as nn
 
-from rl4co.models.common.constructive.autoregressive.policy import AutoregressivePolicy
-from rl4co.models.zoo.am.decoder import AttentionModelDecoder
-from rl4co.models.zoo.am.encoder import AttentionModelEncoder
 from rl4co.models.zoo.am.policy import AttentionModelPolicy
 from rl4co.utils.ops import calculate_entropy
 
 # Custom modules
-from models.decoding import DecodingStrategy, get_decoding_strategy, get_log_likelihood, calculate_gaussian_entropy
+from rl4co.rl4co.decoding import DecodingStrategy, get_decoding_strategy, calculate_gaussian_entropy
 
 class AttentionModelPolicy4PPO(AttentionModelPolicy):
     def __init__(

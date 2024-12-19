@@ -290,6 +290,7 @@ class MasterPlanningEnv(EnvBase):
         normalize_revenue = self.revenues.max() * demand_state["current_demand"]
         # Normalize accumulated cost \in [0, t_cost], where t_cost is the time at which we evaluate cost:
         # cost_norm = cost_{t_cost} / E[q_t]
+        # todo: check proper cost normalization
         normalize_cost = demand_state["realized_demand"].view(*batch_size, -1)[...,:t[0]].sum(dim=-1, keepdims=True) / t[0]
         # Normalize reward: r_t = revenue_norm - cost_norm
         # We have spikes over delayed costs at specific time steps.
