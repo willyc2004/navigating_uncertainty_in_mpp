@@ -141,7 +141,7 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
     def forward(self, *args, **kwargs):
         out = super().forward(*args, **kwargs)
         if self.rescale_action is not None:
-            out["action"] = self.rescale_action((out["action"] + 1)/2)  # Rescale (-1,1) to (0,1), then to (min, max)
+            out["action"] = self.rescale_action((out["action"] + self.upscale)/2)  # Rescale from [-x, x] to (min, max)
         if self.projection_layer is not None:
             action = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
             out["action"] = action
@@ -261,9 +261,8 @@ def main(config: Optional[DotMap] = None):
     policy = ProjectionProbabilisticActor(
         module=actor,
         in_keys=["loc", "scale"],
-        distribution_class=TanhNormal if config.model.tanh_squashing else TruncatedNormal,
-        distribution_kwargs={} if config.model.tanh_squashing
-        else {"low": env.action_spec.low[0], "high": env.action_spec.high[0]},
+        distribution_class=TanhNormal,
+        distribution_kwargs={"upscale":1.0},
         return_log_prob=True,
         projection_layer=projection_layer,
         action_rescale_min=env.action_spec.low[0],
@@ -319,8 +318,10 @@ def optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwa
     loss_out["loss_critic"] = F.mse_loss(current_q1, target_value) + F.mse_loss(current_q2, target_value)
     critic_optim.zero_grad()
     loss_out["loss_critic"].backward()
-    torch.nn.utils.clip_grad_norm_(critic1.parameters(), max_grad_norm)
-    torch.nn.utils.clip_grad_norm_(critic2.parameters(), max_grad_norm)
+    loss_out["gn_critic1"] = torch.nn.utils.clip_grad_norm_(critic1.parameters(), max_grad_norm)
+    loss_out["gn_critic2"] = torch.nn.utils.clip_grad_norm_(critic2.parameters(), max_grad_norm)
+    loss_out["gn_target_critic1"] = torch.nn.utils.clip_grad_norm_(target_critic1.parameters(), max_grad_norm)
+    loss_out["gn_target_critic2"] = torch.nn.utils.clip_grad_norm_(target_critic2.parameters(), max_grad_norm)
     critic_optim.step()
 
     # Soft update target critics
@@ -346,7 +347,7 @@ def optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwa
     loss_out["loss_actor"] = (entropy_lambda * log_prob - q_min).mean() + loss_out["loss_feasibility"]
     actor_optim.zero_grad()
     loss_out["loss_actor"].backward()
-    torch.nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
+    loss_out["gn_actor"] = torch.nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
     actor_optim.step()
     return loss_out, policy_out
 
@@ -491,9 +492,16 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             "return": subdata['next', 'reward'].mean().item(),
             "policy[loc]": policy_out["loc"].mean().item(),
             "policy[scale]": policy_out["scale"].mean().item(),
-            # "grad_norm": gn.item(),
+            "gn_actor": loss_out["gn_actor"].item(),
+            "gn_critic1": loss_out["gn_critic1"].item(),
+            "gn_critic2": loss_out["gn_critic2"].item(),
             # "clip_fraction": loss_out["clip_fraction"],
             # todo: add kl_approx, ratio, advantage
+            # Prediction
+            "x": policy_out['action'].mean().item(),
+            "loc(x)": policy_out['loc'].mean().item(),
+            "scale(x)": policy_out['scale'].mean().item(),
+
             # Constraints
             "mean_total_violation": loss_out["violation"].sum(dim=(-2,-1)).mean().item(),
             "total_violation": policy_out['violation'].sum(dim=(-2,-1)).mean().item(),
@@ -519,8 +527,10 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             f"loss_actor:  {log['loss_actor']: 4.4f}, "
             f"loss_critic:  {log['loss_critic']: 4.4f}, "
             f"feasibility_loss: {log['loss_feasibility']: 4.4f}, "
-            f"mean_violation: {log['mean_total_violation']: 4.4f}, "                
+            f"mean_violation: {log['mean_total_violation']: 4.4f}, "    
             # f"gradient norm: {log['grad_norm']: 4.4}, "
+            # Prediction
+            f"x: {log['x']: 4.4f}, "
             # Performance
             f"total_profit: {log['total_profit']: 4.4f}, "
             f"violation: {log['total_violation']: 4.4f}, "
