@@ -205,7 +205,7 @@ class MLPDecoderWithCache(nn.Module):
         # Temperature for the policy
         self.temperature = temperature
 
-    def forward(self, obs, hidden) -> Dict[str, Tensor]:
+    def forward(self, obs, hidden:Optional=None) -> Dict[str, Tensor]:
         # Context embedding
         context = self.context_embedding(obs, hidden)
 
