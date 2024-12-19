@@ -171,7 +171,6 @@ class PortMasterPlanningEnv(EnvBase):
         lc_costs = excess_crane_moves.sum(dim=-1,) * self.lc_costs
         cost = ho_costs + lc_costs
         # Reward/profit
-        print("revenue", revenue.shape, "cost", cost.shape)
         profit = revenue - cost
         reward = profit.clone()
         # todo: normalization of reward
@@ -180,10 +179,9 @@ class PortMasterPlanningEnv(EnvBase):
 
         ## Transition to next step
         # Update next state
-        t = t + 1
+        t = th.where(done.any(), t, t+1)
         next_state_dict = self._update_next_state(utilization, demand_state, t, batch_size)
-        if not done.any():
-            rhs = self.create_port_rhs(next_state_dict["utilization"], next_state_dict["rhs_demand"], batch_size)
+        rhs = self.create_port_rhs(next_state_dict["utilization"], next_state_dict["rhs_demand"], batch_size)
 
         # Only for final port
         if done.any():
@@ -194,11 +192,10 @@ class PortMasterPlanningEnv(EnvBase):
 
             # Compute metrics
             excess_crane_moves += lc_excess_last_port
-            lc_cost_ = lc_excess_last_port.sum(dim=-1, keepdim=True) * self.lc_costs
+            lc_cost_ = lc_excess_last_port.sum(dim=-1) * self.lc_costs
             profit -= lc_cost_
             cost += lc_cost_
             lc_costs += lc_cost_
-        print("reward", reward.shape)
 
         # Update td output
         obs = self._get_observation(next_state_dict, t, batch_size)
