@@ -62,9 +62,9 @@ def make_env(env_kwargs:DotMap, batch_size:Optional[list] = [], device: torch.de
     """Setup and transform the Pendulum environment."""
     portwise_env = env_kwargs.pop("portwise_env", False)
     if portwise_env:
-        return PortMasterPlanningEnv(batch_size=batch_size, **env_kwargs).to(device)  # Custom environment
+        return PortMasterPlanningEnv(batch_size=batch_size, **env_kwargs).to(device)
     else:
-       return MasterPlanningEnv(batch_size=batch_size, **env_kwargs).to(device)  # Custom environment
+       return MasterPlanningEnv(batch_size=batch_size, **env_kwargs).to(device)
 
 def compute_surrogate_loss(ll, td, clip_epsilon, normalize_advantage=False) -> Dict:
     """Compute the surrogate loss for PPO."""
@@ -183,14 +183,13 @@ def main(config: Optional[DotMap] = None):
 
     ## Model initialization
     # Embedding dimensions
-    init_dim = config.model.init_dim
     embed_dim = config.model.embed_dim
-    sequence_dim = env.K * env.T
     obs_dim = env.observation_spec["observation"].shape[0]
     action_dim = env.action_spec.shape[0]
+    sequence_dim = env.K * env.T if env.action_spec.shape[0] == env.B*env.D else env.P-1
     # Embedding initialization
-    init_embed = MPPInitEmbedding(embed_dim, action_dim, env)
-    context_embed = MPPContextEmbedding(obs_dim, embed_dim, env, config.model.demand_aggregation)
+    init_embed = MPPInitEmbedding(embed_dim, sequence_dim, env)
+    context_embed = MPPContextEmbedding(obs_dim, embed_dim, sequence_dim, env, config.model.demand_aggregation)
     dynamic_embed = StaticEmbedding(obs_dim, embed_dim)
 
     # Model initialization

@@ -6,15 +6,19 @@ from tensordict import TensorDict
 from rl4co.utils.ops import gather_by_index
 
 class MPPInitEmbedding(nn.Module):
-    def __init__(self, embed_dim, action_dim, env, num_constraints=5):
+    def __init__(self, embed_dim, seq_dim, env, num_constraints=5):
         super(MPPInitEmbedding, self).__init__()
         # Store environment and sequence size
         self.env = env
-        self.seq_size = self.env.T * self.env.K
+        self.seq_dim = seq_dim
 
         # Embedding layers
-        num_embeddings = 5  # Number of embeddings
-        self.fc = nn.Linear(num_embeddings, embed_dim)
+        if env.name == "mpp":
+            num_embeddings = 5  # Number of embeddings
+            self.fc = nn.Linear(num_embeddings, embed_dim)
+        elif env.name == "port_mpp":
+            num_embeddings = self.seq_dim  # Number of embeddings
+            self.fc = nn.Linear(num_embeddings, embed_dim)
         self.positional_encoding = DynamicSinusoidalPositionalEncoding(embed_dim)
 
     def _combine_cargo_parameters(self, batch_size):
@@ -32,8 +36,12 @@ class MPPInitEmbedding(nn.Module):
     def forward(self, obs: Tensor):
         # todo: possibly add more exp, std of demand
         batch_size = obs.shape[0]
-        cargo_parameters = self._combine_cargo_parameters(batch_size=batch_size)
-        combined_input = torch.cat([*cargo_parameters.values(),], dim=-1)
+        if self.env.name == "mpp":
+            cargo_parameters = self._combine_cargo_parameters(batch_size=batch_size)
+            combined_input = torch.cat([*cargo_parameters.values(),], dim=-1)
+        elif self.env.name == "port_mpp":
+            raise NotImplementedError
+
         combined_emb = self.fc(combined_input)
 
         # Positional encoding
@@ -48,10 +56,10 @@ class MPPContextEmbedding(nn.Module):
     - Embeds the state of the MPP for the context
     """
 
-    def __init__(self, obs_dim, embed_dim, env, demand_aggregation="full",):
+    def __init__(self, obs_dim, embed_dim, seq_dim, env, demand_aggregation="full",):
         super(MPPContextEmbedding, self).__init__()
         self.env = env
-        self.seq_size = self.env.T * self.env.K
+        self.seq_dim = seq_dim
         self.project_context = nn.Linear(embed_dim + obs_dim, embed_dim,) # embed_dim +
 
         # todo: give options for different demand aggregation methods; e.g. sum, self-attention
@@ -61,8 +69,8 @@ class MPPContextEmbedding(nn.Module):
             self.expected_demand = nn.Linear(1, embed_dim)
             self.std_demand = nn.Linear(1, embed_dim)
         elif self.demand_aggregation == "full":
-            self.observed_demand = nn.Linear(self.seq_size, embed_dim)
-            self.expected_demand = nn.Linear(self.seq_size, embed_dim)
+            self.observed_demand = nn.Linear(seq_dim, embed_dim)
+            self.expected_demand = nn.Linear(seq_dim, embed_dim)
             self.std_demand = nn.Linear(self.seq_size, embed_dim)
         elif self.demand_aggregation == "self_attn":
             self.observed_demand = SelfAttentionStateMapping(embed_dim=embed_dim,)
