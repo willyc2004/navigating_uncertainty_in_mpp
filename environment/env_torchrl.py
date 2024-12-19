@@ -222,8 +222,7 @@ class MasterPlanningEnv(EnvBase):
         # Compute od-pairs
         pol_locations, pod_locations = compute_pol_pod_locations(utilization,
                                                                  self.transform_tau_to_pol, self.transform_tau_to_pod)
-        agg_pol_location, agg_pod_location = aggregate_pol_pod_location(pol_locations, pod_locations,
-                                                                        self.ports, self.P, self.float_type)
+        agg_pol_location, agg_pod_location = aggregate_pol_pod_location(pol_locations, pod_locations, self.float_type)
         # Compute total loaded
         sum_action = action.sum(dim=(-2, -1)).unsqueeze(-1)
         total_metrics["total_loaded"] += sum_action

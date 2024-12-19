@@ -284,11 +284,10 @@ class PortMasterPlanningEnv(MasterPlanningEnv):
 
         # Origin-destination pairs
         pol_locations, pod_locations = compute_pol_pod_locations(utilization, self.transform_tau_to_pol, self.transform_tau_to_pod)
-        # todo: pol_locations is 1.0 initially, which is annoying - try to rewrite.
-        # 0 has value of port 0, while pol 1.0 does not exist. However, this does not make sense for model.
-        # 0 needs to mean 0, 1/P, 2/P etc.
-        agg_pol_location, agg_pod_location = aggregate_pol_pod_location(pol_locations, pod_locations,
-                                                                        self.ports, self.P, self.float_type)
+        # todo: check for issues
+        agg_pol_location, agg_pod_location = aggregate_pol_pod_location(pol_locations, pod_locations, self.float_type)
+        # print("pol", pol_locations, "\n", agg_pol_location.T)
+        # print("pod", pod_locations, "\n", agg_pod_location.T)
 
         return th.cat([
             t.view(*batch_size, 1) / (self.T * self.K),

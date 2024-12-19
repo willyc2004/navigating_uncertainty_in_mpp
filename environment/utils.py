@@ -133,25 +133,50 @@ def compute_pol_pod_locations(utilization: th.Tensor, transform_tau_to_pol, tran
     pod_locations = (util @ transform_tau_to_pod).sum(dim=-2) != 0
     return pol_locations, pod_locations
 
-def aggregate_pol_pod_location(pol_locations: th.Tensor, pod_locations: th.Tensor,
-                               ports:th.Tensor, P:int, float_type:th.dtype) -> Tuple:
+def aggregate_indices(binary_matrix, get_highest=True):
+    # Shape: [batch_size, rows, columns]
+    batch_size, rows, columns = binary_matrix.shape
+
+    # Create a tensor of indices [0, 1, ..., columns - 1]
+    indices = th.arange(columns, device=binary_matrix.device).expand(batch_size, rows, -1) + 1
+    if get_highest:
+        # Find the highest True index
+        # Reverse the indices and binary matrix along the last dimension
+        reversed_indices = th.flip(indices, dims=[2])
+        reversed_binary = th.flip(binary_matrix, dims=[2])
+
+        # Get the highest index where the value is True (1)
+        highest_indices = th.where(reversed_binary.bool(), reversed_indices, 0)
+        result = highest_indices.max(dim=2).values
+    else:
+        # Find the lowest True index
+        lowest_indices = th.where(binary_matrix.bool(), indices, th.inf)
+        result = lowest_indices.min(dim=2).values
+        result[result==th.inf] = 0
+
+    return result
+
+def aggregate_pol_pod_location(pol_locations: th.Tensor, pod_locations: th.Tensor, float_type:th.dtype) -> Tuple:
     """Aggregate pol_locations and pod_locations into:
         - pod: [max(pod_d0), min(pod_d1)]
         - pol: [min(pol_d0), max(pol_d1)]"""
+
     ## Get load indicators - we load below deck that is blocked
     # For above deck (d=0):
-    min_pol_d0 = th.where(pol_locations[..., 0, :] > 0, ports + 1, P).min(dim=-1).values
-    min_pol_d0 = th.where(min_pol_d0 == P, 0, min_pol_d0)
+    min_pol_d0 = aggregate_indices(pol_locations[..., 0, :], get_highest=False)
+    #th.where(pol_locations[..., 0, :] > 0, ports + 1, 0).min(dim=-1).values
     # For below deck (d=1):
-    max_pol_d1 = th.where(pol_locations[..., 1, :] > 0, ports + 1, 0).max(dim=-1).values
+    max_pol_d1 = aggregate_indices(pol_locations[..., 1, :], get_highest=True)
+    # th.where(pol_locations[..., 1, :] > 0, ports + 1, 0).max(dim=-1).values
     agg_pol_locations = th.stack((min_pol_d0, max_pol_d1), dim=-1)
 
     ## Get discharge indicators - we discharge below deck that is blocked
     # For above deck (d=0):
-    max_pod_d0 = th.where(pod_locations[..., 0, :] > 0, ports+1, 0).max(dim=-1).values
+    max_pod_d0 = aggregate_indices(pod_locations[..., 0, :], get_highest=True)
+    # th.where(pod_locations[..., 0, :] > 0, ports+1, 0).max(dim=-1).values
     # For below deck (d=1):
-    min_pod_d1 = th.where(pod_locations[..., 1, :] > 0, ports+1, P).min(dim=-1).values
-    min_pod_d1 = th.where(min_pod_d1 == P, 0, min_pod_d1)
+    min_pod_d1 = aggregate_indices(pod_locations[..., 0, :], get_highest=False)
+    # th.where(pod_locations[..., 1, :] > 0, ports+1, 0).min(dim=-1).values
     agg_pod_locations = th.stack((max_pod_d0, min_pod_d1), dim=-1)
     # Return indicators
     return agg_pol_locations.to(float_type), agg_pod_locations.to(float_type)
