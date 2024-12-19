@@ -26,6 +26,7 @@ class PortMasterPlanningEnv(MasterPlanningEnv):
 
         # Initialize
         self._constraint_shapes()
+        self._constraint_vectors()
         if td_gen == None:
             self.td_gen = self.generator(batch_size=batch_size,)
         self._make_spec(self.td_gen)
@@ -169,6 +170,7 @@ class PortMasterPlanningEnv(MasterPlanningEnv):
             "reward": reward,
             "done": done,
             "timestep":t,
+            "rhs":rhs,
         }, td.shape)
         return out
 
