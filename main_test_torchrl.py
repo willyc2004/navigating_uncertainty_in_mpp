@@ -320,8 +320,6 @@ def optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwa
     loss_out["loss_critic"].backward()
     loss_out["gn_critic1"] = torch.nn.utils.clip_grad_norm_(critic1.parameters(), max_grad_norm)
     loss_out["gn_critic2"] = torch.nn.utils.clip_grad_norm_(critic2.parameters(), max_grad_norm)
-    loss_out["gn_target_critic1"] = torch.nn.utils.clip_grad_norm_(target_critic1.parameters(), max_grad_norm)
-    loss_out["gn_target_critic2"] = torch.nn.utils.clip_grad_norm_(target_critic2.parameters(), max_grad_norm)
     critic_optim.step()
 
     # Soft update target critics
