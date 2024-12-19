@@ -623,8 +623,8 @@ class MasterPlanningEnv(EnvBase):
         ac_transport = self.remain_on_board_transport[single_pol]
         moves = self.moves_idx[single_pol]
         # Compute hatch overstowage
-        hatch_open = utilization[..., 1:, moves, :].sum(dim=(2, 3, 4)) > 0
-        hatch_overstowage = utilization[..., :1, ac_transport, :].sum(dim=(2, 3, 4)) * hatch_open
+        hatch_open = utilization[..., 1:, moves, :].sum(dim=(-3, -2, -1)) > 0
+        hatch_overstowage = utilization[..., :1, ac_transport, :].sum(dim=(-3, -2, -1)) * hatch_open
         return hatch_overstowage
 
     def _compute_target_long_crane(self, realized_demand: Tensor, moves: Tensor) -> Tensor:
