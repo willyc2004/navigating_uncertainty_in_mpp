@@ -3,10 +3,11 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 from tensordict import TensorDict
+from typing import Tuple, Callable, Optional, Dict
 from rl4co.utils.ops import gather_by_index
 
 class MPPInitEmbedding(nn.Module):
-    def __init__(self, embed_dim, seq_dim, env, num_constraints=5):
+    def __init__(self, obs_dim, action_dim, embed_dim, seq_dim, env, num_constraints=5):
         super(MPPInitEmbedding, self).__init__()
         # Store environment and sequence size
         self.env = env
@@ -20,6 +21,7 @@ class MPPInitEmbedding(nn.Module):
             num_embeddings = self.seq_dim  # Number of embeddings
             self.fc = nn.Linear(num_embeddings, embed_dim)
         self.positional_encoding = DynamicSinusoidalPositionalEncoding(embed_dim)
+        self.zeros = torch.zeros(1, seq_dim, embed_dim, device=self.env.device, dtype=self.env.float_type)
 
     def _combine_cargo_parameters(self, batch_size):
         """Prepare cargo parameters for init embedding"""
@@ -33,22 +35,22 @@ class MPPInitEmbedding(nn.Module):
         return norm_features
 
 
-    def forward(self, obs: Tensor):
+    def forward(self, obs: Tensor,):
         # todo: possibly add more exp, std of demand
         batch_size = obs.shape[0]
         if self.env.name == "mpp":
             cargo_parameters = self._combine_cargo_parameters(batch_size=batch_size)
             combined_input = torch.cat([*cargo_parameters.values(),], dim=-1)
+            combined_emb = self.fc(combined_input)
+
+            # Positional encoding
+            # todo: add positional encoding
+            # initial_embedding = self.positional_encoding(combined_emb)
+            initial_embedding = combined_emb
+            return initial_embedding
         elif self.env.name == "port_mpp":
-            raise NotImplementedError
+            return self.zeros
 
-        combined_emb = self.fc(combined_input)
-
-        # Positional encoding
-        # todo: add positional encoding
-        # initial_embedding = self.positional_encoding(combined_emb)
-        initial_embedding = combined_emb
-        return initial_embedding
 
 class MPPContextEmbedding(nn.Module):
     """Context embedding of the MPP;
@@ -56,11 +58,11 @@ class MPPContextEmbedding(nn.Module):
     - Embeds the state of the MPP for the context
     """
 
-    def __init__(self, obs_dim, embed_dim, seq_dim, env, demand_aggregation="full",):
+    def __init__(self, obs_dim, action_dim, embed_dim, seq_dim, env, demand_aggregation="full",):
         super(MPPContextEmbedding, self).__init__()
         self.env = env
         self.seq_dim = seq_dim
-        self.project_context = nn.Linear(embed_dim + obs_dim, embed_dim,) # embed_dim +
+        self.project_context = nn.Linear(obs_dim, embed_dim,) # embed_dim + obs_dim
 
         # todo: give options for different demand aggregation methods; e.g. sum, self-attention
         self.demand_aggregation = demand_aggregation
@@ -71,7 +73,7 @@ class MPPContextEmbedding(nn.Module):
         elif self.demand_aggregation == "full":
             self.observed_demand = nn.Linear(seq_dim, embed_dim)
             self.expected_demand = nn.Linear(seq_dim, embed_dim)
-            self.std_demand = nn.Linear(self.seq_size, embed_dim)
+            self.std_demand = nn.Linear(seq_dim, embed_dim)
         elif self.demand_aggregation == "self_attn":
             self.observed_demand = SelfAttentionStateMapping(embed_dim=embed_dim,)
             self.expected_demand = SelfAttentionStateMapping(embed_dim=embed_dim,)
@@ -79,14 +81,16 @@ class MPPContextEmbedding(nn.Module):
         else:
             raise ValueError(f"Invalid demand aggregation: {demand_aggregation}")
 
-    def forward(self, obs: Tensor, latent_state: Tensor):
+    def forward(self, obs: Tensor, latent_state: Optional[Tensor] = None):
         """Embed the context for the MPP"""
-        # Get relevant init embedding (first element of obs)
-        time = (obs[..., 0] * self.seq_size).long()
-        select_init_embedding = gather_by_index(latent_state, time)
+        # # Get relevant init embedding (first element of obs)
+        # time = (obs[..., 0] * self.seq_dim).long()
+        # select_init_embedding = gather_by_index(latent_state, time)
 
-        # Project state, concat embeddings, and project concat to output
-        context_embedding = torch.cat([obs, select_init_embedding], dim=-1)
+        # # Project state, concat embeddings, and project concat to output
+        # context_embedding = torch.cat([obs, select_init_embedding], dim=-1)
+
+        context_embedding = torch.cat([obs,], dim=-1)
         output = self.project_context(context_embedding)
         return output
 
