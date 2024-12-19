@@ -41,6 +41,7 @@ from rl4co.models.zoo.am.encoder import AttentionModelEncoder
 
 # Custom
 from environment.env_torchrl import MasterPlanningEnv
+from environment.env_port_torchrl import PortMasterPlanningEnv
 from environment.embeddings import MPPInitEmbedding, StaticEmbedding, MPPContextEmbedding
 from environment.utils import compute_violation
 from models.encoder import MLPEncoder
@@ -59,7 +60,11 @@ def adapt_env_kwargs(config):
 
 def make_env(env_kwargs:DotMap, batch_size:Optional[list] = [], device: torch.device = torch.device("cuda")):
     """Setup and transform the Pendulum environment."""
-    return MasterPlanningEnv(batch_size=batch_size, **env_kwargs).to(device)  # Custom environment
+    portwise_env = env_kwargs.pop("portwise_env", False)
+    if portwise_env:
+        return PortMasterPlanningEnv(batch_size=batch_size, **env_kwargs).to(device)  # Custom environment
+    else:
+       return MasterPlanningEnv(batch_size=batch_size, **env_kwargs).to(device)  # Custom environment
 
 def compute_surrogate_loss(ll, td, clip_epsilon, normalize_advantage=False) -> Dict:
     """Compute the surrogate loss for PPO."""
