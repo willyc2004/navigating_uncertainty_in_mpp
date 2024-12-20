@@ -97,6 +97,12 @@ def update_state_discharge(utilization:th.Tensor, disc_idx:th.Tensor,) -> th.Ten
     utilization[..., disc_idx, :] = 0.0
     return utilization
 
+def update_state_loading(action: th.Tensor, utilization: th.Tensor, tau:th.Tensor, k:th.Tensor,) -> th.Tensor:
+    """Transition to the next state based on the action."""
+    new_utilization = utilization.clone()
+    new_utilization[..., tau, k] = action
+    return new_utilization
+
 def compute_target_long_crane(realized_demand: th.Tensor, moves: th.Tensor,
                               capacity:th.Tensor, B:int, CI_target:float) -> th.Tensor:
     """Compute target crane moves per port:

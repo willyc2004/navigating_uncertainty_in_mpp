@@ -208,7 +208,7 @@ class MasterPlanningEnv(EnvBase):
 
         # Check done, update utilization, and compute violation
         done = self._check_done(t)
-        utilization = self._update_state_loading(action, utilization, tau, k,)
+        utilization = update_state_loading(action, utilization, tau, k,)
         # todo: improve readability of this part
         if lhs_A.dim() == 2:
             violation = lhs_A @ action.view(*batch_size, -1) - rhs
@@ -543,16 +543,9 @@ class MasterPlanningEnv(EnvBase):
     # Reward/costs functions
     def _get_reward(self, td, utilizations) -> Tensor:
         """Compute total profit for episode"""
-        return (td["state"]["total_revenue"] - td["state"]["total_cost"])/1000
+        return (td["state"]["total_revenue"] - td["state"]["total_cost"]).view(-1, 1)
 
     # Update state
-    def _update_state_loading(self, action: Tensor, utilization: Tensor,
-                              tau:Tensor, k:Tensor,) -> Tensor:
-        """Transition to the next state based on the action."""
-        new_utilization = utilization.clone()
-        new_utilization[..., tau, k] = action
-        return new_utilization
-
     def _update_next_state(self, utilization: Tensor, target_long_crane:Tensor,
                            long_crane_moves_load:Tensor, long_crane_moves_discharge:Tensor,
                            demand_state:Dict, t:Tensor, batch_size) -> Dict[str, Tensor]:
