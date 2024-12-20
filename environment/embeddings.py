@@ -38,18 +38,15 @@ class MPPInitEmbedding(nn.Module):
     def forward(self, obs: Tensor,):
         # todo: possibly add more exp, std of demand
         batch_size = obs.shape[0]
-        if self.env.name == "mpp":
-            cargo_parameters = self._combine_cargo_parameters(batch_size=batch_size)
-            combined_input = torch.cat([*cargo_parameters.values(),], dim=-1)
-            combined_emb = self.fc(combined_input)
+        cargo_parameters = self._combine_cargo_parameters(batch_size=batch_size)
+        combined_input = torch.cat([*cargo_parameters.values(),], dim=-1)
+        combined_emb = self.fc(combined_input)
 
-            # Positional encoding
-            # todo: add positional encoding
-            # initial_embedding = self.positional_encoding(combined_emb)
-            initial_embedding = combined_emb
-            return initial_embedding
-        elif self.env.name == "port_mpp":
-            return self.zeros
+        # Positional encoding
+        # todo: add positional encoding
+        # initial_embedding = self.positional_encoding(combined_emb)
+        initial_embedding = combined_emb
+        return initial_embedding
 
 
 class MPPContextEmbedding(nn.Module):
@@ -62,7 +59,7 @@ class MPPContextEmbedding(nn.Module):
         super(MPPContextEmbedding, self).__init__()
         self.env = env
         self.seq_dim = seq_dim
-        self.project_context = nn.Linear(obs_dim, embed_dim,) # embed_dim + obs_dim
+        self.project_context = nn.Linear(embed_dim + obs_dim, embed_dim,)
 
         # todo: give options for different demand aggregation methods; e.g. sum, self-attention
         self.demand_aggregation = demand_aggregation
@@ -83,14 +80,12 @@ class MPPContextEmbedding(nn.Module):
 
     def forward(self, obs: Tensor, latent_state: Optional[Tensor] = None):
         """Embed the context for the MPP"""
-        # # Get relevant init embedding (first element of obs)
-        # time = (obs[..., 0] * self.seq_dim).long()
-        # select_init_embedding = gather_by_index(latent_state, time)
+        # Get relevant init embedding (first element of obs)
+        time = (obs[..., 0] * self.seq_dim).long()
+        select_init_embedding = gather_by_index(latent_state, time)
 
-        # # Project state, concat embeddings, and project concat to output
-        # context_embedding = torch.cat([obs, select_init_embedding], dim=-1)
-
-        context_embedding = torch.cat([obs,], dim=-1)
+        # Project state, concat embeddings, and project concat to output
+        context_embedding = torch.cat([obs, select_init_embedding], dim=-1)
         output = self.project_context(context_embedding)
         return output
 
