@@ -198,9 +198,6 @@ class MasterPlanningEnv(EnvBase):
         ## Current state
         # Action clipping: clip range are in containers
         action = action.clamp(min=td["clip_min"].view(*batch_size, self.B, self.D), max=td["clip_max"].view(*batch_size, self.B, self.D))
-        print("timestep: ", t[0], "teus: ", self.teus_episode[t[0]])
-        print("clip_range(min,max): ", td["clip_min"].mean(), td["clip_max"].mean())
-        print("teu in util", td["state"]["residual_capacity"].mean(),"action_teu", action.mean()*self.teus_episode[t[0]])
 
         # Check done, update utilization, and compute violation
         done = self._check_done(t)
@@ -213,6 +210,22 @@ class MasterPlanningEnv(EnvBase):
         else:
             raise ValueError("lhs_A has wrong dimensions.")
         violation = torch.clamp(violation, min=0).view(*batch_size, -1)
+        # if violation.dim() == 2:
+        #     print("---------------------------------")
+        #     print("time", t[0])
+        #     print("lcg", td["state", "lcg"].mean(),)
+        #     print("lcg violation", violation[...,-4:-2].mean(dim=-2))
+        #     # Count the number of lcg violations outside the range [0.85, 1.05]
+        #     lcg_out_of_bounds = (td["state", "lcg"] > 1.05) | (td["state", "lcg"] < 0.85)
+        #     lcg_violation_count = lcg_out_of_bounds.sum()
+        #     print("Number of lcg violations:", lcg_violation_count.item())
+        #
+        #     print("vcg", td["state", "vcg"].mean())
+        #     print("vcg violation", violation[...,-2:].mean(dim=-2))
+        #     # Count the number of vcg violations outside the range [0.85, 1.05] (assuming similar range)
+        #     vcg_out_of_bounds = (td["state", "vcg"] > 1.15) | (td["state", "vcg"] < 0.95)
+        #     vcg_violation_count = vcg_out_of_bounds.sum()
+        #     print("Number of vcg violations:", vcg_violation_count.item())
 
         # Compute long crane moves
         long_crane_moves_load = compute_long_crane(utilization, moves, self.T)
