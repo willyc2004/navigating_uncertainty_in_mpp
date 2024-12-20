@@ -185,11 +185,13 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
     def forward(self, *args, **kwargs):
         out = super().forward(*args, **kwargs)
         if not self.training:
-            if self.rescale_action is not None:
-                out["action"] = self.rescale_action((out["loc"] + self.upscale) / 2)
-        else:
-            if self.rescale_action is not None:
-                out["action"] = self.rescale_action((out["action"] + self.upscale) / 2)  # Rescale from [-x, x] to (min, max)
+            out["action"] = out["loc"]
+        #
+        #     if self.rescale_action is not None:
+        #         out["action"] = self.rescale_action((out["loc"] + self.upscale) / 2)
+        # else:
+        #     if self.rescale_action is not None:
+        #         out["action"] = self.rescale_action((out["action"] + self.upscale) / 2)  # Rescale from [-x, x] to (min, max)
         if self.projection_layer is not None:
             action = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
             out["action"] = action
@@ -307,12 +309,13 @@ def main(config: Optional[DotMap] = None):
     policy = ProjectionProbabilisticActor(
         module=actor,
         in_keys=["loc", "scale"],
-        distribution_class=TanhNormal,
-        distribution_kwargs={"upscale":1.0},
+        distribution_class=TruncatedNormal,
+        distribution_kwargs={"low": env.action_spec.low[0], "high": env.action_spec.high[0]},
+        # distribution_kwargs={"upscale":1.0},
         return_log_prob=True,
         projection_layer=projection_layer,
-        action_rescale_min=env.action_spec.low[0],
-        action_rescale_max=env.action_spec.high[0],
+        # action_rescale_min=env.action_spec.low[0],
+        # action_rescale_max=env.action_spec.high[0],
     )
 
     ## Main loop
@@ -381,23 +384,19 @@ def optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwa
 
     # Compute Actor Loss
     policy_out = policy(subdata)
+    policy_out["sample_log_prob"] = torch.clamp(policy_out["sample_log_prob"], -20, 2)  # Clip log_prob to avoid NaNs
     recursive_check_for_nans(policy_out)
-    new_action = policy_out["action"]
-    check_for_nans(new_action, "log_prob")
-    log_prob = policy_out["sample_log_prob"].unsqueeze(-1)
-    log_prob = torch.clamp(log_prob, -20, 2)  # Clip log_prob to avoid NaNs
-    check_for_nans(log_prob, "log_prob")
 
     # Feasibility loss
-    loss_out["loss_feasibility"], loss_out["mean_violation"] = compute_loss_feasibility(policy_out, new_action, feasibility_lambda, "sum")
+    loss_out["loss_feasibility"], loss_out["mean_violation"] = compute_loss_feasibility(policy_out, policy_out["action"], feasibility_lambda, "sum")
     check_for_nans(loss_out["loss_feasibility"], "loss_feasibility")
-    q1 = critic1(policy_out["observation"], new_action)
-    q2 = critic2(policy_out["observation"], new_action)
+    q1 = critic1(policy_out["observation"], policy_out["action"])
+    q2 = critic2(policy_out["observation"], policy_out["action"])
     q_min = torch.min(q1, q2)
     check_for_nans(q_min, "q_min")
 
     # Update actor
-    loss_out["loss_actor"] = (entropy_lambda * log_prob - q_min).mean() + loss_out["loss_feasibility"]
+    loss_out["loss_actor"] = (entropy_lambda * policy_out["sample_log_prob"].unsqueeze(-1) - q_min).mean() + loss_out["loss_feasibility"]
     actor_optim.zero_grad()
     loss_out["loss_actor"].backward()
     check_for_nans(loss_out["loss_actor"], "loss_actor")
@@ -551,12 +550,8 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
                     actor_optim.step()
                     actor_optim.zero_grad()
 
-        if kwargs["algorithm"]["type"] == "sac":
-            log_data = policy_out
-        else:
-            log_data = subdata
-
         # Log metrics
+        log_data = policy_out if kwargs["algorithm"]["type"] == "sac" else subdata
         pbar.update(1)
         log = {
             # General
@@ -585,8 +580,8 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             "total_violation": log_data['violation'].sum(dim=(-2,-1)).mean().item(),
             "demand_violation": log_data['violation'][...,0].sum(dim=(1)).mean().item(),
             "capacity_violation": log_data['violation'][...,1:-4].sum(dim=(1)).mean().item(),
-            "LCG_violation": log_data['violation'][..., -4:-2].sum(dim=(1,2)).mean().item(),
-            "VCG_violation": log_data['violation'][..., -2:].sum(dim=(1,2)).mean().item(),
+            "LCG_violation": log_data['violation'][..., env.next_port_mask, -4:-2].sum(dim=(1,2)).mean().item(),
+            "VCG_violation": log_data['violation'][..., env.next_port_mask, -2:].sum(dim=(1,2)).mean().item(),
 
             # Environment
             "total_revenue": log_data["revenue"].sum(dim=(-2,-1)).mean().item(),
