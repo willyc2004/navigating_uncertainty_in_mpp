@@ -61,11 +61,7 @@ def adapt_env_kwargs(config):
 
 def make_env(env_kwargs:DotMap, batch_size:Optional[list] = [], device: torch.device = torch.device("cuda")):
     """Setup and transform the Pendulum environment."""
-    # portwise_env = env_kwargs.pop("portwise_env", False)
-    # if portwise_env:
-    return PortMasterPlanningEnv(batch_size=batch_size, **env_kwargs).to(device)
-    # else:
-    #    return MasterPlanningEnv(batch_size=batch_size, **env_kwargs).to(device)
+    return MasterPlanningEnv(batch_size=batch_size, **env_kwargs).to(device)
 
 def compute_surrogate_loss(ll, td, clip_epsilon, normalize_advantage=False) -> Dict:
     """Compute the surrogate loss for PPO."""
@@ -103,11 +99,12 @@ def compute_surrogate_loss(ll, td, clip_epsilon, normalize_advantage=False) -> D
             "advantage": advantage.mean(),
             }
 
-
-def compute_loss_feasibility(td, action, lhs_A, feasibility_coef, aggregate_feasibility="sum"):
+# todo: redudant - also in loss_module of PPO_feas
+def compute_loss_feasibility(td, action, feasibility_coef, aggregate_feasibility="sum"):
     """Compute feasibility loss based on the action, lhs_A, and rhs tensors."""
+    lhs_A = td.get("lhs_A")
     rhs = td.get("rhs")
-    violation = compute_violation(action, lhs_A.view(1,1,*lhs_A.shape), rhs)
+    violation = compute_violation(action, lhs_A, rhs)
 
     # Get aggregation dimensions
     if aggregate_feasibility == "sum":
@@ -543,7 +540,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
                 raise NotImplementedError("PPO not implemented yet.")
             elif kwargs["algorithm"]["type"] == "ppo_feas":
                 for _ in range(num_epochs):
-                    loss_out = loss_module(subdata.to(device), env.lhs_A)
+                    loss_out = loss_module(subdata.to(device))
                     loss = (
                             loss_out["loss_objective"]
                             + loss_out["loss_critic"]

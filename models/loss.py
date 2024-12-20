@@ -211,15 +211,11 @@ class FeasibilityClipPPOLoss(PPOLoss):
             self.clip_epsilon.log1p(),
         )
 
-    def loss_feasibility(self, td, dist, lhs_A=None):
-        if hasattr(dist, 'loc'):
-            loc = dist.loc
-        else:
-            loc = dist.base_dist.loc
-        if lhs_A is None:
-            lhs_A = td.get("lhs_A")
+    def loss_feasibility(self, td, dist):
+        loc = dist.loc if hasattr(dist, 'loc') else dist.base_dist.loc
+        lhs_A = td.get("lhs_A")
         rhs = td.get("rhs")
-        mean_violation = compute_violation(loc, lhs_A.view(1,1,*lhs_A.shape), rhs)
+        mean_violation = compute_violation(loc, lhs_A, rhs)
 
         # Get aggregation dimensions
         if self.aggregate_feasibility == "sum":
@@ -247,7 +243,7 @@ class FeasibilityClipPPOLoss(PPOLoss):
         self._out_keys = values
 
     @dispatch
-    def forward(self, tensordict: TensorDictBase, lhs_A) -> TensorDictBase:
+    def forward(self, tensordict: TensorDictBase) -> TensorDictBase:
         tensordict = tensordict.clone(False)
         advantage = tensordict.get(self.tensor_keys.advantage, None)
         if advantage is None:
@@ -294,7 +290,7 @@ class FeasibilityClipPPOLoss(PPOLoss):
             if value_clip_fraction is not None:
                 td_out.set("value_clip_fraction", value_clip_fraction)
         if self.feasibility_coef is not None:
-            feasibility_loss, mean_violation = self.loss_feasibility(tensordict, dist, lhs_A)
+            feasibility_loss, mean_violation = self.loss_feasibility(tensordict, dist)
             td_out.set("loss_feasibility", feasibility_loss)
             td_out.set("mean_violation", mean_violation)
 
