@@ -333,7 +333,6 @@ def optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwa
     max_grad_norm = kwargs["algorithm"]["max_grad_norm"]
     entropy_lambda = kwargs["algorithm"]["entropy_lambda"]
     feasibility_lambda = kwargs["algorithm"]["feasibility_lambda"]
-    lhs_A = kwargs["lhs_A"]
 
     ## Unpack critics
     critic1 = critics["critic1"]
@@ -390,7 +389,7 @@ def optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwa
     check_for_nans(log_prob, "log_prob")
 
     # Feasibility loss
-    loss_out["loss_feasibility"], loss_out["mean_violation"] = compute_loss_feasibility(policy_out, new_action, lhs_A, feasibility_lambda, "sum")
+    loss_out["loss_feasibility"], loss_out["mean_violation"] = compute_loss_feasibility(policy_out, new_action, feasibility_lambda, "sum")
     check_for_nans(loss_out["loss_feasibility"], "loss_feasibility")
     q1 = critic1(policy_out["observation"], new_action)
     q2 = critic2(policy_out["observation"], new_action)
@@ -528,8 +527,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             subdata = replay_buffer.sample(mini_batch_size).to(device)
             # Loss computation and backpropagation
             if kwargs["algorithm"]["type"] == "sac":
-                loss_out, policy_out = optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim,
-                                                         lhs_A = env.lhs_A, **kwargs)
+                loss_out, policy_out = optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwargs)
                 # NaN check in loss
                 check_for_nans(subdata["observation"], "observation")
                 recursive_check_for_nans(subdata)
@@ -553,13 +551,18 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
                     actor_optim.step()
                     actor_optim.zero_grad()
 
+        if kwargs["algorithm"]["type"] == "sac":
+            log_data = policy_out
+        else:
+            log_data = subdata
+
         # Log metrics
         pbar.update(1)
         log = {
             # General
             "step": step,
             # Losses
-            "loss": loss.item(),
+            # "loss": loss.item(),
             "loss_actor": loss_out.get("loss_actor", loss_out.get("loss_objective")),
             "loss_critic":  loss_out["loss_critic"],
             "loss_feasibility":loss_out["loss_feasibility"],
@@ -573,35 +576,32 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             # "gn_critic2": loss_out["gn_critic2"].item(),
             # "clip_fraction": loss_out["clip_fraction"],
             # Prediction
-            "x": subdata['action'].mean().item(),
-            "loc(x)": subdata['loc'].mean().item(),
-            "scale(x)": subdata['scale'].mean().item(),
-            # "x": policy_out['action'].mean().item(),
-            # "loc(x)": policy_out['loc'].mean().item(),
-            # "scale(x)": policy_out['scale'].mean().item(),
+            "x": log_data['action'].mean().item(),
+            "loc(x)": log_data['loc'].mean().item(),
+            "scale(x)": log_data['scale'].mean().item(),
 
             # Constraints
             "mean_total_violation": loss_out["mean_violation"].sum(dim=(-2,-1)).mean().item(),
-            # "total_violation": policy_out['violation'].sum(dim=(-2,-1)).mean().item(),
-            # "demand_violation": policy_out['violation'][...,0].sum(dim=(1)).mean().item(),
-            # "capacity_violation": policy_out['violation'][...,1:-4].sum(dim=(1)).mean().item(),
-            # "LCG_violation": policy_out['violation'][..., -4:-2].sum(dim=(1,2)).mean().item(),
-            # "VCG_violation": policy_out['violation'][..., -2:].sum(dim=(1,2)).mean().item(),
+            "total_violation": log_data['violation'].sum(dim=(-2,-1)).mean().item(),
+            "demand_violation": log_data['violation'][...,0].sum(dim=(1)).mean().item(),
+            "capacity_violation": log_data['violation'][...,1:-4].sum(dim=(1)).mean().item(),
+            "LCG_violation": log_data['violation'][..., -4:-2].sum(dim=(1,2)).mean().item(),
+            "VCG_violation": log_data['violation'][..., -2:].sum(dim=(1,2)).mean().item(),
 
             # Environment
-            # "total_revenue": subdata["state", "total_revenue"][...,-1].mean().item(),
-            # "total_cost": subdata["state", "total_cost"][...,-1].mean().item(),
-            # "total_profit": subdata["state", "total_revenue"][...,-1].mean().item() -
-            #                 subdata["state", "total_cost"][...,-1].mean().item(),
-            # "total_loaded": subdata["state", "total_loaded"][...,-1].mean().item(),
-            "total_demand":subdata['realized_demand'][:,0,:].sum(dim=-1).mean(),
+            "total_revenue": log_data["revenue"].sum(dim=(-2,-1)).mean().item(),
+            "total_cost": log_data["cost"].sum(dim=(-2,-1)).mean().item(),
+            "total_profit": log_data["revenue"].sum(dim=(-2,-1)).mean().item() -
+                            log_data["cost"].sum(dim=(-2,-1)).mean().item(),
+            "total_loaded": log_data["action"].sum(dim=(-2,-1)).mean().item(),
+            "total_demand":log_data['realized_demand'][:,0,:].sum(dim=-1).mean(),
             "total_e[x]_demand": td['init_expected_demand'][:, 0, :].sum(dim=-1).mean(),
         }
         # Log metrics
         pbar.set_description(
             # Loss, gn and rewards
             f"return: {log['return']: 4.4f}, "
-            f"traj_return: {log['traj_return']: 4.4f}, "
+            # f"traj_return: {log['traj_return']: 4.4f}, "
             # f"loss:  {log['loss']: 4.4f}, "
             f"loss_actor:  {log['loss_actor']: 4.4f}, "
             f"loss_critic:  {log['loss_critic']: 4.4f}, "
@@ -613,8 +613,8 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             f"loc(x): {log['loc(x)']: 4.4f}, "
             f"scale(x): {log['scale(x)']: 4.4f}, "
             # Performance
-            # f"total_profit: {log['total_profit']: 4.4f}, "
-            # f"violation: {log['total_violation']: 4.4f}, "
+            f"total_profit: {log['total_profit']: 4.4f}, "
+            f"violation: {log['total_violation']: 4.4f}, "
         )
 
         # Validation step
