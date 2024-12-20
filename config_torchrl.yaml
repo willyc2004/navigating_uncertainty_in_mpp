@@ -15,7 +15,7 @@ env:
   hatch_overstowage_costs: 0.333333
   hatch_overstowage_mask: False
   long_crane_costs: 0.5
-  episode_order: "greedy_revenue" # greedy_revenue, priority_then_greedy, max_distance_then_priority, standard
+  episode_order: "standard" # greedy_revenue, priority_then_greedy, max_distance_then_priority, standard
 
   # Generator
   seed: 42
@@ -67,7 +67,7 @@ algorithm:
   gae_lambda: 0.99
   vf_lambda: 0.5
   entropy_lambda: 1.0
-  feasibility_lambda: 0.05
+  feasibility_lambda: 0.01
   demand_lambda: 1.0
   stability_lambda: 1.0
   projection_lambda: 0.01
