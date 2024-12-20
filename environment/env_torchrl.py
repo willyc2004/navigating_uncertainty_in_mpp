@@ -210,22 +210,6 @@ class MasterPlanningEnv(EnvBase):
         else:
             raise ValueError("lhs_A has wrong dimensions.")
         violation = torch.clamp(violation, min=0).view(*batch_size, -1)
-        # if violation.dim() == 2:
-        #     print("---------------------------------")
-        #     print("time", t[0])
-        #     print("lcg", td["state", "lcg"].mean(),)
-        #     print("lcg violation", violation[...,-4:-2].mean(dim=-2))
-        #     # Count the number of lcg violations outside the range [0.85, 1.05]
-        #     lcg_out_of_bounds = (td["state", "lcg"] > 1.05) | (td["state", "lcg"] < 0.85)
-        #     lcg_violation_count = lcg_out_of_bounds.sum()
-        #     print("Number of lcg violations:", lcg_violation_count.item())
-        #
-        #     print("vcg", td["state", "vcg"].mean())
-        #     print("vcg violation", violation[...,-2:].mean(dim=-2))
-        #     # Count the number of vcg violations outside the range [0.85, 1.05] (assuming similar range)
-        #     vcg_out_of_bounds = (td["state", "vcg"] > 1.15) | (td["state", "vcg"] < 0.95)
-        #     vcg_violation_count = vcg_out_of_bounds.sum()
-        #     print("Number of vcg violations:", vcg_violation_count.item())
 
         # Compute long crane moves
         long_crane_moves_load = compute_long_crane(utilization, moves, self.T)
@@ -578,17 +562,15 @@ class MasterPlanningEnv(EnvBase):
         """Define shapes for compact form"""
         self.n_demand = 1
         self.n_stability = 4
-        # self.n_cranes = self.B - 1
         self.n_action = self.B * self.D
         self.n_locations = self.B * self.D
-        self.n_constraints = self.n_demand + self.n_locations + self.n_stability #+ self.n_cranes
+        self.n_constraints = self.n_demand + self.n_locations + self.n_stability
 
     def _create_constraint_matrix(self, shape: Tuple[int, int, int, int], ):
         """Create constraint matrix A for compact constraints Au <= b"""
         # [1, LM-TW, TW-LM, VM-TW, TW-VM]
         A = th.ones(shape, device=self.generator.device, dtype=self.float_type)
-        diag = self.teus.view(1, 1, 1, -1) * th.eye(self.n_locations, device=self.generator.device, dtype=self.float_type).view(self.n_locations, self.B*self.D, 1, 1)
-        A[self.n_demand:self.n_locations + self.n_demand,] *= diag
+        A[self.n_demand:self.n_locations + self.n_demand,] *= self.teus.view(1, 1, 1, -1) * th.eye(self.n_locations, device=self.generator.device, dtype=self.float_type).view(self.n_locations, self.B*self.D, 1, 1)
         A *= self.constraint_signs.view(-1, 1, 1, 1)
         A[self.n_locations + self.n_demand:self.n_locations + self.n_demand + self.n_stability] *= self.stability_params_lhs.view(self.n_stability, self.B*self.D, 1, self.K,)
         return A.view(self.n_constraints, self.B*self.D, -1)
