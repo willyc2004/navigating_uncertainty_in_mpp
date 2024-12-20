@@ -182,8 +182,26 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         # Initialize projection layer
         self.projection_layer = projection_layer
 
+    @staticmethod
+    def conditional_softmax(sample, upper_bound):
+        if sample.dim() - upper_bound.dim() == 1:
+            upper_bound = upper_bound.unsqueeze(-1)
+        elif sample.dim() - upper_bound.dim() < 0 or sample.dim() - upper_bound.dim() > 1:
+            raise ValueError(f"Sample dim {sample.dim()} and upper_bound dim {upper_bound.dim()} not compatible.")
+
+        # If the sum exceeds the upper_bound, apply softmax scaling
+        condition = sample.sum(dim=-1, keepdim=True) > upper_bound
+        scaled_sample = torch.where(
+            condition,
+            F.softmax(sample, dim=-1) * upper_bound,
+            sample
+        )
+        return scaled_sample
+
     def forward(self, *args, **kwargs):
         out = super().forward(*args, **kwargs)
+        ub = out["realized_demand"][...,out["timestep"][0]] if out["realized_demand"].dim() == 2 else out["realized_demand"][..., out["timestep"][0,0],:]
+        out["action"] = self.conditional_softmax(out["action"], upper_bound=ub).clone()
         if not self.training:
             out["action"] = out["loc"]
         #
@@ -551,7 +569,6 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
                     actor_optim.zero_grad()
 
         # Log metrics
-        log_data = policy_out if kwargs["algorithm"]["type"] == "sac" else subdata
         pbar.update(1)
         log = {
             # General
@@ -571,25 +588,25 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             # "gn_critic2": loss_out["gn_critic2"].item(),
             # "clip_fraction": loss_out["clip_fraction"],
             # Prediction
-            "x": log_data['action'].mean().item(),
-            "loc(x)": log_data['loc'].mean().item(),
-            "scale(x)": log_data['scale'].mean().item(),
+            "x": subdata['action'].mean().item(),
+            "loc(x)": subdata['loc'].mean().item(),
+            "scale(x)": subdata['scale'].mean().item(),
 
             # Constraints
             "mean_total_violation": loss_out["mean_violation"].sum(dim=(-2,-1)).mean().item(),
-            "total_violation": log_data['violation'].sum(dim=(-2,-1)).mean().item(),
-            "demand_violation": log_data['violation'][...,0].sum(dim=(1)).mean().item(),
-            "capacity_violation": log_data['violation'][...,1:-4].sum(dim=(1)).mean().item(),
-            "LCG_violation": log_data['violation'][..., env.next_port_mask, -4:-2].sum(dim=(1,2)).mean().item(),
-            "VCG_violation": log_data['violation'][..., env.next_port_mask, -2:].sum(dim=(1,2)).mean().item(),
+            "total_violation": subdata['violation'].sum(dim=(-2,-1)).mean().item(),
+            "demand_violation": subdata['violation'][...,0].sum(dim=(1)).mean().item(),
+            "capacity_violation": subdata['violation'][...,1:-4].sum(dim=(1)).mean().item(),
+            "LCG_violation": subdata['violation'][..., env.next_port_mask, -4:-2].sum(dim=(1,2)).mean().item(),
+            "VCG_violation": subdata['violation'][..., env.next_port_mask, -2:].sum(dim=(1,2)).mean().item(),
 
             # Environment
-            "total_revenue": log_data["revenue"].sum(dim=(-2,-1)).mean().item(),
-            "total_cost": log_data["cost"].sum(dim=(-2,-1)).mean().item(),
-            "total_profit": log_data["revenue"].sum(dim=(-2,-1)).mean().item() -
-                            log_data["cost"].sum(dim=(-2,-1)).mean().item(),
-            "total_loaded": log_data["action"].sum(dim=(-2,-1)).mean().item(),
-            "total_demand":log_data['realized_demand'][:,0,:].sum(dim=-1).mean(),
+            "total_revenue": subdata["revenue"].sum(dim=(-2,-1)).mean().item(),
+            "total_cost": subdata["cost"].sum(dim=(-2,-1)).mean().item(),
+            "total_profit": subdata["revenue"].sum(dim=(-2,-1)).mean().item() -
+                            subdata["cost"].sum(dim=(-2,-1)).mean().item(),
+            "total_loaded": subdata["action"].sum(dim=(-2,-1)).mean().item(),
+            "total_demand":subdata['realized_demand'][:,0,:].sum(dim=-1).mean(),
             "total_e[x]_demand": td['init_expected_demand'][:, 0, :].sum(dim=-1).mean(),
         }
         # Log metrics
