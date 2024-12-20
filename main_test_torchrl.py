@@ -684,7 +684,7 @@ def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episode
 
     # Return the average reward over the validation episodes
     avg_reward = trajectory["next", "reward"].sum(dim=(1,2)).mean().item()
-    avg_violation = trajectory["next", "state", "total_violation"].sum(dim=(1,2)).mean().item()
+    avg_violation = trajectory["next", "violation"].sum(dim=(1,2)).mean().item()
     return {"val_reward": avg_reward, "val_violation": avg_violation}
 
 ## Early stopping
