@@ -114,7 +114,7 @@ def compute_loss_feasibility(td, action, feasibility_coef, aggregate_feasibility
         return feasibility_coef * violation.mean(), violation
 
 ## Classes
-class Actor(nn.Module):
+class Autoencoder(nn.Module):
     def __init__(self, encoder, decoder):
         super().__init__()
         self.encoder = encoder
@@ -294,8 +294,7 @@ def main(config: Optional[DotMap] = None):
 
     # Get ProbabilisticActor (for stochastic policies)
     actor = TensorDictModule(
-        ActorMLP(obs_dim, decoder_layers * [hidden_dim], action_dim).to(device),
-        # Actor(encoder, decoder).to(device),
+        Autoencoder(encoder, decoder).to(device),
         in_keys=["observation",],  # Input tensor key in TensorDict
         out_keys=["loc","scale"]  # Output tensor key in TensorDict
     )
