@@ -189,6 +189,48 @@ def compute_hatch_overstowage(utilization: th.Tensor, moves: th.Tensor, ac_trans
     hatch_overstowage = utilization[..., :1, ac_transport, :].sum(dim=(-3, -2, -1)) * hatch_open
     return hatch_overstowage
 
+def compute_min_pod(pod_locations: th.Tensor, P:int, dtype:th.dtype) -> th.Tensor:
+    """Compute min_pod based on utilization"""
+    min_pod = th.argmax(pod_locations.to(dtype), dim=-1)
+    min_pod[min_pod == 0] = P
+    return min_pod
+
+def compute_HO_mask(mask:th.Tensor, pod: th.Tensor,pod_locations:th.Tensor, min_pod:th.Tensor, B:int, D:int) -> th.Tensor:
+    """
+    Mask action to prevent hatch overstowage. Deck indices: 0 is above-deck, 1 is below-deck.
+
+    Variables:
+        - Utilization: Current state of onboard cargo (bay,deck,cargo_class,transport)
+        - POD_locations: Indicator to show PODs loaded in locations (bay,deck,P)
+        - Min_pod: Minimum POD location based on POD_locations (bay,deck)
+
+    Utilization is filled/emptied incrementally. Hence, we have certain circumstances to observe utilization:
+        - Step after reset: Utilization is empty
+        - Step of new POL:  Discharge utilization destined for new POL
+        - Any other step:   Load utilization of current cargo_class and transport
+
+    Two ways to prevent hatch overstowage:
+    - If above-deck is empty, we can freely place below-deck. Otherwise, we need to restow above-deck directly.
+        E.g.:
+                | 3 | 3 | o |
+                +---+---+---+
+                | x | x | o |   , where int is min_pod of location, x is blocked location, o is open location
+
+    - Above-deck actions are allowed if current POD <= min_pod below-deck. Otherwise, we need to restow
+        above-deck when below-deck will be discharged.
+        E.g.:   POD = 2
+                | x | o | o |
+                +---+---+---+
+                | 1 | 2 | 3 |   , where int is min_pod of location, x is blocked location, o is open location
+    """
+    # Create mask:
+    mask = mask.view(-1, B, D)
+    # Action below-deck (d=1) allowed if above-deck (d=0) is empty
+    mask[..., 1] = pod_locations[..., 0, :].sum(dim=-1) == 0
+    # Action above-deck (d=0) allowed if POD <= min_pod below deck (d=1)
+    mask[..., 0] = pod.unsqueeze(-1) <= min_pod[..., 1]
+    return mask.view(-1, B*D)
+
 def compute_violation(action, lhs_A, rhs, ) -> th.Tensor:
     """Compute violations and loss of compact form"""
     # If dimension lhs_A is one more than action, unsqueeze action

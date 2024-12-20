@@ -88,7 +88,6 @@ class MasterPlanningEnv(EnvBase):
         self.ordered_steps = th.cat([self.ordered_steps, self.padding])
         self.k, self.tau = get_k_tau_pair(self.ordered_steps, self.K)
         self.pol, self.pod = get_pol_pod_pair(self.tau, self.P)
-        # self.pol, self.pod, self.k, self.tau = self._add_padding(self.pol, self.pod, self.k, self.tau)
         self.revenues = self.revenues_matrix[self.k, self.tau]
         self._precompute_transport_sets_episode()
         self.next_port_mask = self._precompute_next_port_mask()
@@ -198,6 +197,9 @@ class MasterPlanningEnv(EnvBase):
         pol, pod, tau, k, rev = self._extract_cargo_parameters_for_step(t[0])
         utilization, target_long_crane, long_crane_moves_discharge, \
             demand_state, total_metrics = self._extract_from_state(td["state"], batch_size)
+        # Get indices
+        ac_transport = self.remain_on_board_transport[pol]
+        moves = self.moves_idx[pol]
 
         ## Current state
         # Action clipping
@@ -218,10 +220,10 @@ class MasterPlanningEnv(EnvBase):
         total_metrics["total_violation"] += violation.clone()
 
         # Compute long crane moves
-        long_crane_moves_load = self._compute_long_crane(utilization, pol)
+        long_crane_moves_load = compute_long_crane(utilization, moves, self.T)
         # Compute od-pairs
-        pol_locations, pod_locations = compute_pol_pod_locations(utilization,
-                                                                 self.transform_tau_to_pol, self.transform_tau_to_pod)
+        pol_locations, pod_locations = compute_pol_pod_locations(
+            utilization, self.transform_tau_to_pol, self.transform_tau_to_pod)
         agg_pol_location, agg_pod_location = aggregate_pol_pod_location(pol_locations, pod_locations, self.float_type)
         # Compute total loaded
         sum_action = action.sum(dim=(-2, -1)).unsqueeze(-1)
@@ -233,7 +235,7 @@ class MasterPlanningEnv(EnvBase):
         profit = revenue.clone()
         if self.next_port_mask[t].any():
             # Compute aggregated: overstowage and long crane excess
-            overstowage = self._compute_hatch_overstowage(utilization, pol)
+            overstowage = compute_hatch_overstowage(utilization, moves, ac_transport)
             excess_crane_moves = th.clamp(long_crane_moves_load + long_crane_moves_discharge - target_long_crane.view(-1, 1), min=0)
             # Compute costs
             ho_costs = overstowage.sum(dim=-1, keepdim=True) * self.ho_costs
@@ -263,14 +265,14 @@ class MasterPlanningEnv(EnvBase):
         # # Update action mask
         # # action_mask[t] = 0
         # mask_condition = (t[0] % self.K == 0)
-        # min_pod = self._compute_min_pod(pol_locations, pod_locations )
-        # new_mask = self._prevent_HO_mask(action_mask, pod, pod_locations, min_pod)
+        # min_pod = compute_min_pod(pod_locations, self.P, self.float_type)
+        # new_mask = compute_HO_mask(action_mask, pod, pod_locations, min_pod, self.B, self.D)
         # action_mask = th.where(mask_condition, new_mask, action_mask)
 
         # # Only for final port
         if t[0] == self.T*self.K:
             # Compute last port long crane excess
-            lc_moves_last_port = self._compute_long_crane(utilization, pol)
+            lc_moves_last_port = compute_long_crane(utilization, moves, self.T)
             lc_excess_last_port = th.clamp(lc_moves_last_port - next_state_dict["target_long_crane"].view(-1,1), min=0)
 
             # Compute metrics
@@ -391,8 +393,8 @@ class MasterPlanningEnv(EnvBase):
         action_mask = th.ones((*batch_size, self.B*self.D), dtype=th.bool, device=device)
         # Vessel state
         utilization = th.zeros((*batch_size, self.B, self.D, self.T, self.K), device=device, dtype=self.float_type)
-        target_long_crane = self._compute_target_long_crane(
-            realized_demand.to(self.float_type), self.moves_idx[t[0]]).view(*batch_size, 1)
+        target_long_crane = compute_target_long_crane(realized_demand.to(self.float_type), self.moves_idx[t[0]],
+                                                        self.capacity, self.B, self.CI_target).view(*batch_size, 1)
         residual_lc_capacity = target_long_crane.repeat(1, self.B - 1)
         locations_utilization = th.zeros_like(action_mask, dtype=self.float_type)
         port_locations = th.zeros((*batch_size, self.B*self.D*self.P), dtype=self.float_type)
@@ -523,28 +525,6 @@ class MasterPlanningEnv(EnvBase):
         """Get observation from the TensorDict."""
         # normalize demand
         max_demand = next_state_dict["realized_demand"].max()
-        # current_demand = next_state_dict["current_demand"].view(*batch_size, 1) / max_demand
-        # observed_demand = next_state_dict["observed_demand"].view(*batch_size, self.T * self.K) / max_demand
-        # expected_demand = next_state_dict["expected_demand"].view(*batch_size, self.T * self.K) / max_demand
-        # std_demand = next_state_dict["std_demand"].view(*batch_size, self.T * self.K) / max_demand
-        # print("-"*50)
-        # print(f"mean_current_demand t:{t[0]}", current_demand.mean(dim=0))
-        # print(f"mean_observed_demand t:{t[0]}", observed_demand.mean(dim=0))
-        # print(f"mean_expected_demand t:{t[0]}", expected_demand.mean(dim=0))
-        # print(f"mean_std_demand t:{t[0]}", std_demand.mean(dim=0))
-        # lcg = next_state_dict["lcg"].view(*batch_size, 1)
-        # vcg = next_state_dict["vcg"].view(*batch_size, 1)
-        # print(f"mean_lcg t:{t[0]}", lcg.mean(dim=0))
-        # print(f"mean_vcg t:{t[0]}", vcg.mean(dim=0))
-        # residual_capacity = residual_capacity / self.capacity.unsqueeze(0)
-        # residual_lc_capacity = (next_state_dict["residual_lc_capacity"]/next_state_dict["target_long_crane"].unsqueeze(0))
-        # print(f"mean_residual_capacity t:{t[0]}", residual_capacity.mean(dim=0))
-        # print(f"mean_residual_lc_capacity t:{t[0]}", residual_lc_capacity.mean(dim=0))
-        # agg_pol_location = agg_pol_location / (self.P)
-        # agg_pod_location = agg_pod_location / (self.P)
-        # print(f"mean_agg_pol_location t:{t[0]}", agg_pol_location.mean(dim=0).T)
-        # print(f"mean_agg_pod_location t:{t[0]}", agg_pod_location.mean(dim=0).T)
-
         return th.cat([
             t.view(*batch_size, 1) / (self.T * self.K),
             next_state_dict["current_demand"].view(*batch_size, 1) / max_demand,
@@ -564,93 +544,6 @@ class MasterPlanningEnv(EnvBase):
     def _get_reward(self, td, utilizations) -> Tensor:
         """Compute total profit for episode"""
         return (td["state"]["total_revenue"] - td["state"]["total_cost"])/1000
-
-    def _compute_min_pod(self,pod_locations: Tensor) -> Tensor:
-        """Compute min_pod based on utilization"""
-        min_pod = th.argmax(pod_locations.to(self.float_type), dim=-1)
-        min_pod[min_pod == 0] = self.P
-        return min_pod
-
-    def _compute_overstowage_loading_indicator(self, pod_locations: Tensor,) -> Tensor:
-        """Indicate if overstowage is present due to discharge by: max(pod_d0) > min(pod_d1)
-        Output: Positive integer tensor with shape [batch, bay, deck]"""
-        # Get the number of pods
-        pods = torch.arange(self.P, device=self.generator.device)
-        # For above deck (d=0), compute the min POD index where value is 1 (non-zero elements)
-        max_pod_d0 = torch.where(pod_locations[..., 0, :] > 0, pods, float('-inf')).max(dim=-1).values
-        # For below deck (d=1), compute the max POD index where value is 1 (non-zero elements)
-        min_pod_d1 = torch.where(pod_locations[..., 1, :] > 0, pods, float('inf')).min(dim=-1).values
-        # Stack the results into the desired shape [batch, bay, 2]
-        output = torch.stack((max_pod_d0, min_pod_d1), dim=-1)
-        return output
-
-    def _compute_hatch_overstowage(self, utilization: Tensor, single_pol: Tensor) -> Tensor:
-        """Get hatch overstowage based on ac_transport and moves"""
-        # Get indices
-        ac_transport = self.remain_on_board_transport[single_pol]
-        moves = self.moves_idx[single_pol]
-        # Compute hatch overstowage
-        hatch_open = utilization[..., 1:, moves, :].sum(dim=(-3, -2, -1)) > 0
-        hatch_overstowage = utilization[..., :1, ac_transport, :].sum(dim=(-3, -2, -1)) * hatch_open
-        return hatch_overstowage
-
-    def _compute_target_long_crane(self, realized_demand: Tensor, moves: Tensor) -> Tensor:
-        """Compute target crane moves per port:
-        - Get total crane moves per port: load_moves + discharge_moves
-        - Get optimal crane moves per adjacent bay by: 2 * total crane moves / B
-        - Get adjacent capacity by: sum of capacity of adjacent bays
-        - Get max capacity of adjacent bays by: max of adjacent capacity
-
-        Return element-wise minimum of optimal crane moves and max capacity"""
-        # Calculate optimal crane moves based per adjacent bay based on loading and discharging
-        total_crane_moves = realized_demand[..., moves, :].sum(dim=(-1,-2))
-        # Compute adjacent capacity and max capacity
-        max_capacity = ((self.capacity[:-1] + self.capacity[1:]).sum(dim=-1)).max()
-        # Compute element-wise minimum of crane moves and target long crane
-        optimal_crane_moves_per_adj_bay = 2 * total_crane_moves / self.B
-        return self.CI_target * th.minimum(optimal_crane_moves_per_adj_bay, max_capacity)
-
-    def _compute_long_crane(self, utilization: Tensor, single_pol: Tensor) -> Tensor:
-        """Compute long crane moves based on utilization"""
-        moves_idx = self.moves_idx[single_pol].to(utilization.dtype).view(1, 1, 1, self.T, 1)
-        moves_per_bay = (utilization * moves_idx).sum(dim=(2, 3, 4))
-        return moves_per_bay[..., :-1] + moves_per_bay[..., 1:]
-
-    def _prevent_HO_mask(self, mask:Tensor, pod: Tensor,pod_locations:Tensor, min_pod:Tensor) -> Tensor:
-        """
-        Mask action to prevent hatch overstowage. Deck indices: 0 is above-deck, 1 is below-deck.
-
-        Variables:
-            - Utilization: Current state of onboard cargo (bay,deck,cargo_class,transport)
-            - POD_locations: Indicator to show PODs loaded in locations (bay,deck,P)
-            - Min_pod: Minimum POD location based on POD_locations (bay,deck)
-
-        Utilization is filled/emptied incrementally. Hence, we have certain circumstances to observe utilization:
-            - Step after reset: Utilization is empty
-            - Step of new POL:  Discharge utilization destined for new POL
-            - Any other step:   Load utilization of current cargo_class and transport
-
-        Two ways to prevent hatch overstowage:
-        - If above-deck is empty, we can freely place below-deck. Otherwise, we need to restow above-deck directly.
-            E.g.:
-                    | 3 | 3 | o |
-                    +---+---+---+
-                    | x | x | o |   , where int is min_pod of location, x is blocked location, o is open location
-
-        - Above-deck actions are allowed if current POD <= min_pod below-deck. Otherwise, we need to restow
-            above-deck when below-deck will be discharged.
-            E.g.:   POD = 2
-                    | x | o | o |
-                    +---+---+---+
-                    | 1 | 2 | 3 |   , where int is min_pod of location, x is blocked location, o is open location
-        """
-        # Create mask:
-        mask = mask.view(-1, self.B, self.D)
-        # Action below-deck (d=1) allowed if above-deck (d=0) is empty
-        mask[..., 1] = pod_locations[..., 0, :].sum(dim=-1) == 0
-        # Action above-deck (d=0) allowed if POD <= min_pod below deck (d=1)
-        mask[..., 0] = pod.unsqueeze(-1) <= min_pod[..., 1]
-        return mask.view(-1, self.B*self.D)
 
     # Update state
     def _update_state_loading(self, action: Tensor, utilization: Tensor,
@@ -676,10 +569,10 @@ class MasterPlanningEnv(EnvBase):
         # Next port with discharging; Update utilization, observed demand and target long crane
         if self.next_port_mask[t-1].any():
             long_crane_moves_load = torch.zeros_like(long_crane_moves_load)
-            long_crane_moves_discharge = self._compute_long_crane(utilization, pol)
+            long_crane_moves_discharge = compute_long_crane(utilization, moves_idx, self.T)
             utilization = update_state_discharge(utilization, disc_idx)
-            target_long_crane = self._compute_target_long_crane(
-                demand_state["realized_demand"], moves_idx).view(*batch_size, 1)
+            target_long_crane = compute_target_long_crane(
+                demand_state["realized_demand"], moves_idx, self.capacity, self.B, self.CI_target).view(*batch_size, 1)
             if self.demand_uncertainty:
                 demand_state["observed_demand"][..., load_idx, :] = demand_state["realized_demand"][..., load_idx, :]
 
@@ -810,15 +703,6 @@ class MasterPlanningEnv(EnvBase):
         - POL, POD are in ascending order
         - K is in ascending order but based on priority"""
         return th.arange(self.T*self.K, device=self.generator.device, dtype=th.int64)
-
-
-    def _add_padding(self, *inputs) -> List[Tensor]:
-        """For any number of inputs, add a zero padding at the end of vector"""
-        output = []
-        for input_tensor in inputs:
-            padded_tensor = th.cat([input_tensor, self.padding])
-            output.append(padded_tensor)
-        return output
 
     def _precompute_for_step(self, pol:Tensor) -> Tuple[Tensor,Tensor,Tensor]:
         """Precompute variables and index masks for the current step"""
