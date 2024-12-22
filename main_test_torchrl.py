@@ -438,7 +438,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     validation_freq = kwargs["training"]["validation_freq"]
 
     # Environment
-    env = make_env(env_kwargs=kwargs["env"], batch_size=[batch_size], device=device)
+    train_env = make_env(env_kwargs=kwargs["env"], batch_size=[batch_size], device=device)
 
     # Optimizer, loss module, data collector, and scheduler
     # if kwargs["algorithm"]["name"] == "reinforce":
@@ -506,7 +506,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
 
     # Data collector and replay buffer
     collector = SyncDataCollector(
-        env,
+        train_env,
         policy,
         frames_per_batch=batch_size*n_step, # batch_size * steps_per_episode
         total_frames=train_data_size,
@@ -597,8 +597,8 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             "total_violation": subdata['violation'].sum(dim=(-2,-1)).mean().item(),
             "demand_violation": subdata['violation'][...,0].sum(dim=(1)).mean().item(),
             "capacity_violation": subdata['violation'][...,1:-4].sum(dim=(1)).mean().item(),
-            "LCG_violation": subdata['violation'][..., env.next_port_mask, -4:-2].sum(dim=(1,2)).mean().item(),
-            "VCG_violation": subdata['violation'][..., env.next_port_mask, -2:].sum(dim=(1,2)).mean().item(),
+            "LCG_violation": subdata['violation'][..., train_env.next_port_mask, -4:-2].sum(dim=(1,2)).mean().item(),
+            "VCG_violation": subdata['violation'][..., train_env.next_port_mask, -2:].sum(dim=(1,2)).mean().item(),
 
             # Environment
             "total_revenue": subdata["revenue"].sum(dim=(-2,-1)).mean().item(),
@@ -631,7 +631,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
 
         # Validation step
         if (step + 1) % int(train_updates * validation_freq) == 0:
-            val_out = validate_policy(env, policy, n_step=n_step, )
+            val_out = validate_policy(train_env, policy, n_step=n_step, )
             policy.train() # Back to train mode
             log.update(val_out)
             val_rewards.append(val_out["val_reward"])
@@ -672,7 +672,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
         wandb.save(critic_save_path)
 
     # Close environments
-    env.close()
+    train_env.close()
 
 ## Validation
 def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episodes: int = 10, n_step: int = 100,):
@@ -683,8 +683,8 @@ def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episode
         trajectory = env.rollout(policy=policy_module, max_steps=n_step, auto_reset=True)
 
     # Return the average reward over the validation episodes
-    avg_reward = trajectory["next", "reward"].sum(dim=(1,2)).mean().item()
-    avg_violation = trajectory["next", "violation"].sum(dim=(1,2)).mean().item()
+    avg_reward = trajectory["next", "reward"].sum(dim=(1,2)).mean()
+    avg_violation = trajectory["next", "violation"].sum(dim=(1,2)).mean()
     return {"val_reward": avg_reward, "val_violation": avg_violation}
 
 ## Early stopping
