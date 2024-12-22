@@ -632,7 +632,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
         # Validation step
         if (step + 1) % int(train_updates * validation_freq) == 0:
             val_out = validate_policy(train_env, policy, n_step=n_step, )
-            policy.train() # Back to train mode
+            # policy.train() # Back to train mode
             log.update(val_out)
             val_rewards.append(val_out["val_reward"])
             if early_stopping(val_rewards, patience):
@@ -676,7 +676,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
 
 ## Validation
 def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episodes: int = 10, n_step: int = 100,):
-    policy_module.eval()  # Set the policy to evaluation mode
+    # policy_module.eval()  # Set the policy to evaluation mode # todo: eval() mode causes errors for some reason
 
     # Perform a rollout to evaluate the policy
     with torch.no_grad():
