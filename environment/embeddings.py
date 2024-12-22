@@ -7,7 +7,7 @@ from typing import Tuple, Callable, Optional, Dict
 from rl4co.utils.ops import gather_by_index
 
 class MPPInitEmbedding(nn.Module):
-    def __init__(self, obs_dim, action_dim, embed_dim, seq_dim, env, num_constraints=5):
+    def __init__(self, obs_dim, action_dim, embed_dim, seq_dim, env):
         super(MPPInitEmbedding, self).__init__()
         # Store environment and sequence size
         self.env = env
@@ -25,19 +25,28 @@ class MPPInitEmbedding(nn.Module):
 
     def _combine_cargo_parameters(self, batch_size):
         """Prepare cargo parameters for init embedding"""
-        norm_features = {
-            "pol": (self.env.pol.clone() / self.env.P).view(1, -1, 1).expand(batch_size, -1, -1),
-            "pod": (self.env.pod.clone() / self.env.P).view(1, -1, 1).expand(batch_size, -1, -1),
-            "weights": (self.env.weights[self.env.k].clone() / self.env.weights[self.env.k].max()).view(1, -1, 1).expand(batch_size, -1, -1),
-            "teus": (self.env.teus[self.env.k].clone() / self.env.teus[self.env.k].max()).view(1, -1, 1).expand(batch_size, -1, -1),
-            "revenues": (self.env.revenues.clone() / self.env.revenues.max()).view(1, -1, 1).expand(batch_size, -1, -1),
-        }
+        if batch_size == torch.Size([]):
+            norm_features = {
+                "pol": (self.env.pol.clone() / self.env.P).view(1, -1, 1),
+                "pod": (self.env.pod.clone() / self.env.P).view(1, -1, 1),
+                "weights": (self.env.weights[self.env.k].clone() / self.env.weights[self.env.k].max()).view(1, -1, 1),
+                "teus": (self.env.teus[self.env.k].clone() / self.env.teus[self.env.k].max()).view(1, -1, 1),
+                "revenues": (self.env.revenues.clone() / self.env.revenues.max()).view(1, -1, 1),
+            }
+        else:
+            norm_features = {
+                "pol": (self.env.pol.clone() / self.env.P).view(1, -1, 1).expand(batch_size, -1, -1),
+                "pod": (self.env.pod.clone() / self.env.P).view(1, -1, 1).expand(batch_size, -1, -1),
+                "weights": (self.env.weights[self.env.k].clone() / self.env.weights[self.env.k].max()).view(1, -1, 1).expand(batch_size, -1, -1),
+                "teus": (self.env.teus[self.env.k].clone() / self.env.teus[self.env.k].max()).view(1, -1, 1).expand(batch_size, -1, -1),
+                "revenues": (self.env.revenues.clone() / self.env.revenues.max()).view(1, -1, 1).expand(batch_size, -1, -1),
+            }
         return norm_features
 
 
     def forward(self, obs: Tensor,):
         # todo: possibly add more exp, std of demand
-        batch_size = obs.shape[0]
+        batch_size = obs.shape[0] if obs.dim() > 1 else torch.Size([])
         cargo_parameters = self._combine_cargo_parameters(batch_size=batch_size)
         combined_input = torch.cat([*cargo_parameters.values(),], dim=-1)
         combined_emb = self.fc(combined_input)
