@@ -26,11 +26,11 @@ class MPPInitEmbedding(nn.Module):
     def _combine_cargo_parameters(self, batch_size):
         """Prepare cargo parameters for init embedding"""
         norm_features = {
-            "pol": (self.env.pol[:-1].clone() / self.env.P).view(1, -1, 1).expand(batch_size, -1, -1),
-            "pod": (self.env.pod[:-1].clone() / self.env.P).view(1, -1, 1).expand(batch_size, -1, -1),
-            "weights": (self.env.weights[self.env.k[:-1]].clone() / self.env.weights[self.env.k[:-1]].max()).view(1, -1, 1).expand(batch_size, -1, -1),
-            "teus": (self.env.teus[self.env.k[:-1]].clone() / self.env.teus[self.env.k[:-1]].max()).view(1, -1, 1).expand(batch_size, -1, -1),
-            "revenues": (self.env.revenues[:-1].clone() / self.env.revenues[:-1].max()).view(1, -1, 1).expand(batch_size, -1, -1),
+            "pol": (self.env.pol.clone() / self.env.P).view(1, -1, 1).expand(batch_size, -1, -1),
+            "pod": (self.env.pod.clone() / self.env.P).view(1, -1, 1).expand(batch_size, -1, -1),
+            "weights": (self.env.weights[self.env.k].clone() / self.env.weights[self.env.k].max()).view(1, -1, 1).expand(batch_size, -1, -1),
+            "teus": (self.env.teus[self.env.k].clone() / self.env.teus[self.env.k].max()).view(1, -1, 1).expand(batch_size, -1, -1),
+            "revenues": (self.env.revenues.clone() / self.env.revenues.max()).view(1, -1, 1).expand(batch_size, -1, -1),
         }
         return norm_features
 
@@ -91,7 +91,7 @@ class MPPContextEmbedding(nn.Module):
 
 def reorder_demand(demand, tau, k, T, K, batch_size):
     """Reorder demand to match the episode ordering"""
-    return demand.view(*batch_size, T, K)[..., tau[:-1], k[:-1]]
+    return demand.view(*batch_size, T, K)[..., tau, k]
 
 class StaticEmbedding(nn.Module):
     # This defines shape of key, value

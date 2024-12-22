@@ -23,7 +23,7 @@ class MasterPlanningEnv(EnvBase):
 
     def __init__(self, device="cuda", batch_size=[], td_gen=None, **kwargs):
         super().__init__(device=device, batch_size=batch_size)
-
+        ## Kwargs
         # Sets
         self.P = kwargs.get("ports") # Number of ports
         self.B = kwargs.get("bays")  # Number of bays
@@ -32,50 +32,58 @@ class MasterPlanningEnv(EnvBase):
         self.CC = kwargs.get("customer_classes")  # Number of customer contracts
         self.K = kwargs.get("cargo_classes") * self.CC # Number of container classes
         self.W = kwargs.get("weight_classes")  # Number of weight classes
-
-        # Seed
+        # Env parameters
+        self.stab_delta = kwargs.get("stability_difference")
+        self.LCG_target = kwargs.get("LCG_target")
+        self.VCG_target = kwargs.get("VCG_target")
+        self.ho_costs = kwargs.get("hatch_overstowage_costs")
+        self.lc_costs = kwargs.get("long_crane_costs")
+        self.ho_mask = kwargs.get("hatch_overstowage_mask")
+        self.CI_target = kwargs.get("CI_target")
+        self.normalize_obs = kwargs.get("normalize_obs")
+        
+        ## Init env
+        # Seed and generator
         self.seed = kwargs.get("seed")
         if self.seed is None:
             self.seed = torch.empty((), dtype=torch.int64).random_().item()
         self.set_seed(self.seed)
-
-        # Init fns
-        # todo: perform big clean-up here!
-        self.float_type = kwargs.get("float_type", th.float32)
         self.demand_uncertainty = kwargs.get("demand_uncertainty", False)
-        self._compact_form_shapes()
         self.generator = MPP_Generator(**kwargs)
         if td_gen == None:
             self.td_gen = self.generator(batch_size=batch_size,)
+        # Data type and shapes
+        self.float_type = kwargs.get("float_type", th.float32)
+        self._compact_form_shapes()
         self._make_spec(self.td_gen)
-        self.zero = th.tensor([0], device=self.generator.device, dtype=self.float_type)
-        self.padding = th.tensor([self.P-1], device=self.generator.device, dtype=th.int32)
-
-        # Parameters:
-        # Transport and cargo characteristics
-        self.ports = torch.arange(self.P, device=self.generator.device)
-        self.transport_idx = get_transport_idx(self.P, device=self.generator.device)
-
-        # Capacity in TEU per location (bay,deck)
-        c = kwargs.get("capacity")
-        self.capacity = th.full((self.B, self.D,), c[0], device=self.generator.device, dtype=self.float_type)
+        self.zero = th.tensor([0], device=self.device, dtype=self.float_type)
+        # todo: perform big clean-up here!
+        
+        ## Parameters:
+        # Transports
+        self.ports = torch.arange(self.P, device=self.device)
+        self.transport_idx = get_transport_idx(self.P, device=self.device)
+        self.duration = self.transport_idx[..., 1] - self.transport_idx[..., 0]
+        self._precompute_transport_sets()
+        # Capacity (TEU)
+        self.capacity = th.full((self.B, self.D,), *kwargs.get("capacity"), device=self.device, dtype=self.float_type)
         self.total_capacity = th.sum(self.capacity)
-        self.teus = th.arange(1, self.K // (self.CC * self.W) + 1, device=self.generator.device, dtype=self.float_type) \
+        self.teus = th.arange(1, self.K // (self.CC * self.W) + 1, device=self.device, dtype=self.float_type)\
             .repeat_interleave(self.W).repeat(self.CC)
         self.teus_episode = th.cat([self.teus.repeat(self.T)])
-        self.weights = th.arange(1, self.W + 1, device=self.generator.device, dtype=self.float_type).repeat(self.K // self.W)
-        self.duration = self.transport_idx[..., 1] - self.transport_idx[..., 0]
-
-        # Revenue and costs
+        # Revenue
         self.revenues_matrix = self._precompute_revenues()
-        self.ho_costs = kwargs.get("hatch_overstowage_costs") #* th.mean(self.revenues)
-        self.lc_costs = kwargs.get("long_crane_costs") #* th.mean(self.revenues)
-        self.ho_mask = kwargs.get("hatch_overstowage_mask")
-        self.CI_target = kwargs.get("CI_target")
+        # Weights and stability
+        self.weights = th.arange(1, self.W + 1, device=self.device, dtype=self.float_type).repeat(self.K // self.W)
+        self.longitudinal_position = th.arange(1/self.B, self.B * 2/self.B, 2/self.B, device=self.device, dtype=self.float_type)
+        self.vertical_position = th.arange(1/self.D, self.D * 2/self.D, 2/self.D, device=self.device, dtype=self.float_type)
+        self.lp_weight = th.einsum("d, b -> bd", self.weights, self.longitudinal_position).unsqueeze(0)
+        self.vp_weight = th.einsum("d, c -> cd", self.weights, self.vertical_position).unsqueeze(0)
+        self.stability_params_lhs = self._precompute_stability_parameters()
 
-        # Transport sets
-        self._precompute_transport_sets()
-        # Step ordering: descending distance, longterm > spot; ascending TEU, ascending weight
+        # Step ordering:
+        # to do: clean up
+        # descending distance, longterm > spot; ascending TEU, ascending weight
         self.ordering = kwargs.get("episode_order")
         if self.ordering == "max_distance_then_priority":
             self.ordered_steps = self._precompute_order_max_distance_then_priority()
@@ -85,7 +93,6 @@ class MasterPlanningEnv(EnvBase):
             raise NotImplementedError("Priority then greedy ordering is not implemented yet.")
         else:
             self.ordered_steps = self._precompute_order_standard()
-        self.ordered_steps = th.cat([self.ordered_steps, self.padding])
         self.k, self.tau = get_k_tau_pair(self.ordered_steps, self.K)
         self.pol, self.pod = get_pol_pod_pair(self.tau, self.P)
         self.revenues = self.revenues_matrix[self.k, self.tau]
@@ -94,23 +101,11 @@ class MasterPlanningEnv(EnvBase):
         self.transform_tau_to_pol = get_pols_from_transport(self.transport_idx, self.P, dtype=self.float_type)
         self.transform_tau_to_pod = get_pods_from_transport(self.transport_idx, self.P, dtype=self.float_type)
 
-        # Stability
-        self.stab_delta = kwargs.get("stability_difference")
-        self.LCG_target = kwargs.get("LCG_target")
-        self.VCG_target = kwargs.get("VCG_target")
-        self.longitudinal_position = th.arange(1/self.B, self.B * 2/self.B, 2/self.B,
-                                               device=self.generator.device, dtype=self.float_type)
-        self.vertical_position = th.arange(1/self.D, self.D * 2/self.D, 2/self.D,
-                                           device=self.generator.device, dtype=self.float_type)
-        self.lp_weight = th.einsum("d, b -> bd", self.weights, self.longitudinal_position).unsqueeze(0)
-        self.vp_weight = th.einsum("d, c -> cd", self.weights, self.vertical_position).unsqueeze(0)
-        self.stability_params_lhs = self._precompute_stability_parameters()
-
         # Constraints
         # todo clean-up
-        ones_cons = th.ones(self.n_constraints, device=self.generator.device, dtype=self.float_type)
+        ones_cons = th.ones(self.n_constraints, device=self.device, dtype=self.float_type)
         self.constraint_signs = ones_cons.clone()
-        indices_to_multiply = th.tensor([-3, -1], device=self.generator.device)
+        indices_to_multiply = th.tensor([-3, -1], device=self.device)
         self.constraint_signs[indices_to_multiply] *= -1
         self.swap_signs_stability = -ones_cons.clone() # swap signs for constraints
         self.swap_signs_stability[0] *= -1 # only demand constraint is positive
@@ -121,15 +116,14 @@ class MasterPlanningEnv(EnvBase):
         batch_size = td.batch_size
         observation_spec = Unbounded(shape=(*batch_size,288), dtype=self.float_type) # 287, 307
         state_spec = Composite(
-            utilization=Unbounded(shape=(*batch_size,self.B*self.D*self.T*self.K), dtype=self.float_type),
-            target_long_crane=Unbounded(shape=(*batch_size,1), dtype=self.float_type),
-            long_crane_moves_discharge=Unbounded(shape=(*batch_size,self.B-1), dtype=self.float_type),
             current_demand=Unbounded(shape=(*batch_size, 1), dtype=torch.float32),
             observed_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
             expected_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
             std_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
             realized_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
-            # Vessel
+            utilization=Unbounded(shape=(*batch_size,self.B*self.D*self.T*self.K), dtype=self.float_type),
+            target_long_crane=Unbounded(shape=(*batch_size,1), dtype=self.float_type),
+            long_crane_moves_discharge=Unbounded(shape=(*batch_size,self.B-1), dtype=self.float_type),
             lcg=Unbounded(shape=(*batch_size, 1), dtype=self.float_type),
             vcg=Unbounded(shape=(*batch_size, 1), dtype=self.float_type),
             residual_capacity=Unbounded(shape=(*batch_size, self.B * self.D),  dtype=self.float_type),
@@ -238,7 +232,7 @@ class MasterPlanningEnv(EnvBase):
 
         ## Transition to next step
         # Update next state
-        t = t + 1
+        t = th.where(done.any(), t, t+1)
         next_state_dict = self._update_next_state(utilization, target_long_crane,
                                                   long_crane_moves_load, long_crane_moves_discharge,
                                                   demand_state, t, batch_size)
@@ -251,17 +245,8 @@ class MasterPlanningEnv(EnvBase):
             residual_capacity = th.clamp(self.capacity - next_state_dict["utilization"].sum(dim=-2)
                                          @ self.teus, min=self.zero)
         else:
+            # Only for final port
             residual_capacity = th.zeros_like(td["state"]["residual_capacity"], dtype=self.float_type).view(*batch_size, self.B, self.D, )
-
-        # # Update action mask
-        # # action_mask[t] = 0
-        # mask_condition = (t[0] % self.K == 0)
-        # min_pod = compute_min_pod(pod_locations, self.P, self.float_type)
-        # new_mask = compute_HO_mask(action_mask, pod, pod_locations, min_pod, self.B, self.D)
-        # action_mask = th.where(mask_condition, new_mask, action_mask)
-
-        # # Only for final port
-        if t[0] == self.T*self.K:
             # Compute last port long crane excess
             lc_moves_last_port = compute_long_crane(utilization, moves, self.T)
             lc_excess_last_port = th.clamp(lc_moves_last_port - next_state_dict["target_long_crane"].view(-1,1), min=0)
@@ -272,8 +257,14 @@ class MasterPlanningEnv(EnvBase):
             profit -= lc_cost_
             cost += lc_cost_
             lc_costs += lc_cost_
-            # set t back to fit clip max
-            t -= 1
+
+
+        # # Update action mask
+        # # action_mask[t] = 0
+        # mask_condition = (t[0] % self.K == 0)
+        # min_pod = compute_min_pod(pod_locations, self.P, self.float_type)
+        # new_mask = compute_HO_mask(action_mask, pod, pod_locations, min_pod, self.B, self.D)
+        # action_mask = th.where(mask_condition, new_mask, action_mask)
 
         # Normalize revenue \in [0,1]:
         # revenue_norm = rev_t / max(rev_t) * min(q_t, sum(a_t)) / q_t
@@ -487,21 +478,47 @@ class MasterPlanningEnv(EnvBase):
     def _get_observation(self, next_state_dict, residual_capacity,
                          agg_pol_location, agg_pod_location, t, batch_size) -> Tensor:
         """Get observation from the TensorDict."""
-        # normalize demand
         max_demand = next_state_dict["realized_demand"].max()
         return th.cat([
             t.view(*batch_size, 1) / (self.T * self.K),
             next_state_dict["observed_demand"].view(*batch_size, self.T * self.K) / max_demand,
             next_state_dict["expected_demand"].view(*batch_size, self.T * self.K) / max_demand,
             next_state_dict["std_demand"].view(*batch_size, self.T * self.K) / max_demand,
-            # Vessel
             next_state_dict["lcg"].view(*batch_size, 1),
             next_state_dict["vcg"].view(*batch_size, 1),
-            (residual_capacity/self.capacity.unsqueeze(0)).view(*batch_size, self.B * self.D),
-            (next_state_dict["residual_lc_capacity"]/next_state_dict["target_long_crane"].unsqueeze(0)).view(*batch_size, self.B - 1),
+            (residual_capacity / self.capacity.unsqueeze(0)).view(*batch_size, self.B * self.D),
+            (next_state_dict["residual_lc_capacity"] / next_state_dict["target_long_crane"].unsqueeze(0)).view(*batch_size, self.B - 1),
             agg_pol_location.view(*batch_size, self.B * self.D) / (self.P),
             agg_pod_location.view(*batch_size, self.B * self.D) / (self.P),
         ], dim=-1)
+        # # normalize demand
+        # if self.normalize_obs:
+        #     max_demand = next_state_dict["realized_demand"].max()
+        #     return th.cat([
+        #         t.view(*batch_size, 1) / (self.T * self.K),
+        #         next_state_dict["observed_demand"].view(*batch_size, self.T * self.K) / max_demand,
+        #         next_state_dict["expected_demand"].view(*batch_size, self.T * self.K) / max_demand,
+        #         next_state_dict["std_demand"].view(*batch_size, self.T * self.K) / max_demand,
+        #         next_state_dict["lcg"].view(*batch_size, 1),
+        #         next_state_dict["vcg"].view(*batch_size, 1),
+        #         (residual_capacity/self.capacity.unsqueeze(0)).view(*batch_size, self.B * self.D),
+        #         (next_state_dict["residual_lc_capacity"]/next_state_dict["target_long_crane"].unsqueeze(0)).view(*batch_size, self.B - 1),
+        #         agg_pol_location.view(*batch_size, self.B * self.D) / (self.P),
+        #         agg_pod_location.view(*batch_size, self.B * self.D) / (self.P),
+        #     ], dim=-1)
+        # else:
+        #     return th.cat([
+        #         t.view(*batch_size, 1),
+        #         next_state_dict["observed_demand"].view(*batch_size, self.T * self.K),
+        #         next_state_dict["expected_demand"].view(*batch_size, self.T * self.K),
+        #         next_state_dict["std_demand"].view(*batch_size, self.T * self.K),
+        #         next_state_dict["lcg"].view(*batch_size, 1),
+        #         next_state_dict["vcg"].view(*batch_size, 1),
+        #         residual_capacity.view(*batch_size, self.B * self.D),
+        #         next_state_dict["residual_lc_capacity"].view(*batch_size, self.B - 1),
+        #         agg_pol_location.view(*batch_size, self.B * self.D),
+        #         agg_pod_location.view(*batch_size, self.B * self.D),
+        #     ], dim=-1)
 
     # Update state
     def _update_next_state(self, utilization: Tensor, target_long_crane:Tensor,
@@ -569,8 +586,8 @@ class MasterPlanningEnv(EnvBase):
     def _create_constraint_matrix(self, shape: Tuple[int, int, int, int], ):
         """Create constraint matrix A for compact constraints Au <= b"""
         # [1, LM-TW, TW-LM, VM-TW, TW-VM]
-        A = th.ones(shape, device=self.generator.device, dtype=self.float_type)
-        A[self.n_demand:self.n_locations + self.n_demand,] *= self.teus.view(1, 1, 1, -1) * th.eye(self.n_locations, device=self.generator.device, dtype=self.float_type).view(self.n_locations, self.B*self.D, 1, 1)
+        A = th.ones(shape, device=self.device, dtype=self.float_type)
+        A[self.n_demand:self.n_locations + self.n_demand,] *= self.teus.view(1, 1, 1, -1) * th.eye(self.n_locations, device=self.device, dtype=self.float_type).view(self.n_locations, self.B*self.D, 1, 1)
         A *= self.constraint_signs.view(-1, 1, 1, 1)
         A[self.n_locations + self.n_demand:self.n_locations + self.n_demand + self.n_stability] *= self.stability_params_lhs.view(self.n_stability, self.B*self.D, 1, self.K,)
         return A.view(self.n_constraints, self.B*self.D, -1)
@@ -613,7 +630,7 @@ class MasterPlanningEnv(EnvBase):
           (0, (P-2,P-1)), (1, (P-2,P-1)), ..., (K-1, (P-2,P-1)) }
         """
         # Initialize steps and idx
-        steps = th.zeros(self.T*self.K, dtype=th.int64, device=self.generator.device)
+        steps = th.zeros(self.T*self.K, dtype=th.int64, device=self.device)
         idx = 0
         # We use loops for readability and simplicity, only because it is part of initialization
         for pol in range(self.P - 1):
@@ -621,7 +638,7 @@ class MasterPlanningEnv(EnvBase):
                 # Get the transport index of (POL,POD)
                 tau = get_transport_from_pol_pod(pol, pod, self.transport_idx)
                 # Create a range of k values for this combination and store the result
-                steps[idx:idx + self.K] = th.arange(self.K, device=self.generator.device, dtype=self.float_type) + tau * self.K
+                steps[idx:idx + self.K] = th.arange(self.K, device=self.device, dtype=self.float_type) + tau * self.K
                 idx += self.K
         return steps
 
@@ -629,7 +646,7 @@ class MasterPlanningEnv(EnvBase):
         """Get ordered steps with transports in descending order of revenue per capacity usage:
         - Revenue per capacity: revenue / (teus * weights * duration)"""
         # Init
-        steps = th.zeros(self.T*self.K, dtype=th.int64, device=self.generator.device)
+        steps = th.zeros(self.T*self.K, dtype=th.int64, device=self.device)
         cap_usage = torch.einsum("j,i->ij", self.duration, (self.teus*self.weights))
         self.revenue_per_capacity = self.revenues_matrix / cap_usage
         idx = 0
@@ -651,7 +668,7 @@ class MasterPlanningEnv(EnvBase):
         """Get standard order of steps;
         - POL, POD are in ascending order
         - K is in ascending order but based on priority"""
-        return th.arange(self.T*self.K, device=self.generator.device, dtype=th.int64)
+        return th.arange(self.T*self.K, device=self.device, dtype=th.int64)
 
     def _precompute_for_step(self, pol:Tensor) -> Tuple[Tensor,Tensor,Tensor]:
         """Precompute variables and index masks for the current step"""
@@ -664,11 +681,11 @@ class MasterPlanningEnv(EnvBase):
     def _precompute_revenues(self, reduce_long_revenue=0.3) -> Tensor:
         """Precompute matrix of revenues with shape [K, T]"""
         # Initialize revenues and pod_grid
-        revenues = th.zeros((self.K, self.P, self.P), device=self.generator.device, dtype=self.float_type) # Shape: [K, P, P]
+        revenues = th.zeros((self.K, self.P, self.P), device=self.device, dtype=self.float_type) # Shape: [K, P, P]
         pol_grid, pod_grid = th.meshgrid(self.ports, self.ports, indexing='ij')  # Shapes: [P, P]
         duration_grid = (pod_grid-pol_grid).to(revenues.dtype) # Shape: [P, P]
         # Compute revenues
-        mask = th.arange(self.K, device=self.generator.device, dtype=self.float_type) < self.K // 2 # Spot/long-term mask
+        mask = th.arange(self.K, device=self.device, dtype=self.float_type) < self.K // 2 # Spot/long-term mask
         revenues[~mask] = duration_grid # Spot market contracts
         revenues[mask] = (duration_grid * (1 - reduce_long_revenue)) # Long-term contracts
         i, j = th.triu_indices(self.P, self.P, offset=1) # Get above-diagonal indices of revenues
@@ -681,7 +698,7 @@ class MasterPlanningEnv(EnvBase):
         # Hence, implementation only works for batches with the same episodic step (e.g., single-step MDP)
 
         # Get transport sets for demand
-        p = th.arange(self.P, device=self.generator.device, dtype=self.float_type).view(-1,1)
+        p = th.arange(self.P, device=self.device, dtype=self.float_type).view(-1,1)
         self.load_transport = get_load_transport(self.transport_idx, p)
         self.previous_load_transport = get_load_transport(self.transport_idx, p-1)
         self.discharge_transport = get_discharge_transport(self.transport_idx, p)
@@ -705,7 +722,7 @@ class MasterPlanningEnv(EnvBase):
         - Next port happens when POD = POL+1
         """
         # Initialize next_port
-        next_port = th.zeros((self.T*self.K), dtype=th.bool, device=self.generator.device)
+        next_port = th.zeros((self.T*self.K), dtype=th.bool, device=self.device)
         pol_values = th.arange(self.P - 1, 0, -1,)  # POL values from P-1 to 1
         indices = th.cumsum(self.K * pol_values, dim=0) - 1
         next_port[indices] = True
@@ -717,8 +734,8 @@ class MasterPlanningEnv(EnvBase):
         vp_weight = self.vp_weight.unsqueeze(1).expand(-1,self.B,-1,-1)
         p_weight = th.cat([lp_weight, lp_weight, vp_weight, vp_weight], dim=0)
         target = torch.tensor([self.LCG_target, self.LCG_target, self.VCG_target, self.VCG_target],
-                              device=self.generator.device, dtype=self.float_type).view(-1,1,1,1)
+                              device=self.device, dtype=self.float_type).view(-1,1,1,1)
         delta = torch.tensor([self.stab_delta, -self.stab_delta, self.stab_delta, -self.stab_delta],
-                             device=self.generator.device, dtype=self.float_type).view(-1,1,1,1)
+                             device=self.device, dtype=self.float_type).view(-1,1,1,1)
         output = p_weight - self.weights.view(1,1,1,self.K) * (target + delta)
         return output.view(-1, self.B*self.D, self.K,)
