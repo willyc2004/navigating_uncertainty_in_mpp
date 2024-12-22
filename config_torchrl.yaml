@@ -16,6 +16,7 @@ env:
   hatch_overstowage_mask: False
   long_crane_costs: 0.5
   episode_order: "standard" # greedy_revenue, priority_then_greedy, max_distance_then_priority, standard
+  normalize_obs: False
 
   # Generator
   seed: 42
