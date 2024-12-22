@@ -213,7 +213,9 @@ class MLPDecoderWithCache(nn.Module):
         hidden = self.policy_mlp(context)
         mean = self.mean_head(hidden)
         mean = mean/self.temperature
+        mean = mean.clamp(min=0.0)
         std = F.softplus(self.std_head(hidden))
+        std = std.clamp(max=0.5)
         # todo: add mask
         return mean, std
 
