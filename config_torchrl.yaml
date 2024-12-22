@@ -16,7 +16,7 @@ env:
   hatch_overstowage_mask: False
   long_crane_costs: 0.5
   episode_order: "standard" # greedy_revenue, priority_then_greedy, max_distance_then_priority, standard
-  normalize_obs: False
+  normalize_obs: True
 
   # Generator
   seed: 42
@@ -36,8 +36,8 @@ model:
   num_encoder_layers: 2
   num_decoder_layers: 2
   num_heads: 4
-  dropout_rate: 0.1
-  normalization: "layer" # layer, batch
+  dropout_rate: 0.01
+  normalization: "batch" # layer, batch
   out_bias_pointer_attn: False
   temperature: 1.0
   critic_temperature: 1.0
@@ -68,7 +68,7 @@ algorithm:
   gae_lambda: 0.99
   vf_lambda: 0.5
   entropy_lambda: 1.0
-  feasibility_lambda: 0.01
+  feasibility_lambda: 0.05
   demand_lambda: 1.0
   stability_lambda: 1.0
   projection_lambda: 0.01
