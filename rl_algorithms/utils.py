@@ -2,7 +2,7 @@ from typing import Optional, Dict
 from dotmap import DotMap
 from tensordict import TensorDict
 import torch
-from environment.env_torchrl import MasterPlanningEnv
+from environment.env import MasterPlanningEnv
 from environment.utils import compute_violation
 
 def make_env(env_kwargs:DotMap, batch_size:Optional[list] = [], device: torch.device = torch.device("cuda")):
