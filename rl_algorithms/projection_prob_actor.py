@@ -51,8 +51,8 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
 
     def forward(self, *args, **kwargs):
         out = super().forward(*args, **kwargs)
-        ub = out["realized_demand"][...,out["state", "timestep"][0]] if out["realized_demand"].dim() == 2 \
-            else out["realized_demand"][..., out["state", "timestep"][0,0],:]
+        ub = out["state", "realized_demand"][...,out["state", "timestep"][0]] if out["state","realized_demand"].dim() == 2 \
+            else out["state", "realized_demand"][..., out["state", "timestep"][0,0],:]
         out["action"] = self.conditional_softmax(out["action"], upper_bound=ub).clone()
         if not self.training:
             out["action"] = out["loc"]

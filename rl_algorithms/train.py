@@ -261,9 +261,9 @@ def get_performance_metrics(subdata, td, env):
             "total_profit": subdata["revenue"].sum(dim=(-2,-1)).mean().item() -
                             subdata["cost"].sum(dim=(-2,-1)).mean().item(),
             "total_loaded": subdata["action"].sum(dim=(-2,-1)).mean().item(),
-            "total_demand":subdata['realized_demand'][:,0,:].sum(dim=-1).mean(),
-            "total_e[x]_demand": td['init_expected_demand'][:, 0, :].sum(dim=-1).mean(),
-            "mean_std[x]_demand": subdata['std_demand'][:, 0, :].std(dim=-1).mean(),
+            "total_demand":subdata['state', 'realized_demand'][:,0,:].sum(dim=-1).mean(),
+            "total_e[x]_demand": td['state', 'init_expected_demand'][:, 0, :].sum(dim=-1).mean(),
+            "mean_std[x]_demand": subdata['state', 'std_demand'][:, 0, :].std(dim=-1).mean(),
         }
 
 # Validation
