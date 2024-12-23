@@ -119,17 +119,8 @@ class MPP_Generator(Generator):
         # Sample demand
         demand = th.clamp(dist.sample(), min=1)
 
-        # Observed demand: only transports of POL=0
-        load_tr = get_load_transport(self.transport_idx, th.zeros((1,), device=self.device,))
-        observed_demand = th.zeros_like(demand)
-        if self.demand_uncertainty:
-            observed_demand[:, load_tr, :] = demand[:, load_tr, :]
-        else:
-            observed_demand = demand
-
         # Return demand matrix
         return TensorDict({"realized_demand": demand.view(*batch_size, self.T*self.K),
-                           "observed_demand": observed_demand.view(*batch_size, self.T*self.K),
                            "expected_demand": e_x.view(*batch_size, self.T*self.K),
                            "std_demand":std_x.view(*batch_size, self.T*self.K),
                            "init_expected_demand": e_x_init_demand.view(*batch_size, self.T*self.K),
