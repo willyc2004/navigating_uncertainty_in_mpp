@@ -11,7 +11,7 @@ from environment.models.zoo import AttentionModelPolicy
 from environment.utils.trainer import RL4COTrainer
 from environment.models.zoo import AMPPO
 # Customized RL4CO modules
-from models.ppo import ProjectionPPO
+from rl4co.ppo import ProjectionPPO
 from environment.models.zoo.am.encoder import AttentionModelEncoder
 from models.examples.decoder2 import AttentionModelDecoder
 from models.rl4co.construct_continuous import ConstructivePolicy
@@ -23,7 +23,7 @@ AMPPO.__bases__ = (ProjectionPPO,)  # Adapt base class
 AttentionModelPolicy.__bases__ = (ConstructivePolicy,)  # Adapt base class
 # AutoregressivePolicy.__bases__ = (ContinuousConstructivePolicy,)
 # AutoregressivePolicy.__bases__ = (ConstructivePolicyMPP,)  # Adapt base class
-from environment.embeddings import MPPContextEmbedding, MPPInitEmbedding
+from models.embeddings import MPPContextEmbedding, MPPInitEmbedding
 
 import yaml
 from dotmap import DotMap

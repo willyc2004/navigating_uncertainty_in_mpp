@@ -54,7 +54,7 @@ AMPPO.__bases__ = (Projection_PPO,)  # Adapt base class
 
 # Custom environment modules
 from environment.rl4co.env import MasterPlanningEnv
-from environment.embeddings import MPPInitEmbedding, StaticEmbedding, MPPContextEmbedding
+from models.embeddings import MPPInitEmbedding, StaticEmbedding, MPPContextEmbedding
 from environment.data import StateDependentDataset, custom_collate_fn
 from environment.results import rollout_results
 
