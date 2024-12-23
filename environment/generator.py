@@ -106,8 +106,8 @@ class MPP_Generator(Generator):
             e_x_init_demand, _ = self._initial_contract_demand(batch_size)
             batch_updates = th.zeros(batch_size, device=self.device).view(*batch_size, 1)
         else:
-            e_x_init_demand = td["init_expected_demand"].view(-1, self.T, self.K)
-            batch_updates = td["batch_updates"].clone()
+            e_x_init_demand = td["state", "init_expected_demand"].view(-1, self.T, self.K)
+            batch_updates = td["state", "batch_updates"].clone()
 
         # Get moments and distribution
         if not self.iid_demand:
@@ -120,11 +120,12 @@ class MPP_Generator(Generator):
         demand = th.clamp(dist.sample(), min=1)
 
         # Return demand matrix
-        return TensorDict({"realized_demand": demand.view(*batch_size, self.T*self.K),
-                           "expected_demand": e_x.view(*batch_size, self.T*self.K),
-                           "std_demand":std_x.view(*batch_size, self.T*self.K),
-                           "init_expected_demand": e_x_init_demand.view(*batch_size, self.T*self.K),
-                           "batch_updates":batch_updates + 1,}, batch_size=batch_size, device=self.device,)
+        return TensorDict({"state":
+                               {"realized_demand": demand.view(*batch_size, self.T*self.K),
+                                "expected_demand": e_x.view(*batch_size, self.T*self.K),
+                                "std_demand":std_x.view(*batch_size, self.T*self.K),
+                                "init_expected_demand": e_x_init_demand.view(*batch_size, self.T*self.K),
+                                "batch_updates":batch_updates + 1,}}, batch_size=batch_size, device=self.device,)
 
     ## Initial demand
     def _initial_contract_demand(self, batch_size,) -> Tuple[th.Tensor,th.Tensor]:
