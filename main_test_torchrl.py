@@ -542,73 +542,40 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
         for _ in range(batch_size // mini_batch_size):
             # Sample mini-batch (including actions, n-step returns, old log likelihoods, target_values)
             subdata = replay_buffer.sample(mini_batch_size).to(device)
-            # Loss computation and backpropagation
+            # Loss computation and backpropagation # todo: make sac into custom loss module
             if kwargs["algorithm"]["type"] == "sac":
                 loss_out, policy_out = optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwargs)
-                # NaN check in loss
-                check_for_nans(subdata["observation"], "observation")
-                recursive_check_for_nans(subdata)
-                recursive_check_for_nans(policy_out)
-                recursive_check_for_nans(loss_out)
             elif kwargs["algorithm"]["type"] == "ppo":
                 raise NotImplementedError("PPO not implemented yet.")
             elif kwargs["algorithm"]["type"] == "ppo_feas":
                 for _ in range(num_epochs):
                     loss_out = loss_module(subdata.to(device))
-                    loss = (
-                            loss_out["loss_objective"]
-                            + loss_out["loss_critic"]
-                            + loss_out["loss_entropy"]
-                            + loss_out["loss_feasibility"]
-                    )
+                    loss_out["total_loss"] = (loss_out["loss_objective"] + loss_out["loss_critic"]
+                                              + loss_out["loss_entropy"] + loss_out["loss_feasibility"])
 
                     # Optimization: backward, grad clipping and optimization step
-                    loss.backward()
+                    loss_out["total_loss"].backward()
                     loss_out["gn_actor"] = torch.nn.utils.clip_grad_norm_(loss_module.parameters(), kwargs["algorithm"]["max_grad_norm"])
                     actor_optim.step()
                     actor_optim.zero_grad()
 
         # Log metrics
-        pbar.update(1)
+        train_performance = get_performance_metrics(subdata, td, train_env)
         log = {
-            # General
-            "step": step,
             # Losses
-            # "loss": loss.item(),
+            "total_loss": loss_out.get("total_loss", 0),
             "loss_actor": loss_out.get("loss_actor", loss_out.get("loss_objective")),
             "loss_critic":  loss_out["loss_critic"],
             "loss_feasibility":loss_out["loss_feasibility"],
+            "mean_total_violation": loss_out["mean_violation"].sum(dim=(-2, -1)).mean().item(),
             "loss_entropy": loss_out.get("loss_entropy", 0),
-            # Return
-            "return": subdata['next', 'reward'].mean().item(),
-            "traj_return": subdata['next', 'reward'].sum(dim=(-2, -1)).mean().item(),
-            # Gradient norm
+            # Supporting metrics
+            "step": step,
             "gn_actor": loss_out["gn_actor"].item(),
-            # "gn_critic1": loss_out["gn_critic1"].item(),
-            # "gn_critic2": loss_out["gn_critic2"].item(),
-            # "clip_fraction": loss_out["clip_fraction"],
-            # Prediction
-            "x": subdata['action'].mean().item(),
-            "loc(x)": subdata['loc'].mean().item(),
-            "scale(x)": subdata['scale'].mean().item(),
-
-            # Constraints
-            "mean_total_violation": loss_out["mean_violation"].sum(dim=(-2,-1)).mean().item(),
-            "total_violation": subdata['violation'].sum(dim=(-2,-1)).mean().item(),
-            "demand_violation": subdata['violation'][...,0].sum(dim=(1)).mean().item(),
-            "capacity_violation": subdata['violation'][...,1:-4].sum(dim=(1)).mean().item(),
-            "LCG_violation": subdata['violation'][..., train_env.next_port_mask, -4:-2].sum(dim=(1,2)).mean().item(),
-            "VCG_violation": subdata['violation'][..., train_env.next_port_mask, -2:].sum(dim=(1,2)).mean().item(),
-
-            # Environment
-            "total_revenue": subdata["revenue"].sum(dim=(-2,-1)).mean().item(),
-            "total_cost": subdata["cost"].sum(dim=(-2,-1)).mean().item(),
-            "total_profit": subdata["revenue"].sum(dim=(-2,-1)).mean().item() -
-                            subdata["cost"].sum(dim=(-2,-1)).mean().item(),
-            "total_loaded": subdata["action"].sum(dim=(-2,-1)).mean().item(),
-            "total_demand":subdata['realized_demand'][:,0,:].sum(dim=-1).mean(),
-            "total_e[x]_demand": td['init_expected_demand'][:, 0, :].sum(dim=-1).mean(),
+            "clip_fraction": loss_out.get("clip_fraction", 0),
+            **train_performance,
         }
+        pbar.update(1)
         # Log metrics
         pbar.set_description(
             # Loss, gn and rewards
@@ -631,10 +598,9 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
 
         # Validation step
         if (step + 1) % int(train_updates * validation_freq) == 0:
-            val_out = validate_policy(train_env, policy, n_step=n_step, )
-            # policy.train() # Back to train mode
-            log.update(val_out)
-            val_rewards.append(val_out["val_reward"])
+            validation_performance = validate_policy(train_env, policy, n_step=n_step, )
+            log.update(validation_performance)
+            val_rewards.append(validation_performance["validation", "reward"])
             if early_stopping(val_rewards, patience):
                 print(f"Early stopping at epoch {step} due to {patience} consecutive decreases in validation reward.")
                 break
@@ -676,16 +642,40 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
 
 ## Validation
 def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episodes: int = 10, n_step: int = 100,):
-    # policy_module.eval()  # Set the policy to evaluation mode # todo: eval() mode causes errors for some reason
-
+    """Validate the policy using the environment."""
     # Perform a rollout to evaluate the policy
     with torch.no_grad():
         trajectory = env.rollout(policy=policy_module, max_steps=n_step, auto_reset=True)
+    val_metrics = get_performance_metrics(trajectory, trajectory, env)
+    return {"validation": val_metrics}
 
-    # Return the average reward over the validation episodes
-    avg_reward = trajectory["next", "reward"].sum(dim=(1,2)).mean()
-    avg_violation = trajectory["next", "violation"].sum(dim=(1,2)).mean()
-    return {"val_reward": avg_reward, "val_violation": avg_violation}
+def get_performance_metrics(subdata, td, env):
+    """Compute performance metrics for the policy."""
+    return {# Return
+            "return": subdata['next', 'reward'].mean().item(),
+            "traj_return": subdata['next', 'reward'].sum(dim=(-2, -1)).mean().item(),
+
+            # Prediction
+            "x": subdata['action'].mean().item(),
+            "loc(x)": subdata['loc'].mean().item(),
+            "scale(x)": subdata['scale'].mean().item(),
+
+            # Constraints
+            "total_violation": subdata['violation'].sum(dim=(-2,-1)).mean().item(),
+            "demand_violation": subdata['violation'][...,0].sum(dim=(1)).mean().item(),
+            "capacity_violation": subdata['violation'][...,1:-4].sum(dim=(1)).mean().item(),
+            "LCG_violation": subdata['violation'][..., env.next_port_mask, -4:-2].sum(dim=(1,2)).mean().item(),
+            "VCG_violation": subdata['violation'][..., env.next_port_mask, -2:].sum(dim=(1,2)).mean().item(),
+
+            # Environment
+            "total_revenue": subdata["revenue"].sum(dim=(-2,-1)).mean().item(),
+            "total_cost": subdata["cost"].sum(dim=(-2,-1)).mean().item(),
+            "total_profit": subdata["revenue"].sum(dim=(-2,-1)).mean().item() -
+                            subdata["cost"].sum(dim=(-2,-1)).mean().item(),
+            "total_loaded": subdata["action"].sum(dim=(-2,-1)).mean().item(),
+            "total_demand":subdata['realized_demand'][:,0,:].sum(dim=-1).mean(),
+            "total_e[x]_demand": td['init_expected_demand'][:, 0, :].sum(dim=-1).mean(),
+        }
 
 ## Early stopping
 def early_stopping(val_rewards, patience=2):
