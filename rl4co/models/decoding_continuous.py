@@ -10,7 +10,7 @@ from tensordict.tensordict import TensorDict
 from rl4co.envs import RL4COEnvBase
 from rl4co.utils.ops import batchify, gather_by_index
 from rl4co.utils.pylogger import get_pylogger
-from models.projection import ProjectionFactory
+from rl_algorithms.projection import ProjectionFactory
 
 log = get_pylogger(__name__)
 

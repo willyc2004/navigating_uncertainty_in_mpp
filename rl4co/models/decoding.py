@@ -10,8 +10,8 @@ from tensordict.tensordict import TensorDict
 from rl4co.envs import RL4COEnvBase
 from rl4co.utils.ops import batchify
 from rl4co.utils.pylogger import get_pylogger
-from models.projection import ProjectionFactory
-from models.clipped_gaussian import ClippedGaussian
+from rl_algorithms.projection import ProjectionFactory
+from rl_algorithms.clipped_gaussian import ClippedGaussian
 
 log = get_pylogger(__name__)
 

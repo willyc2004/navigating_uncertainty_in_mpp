@@ -18,7 +18,7 @@ from rl4co.rl4co.decoding import (
     calculate_gaussian_entropy,
 )
 from environment.utils import compute_violation
-from models.projection import ProjectionFactory
+from rl_algorithms.projection import ProjectionFactory
 
 log = get_pylogger(__name__)
 

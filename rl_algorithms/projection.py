@@ -1,8 +1,7 @@
-from typing import Any, Tuple, Union
 import torch as th
 import cvxpy as cp
 from cvxpylayers.torch import CvxpyLayer
-from models.lp_solver import stepwise_lp
+from rl_algorithms.lp_solver import stepwise_lp
 
 class EmptyLayer(th.nn.Module):
     def __init__(self, **kwargs):

@@ -1,19 +1,15 @@
 from datetime import datetime
 import os
 import copy
-from typing import Dict
 import wandb
 import tqdm
 
 # Torch
 import torch
-import torch.nn as nn
 
 # TorchRL
 from torchrl.envs import EnvBase
-from torchrl.envs.utils import check_env_specs
-from torchrl.modules import ProbabilisticActor, IndependentNormal, TruncatedNormal, ValueOperator, TanhNormal, MLP
-from torchrl.objectives.sac import SACLoss
+from torchrl.modules import ProbabilisticActor
 from torchrl.objectives.ddpg import DDPGLoss
 from torchrl.objectives.ppo import ClipPPOLoss
 from torchrl.objectives.reinforce import ReinforceLoss
@@ -24,8 +20,8 @@ from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
 from torchrl.data.replay_buffers.storages import LazyTensorStorage
 
 # Custom code
-from models.utils import make_env
-from models.loss import FeasibilityClipPPOLoss, optimize_sac_loss
+from rl_algorithms.utils import make_env
+from rl_algorithms.loss import FeasibilityClipPPOLoss, optimize_sac_loss
 
 # Training
 def train(policy, critic, device=torch.device("cuda"), **kwargs):

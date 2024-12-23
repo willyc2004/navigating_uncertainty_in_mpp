@@ -18,16 +18,16 @@ from torchrl.modules import TruncatedNormal, ValueOperator
 
 # Custom:
 # Training
-from models.utils import make_env, adapt_env_kwargs
-from models.train import train
+from rl_algorithms.utils import make_env, adapt_env_kwargs
+from rl_algorithms.train import train
 # Models
 from models.embeddings import MPPInitEmbedding, StaticEmbedding, MPPContextEmbedding
 from models.common import Autoencoder
 from models.encoder import MLPEncoder
 from models.decoder import AttentionDecoderWithCache, MLPDecoderWithCache
 from models.critic import CriticNetwork
-from models.projection import ProjectionFactory
-from models.projection_prob_actor import ProjectionProbabilisticActor
+from rl_algorithms.projection import ProjectionFactory
+from rl_algorithms.projection_prob_actor import ProjectionProbabilisticActor
 # RL4CO model
 from rl4co.models.zoo.am.encoder import AttentionModelEncoder
 
