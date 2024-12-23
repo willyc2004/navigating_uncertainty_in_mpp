@@ -46,12 +46,13 @@ class MPPInitEmbedding(nn.Module):
     def forward(self, td: Tensor,):
         batch_size = td.shape[0]
         cargo_parameters = self._combine_cargo_parameters(batch_size=batch_size)
+        max_demand = td["realized_demand"].max()
         if td["expected_demand"].dim() == 2:
-            expected_demand = td["expected_demand"].unsqueeze(-1)
-            std_demand = td["std_demand"].unsqueeze(-1)
+            expected_demand = td["expected_demand"].unsqueeze(-1) / max_demand
+            std_demand = td["std_demand"].unsqueeze(-1) / max_demand
         else:
-            expected_demand = td["expected_demand"][..., 0, :].unsqueeze(-1)
-            std_demand = td["std_demand"][..., 0, :].unsqueeze(-1)
+            expected_demand = td["expected_demand"][..., 0, :].unsqueeze(-1) / max_demand
+            std_demand = td["std_demand"][..., 0, :].unsqueeze(-1) / max_demand
         combined_input = torch.cat([
             expected_demand, std_demand, *cargo_parameters.values()], dim=-1)
         combined_emb = self.fc(combined_input)
@@ -75,6 +76,16 @@ class MPPContextEmbedding(nn.Module):
         self.seq_dim = seq_dim
         self.project_context = nn.Linear(embed_dim + 71, embed_dim,)
 
+    def normalize_obs(self, td):
+        batch_size = td.batch_size
+        return torch.cat([
+            (td["residual_capacity"] / self.env.capacity.view(1, self.env.B * self.env.D)).view(*batch_size, self.env.B * self.env.D),
+            (td["residual_lc_capacity"] / td["target_long_crane"].unsqueeze(0)).view(*batch_size, self.env.B - 1),
+            td["lcg"],
+            td["vcg"],
+            td["agg_pol_location"] / self.env.P,
+            td["agg_pod_location"] / self.env.P,
+        ], dim=-1)
 
     def forward(self, td: Tensor, latent_state: Optional[Tensor] = None):
         """Embed the context for the MPP"""
@@ -83,22 +94,15 @@ class MPPContextEmbedding(nn.Module):
             select_init_embedding = gather_by_index(latent_state, td["timestep"][0])
         else:
             select_init_embedding = latent_state
-            print("select_init_embedding", select_init_embedding.shape)
-            print("td", td["residual_capacity"].shape)
-            # breakpoint()
         # Project state, concat embeddings, and project concat to output
-        # todo: add normalization of obs
-
-
-        obs = torch.cat([td["residual_capacity"], td["residual_lc_capacity"], td["lcg"], td["vcg"],
-                         td["agg_pol_location"], td["agg_pod_location"],], dim=-1)
+        obs = self.normalize_obs(td)
         context_embedding = torch.cat([obs, select_init_embedding], dim=-1)
         output = self.project_context(context_embedding)
         return output
 
-class MPPDynamicStochasticDemandEmbedding(nn.Module):
+class MPPDynamicEmbedding(nn.Module):
     def __init__(self, embed_dim, seq_dim, env, demand_aggregation="full",):
-        super(MPPDynamicStochasticDemandEmbedding, self).__init__()
+        super(MPPDynamicEmbedding, self).__init__()
         self.env = env
         self.seq_dim = seq_dim
         self.observed_demand = nn.Linear(1, embed_dim)
@@ -123,11 +127,11 @@ class MPPDynamicStochasticDemandEmbedding(nn.Module):
     def forward(self, td: Tensor, latent_state: Optional[Tensor] = None):
         """Embed the dynamic demand for the MPP"""
         # Get relevant demand embeddings
-        # todo: add normalization of obs
+        max_demand = td["realized_demand"].max()
         if td["observed_demand"].dim() == 2:
-            observed_demand = td["observed_demand"].unsqueeze(-1)
+            observed_demand = td["observed_demand"].unsqueeze(-1) / max_demand
         else:
-            observed_demand = td["observed_demand"][...,0,:].unsqueeze(-1)
+            observed_demand = td["observed_demand"][...,0,:].unsqueeze(-1) / max_demand
         hidden = self.observed_demand(observed_demand)
         dynamic_embedding = torch.cat([hidden, latent_state], dim=-1)
         output = self.project_dynamic(dynamic_embedding)
