@@ -19,6 +19,7 @@ class CriticNetwork(nn.Module):
             hidden_dim: int = 512,
             num_layers: int = 1,
             context_embedding: Optional[nn.Module] = None,  # Context embedding for additional input
+            dynamic_embedding: Optional[nn.Module] = None,  # Dynamic embedding for additional input
             normalization: Optional[str] = None,
             dropout_rate: Optional[float] = None,
             temperature: float = 1.0,
@@ -30,6 +31,8 @@ class CriticNetwork(nn.Module):
 
         self.encoder = encoder
         self.context_embedding = context_embedding  # Store context_embedding
+        self.dynamic_embedding = dynamic_embedding  # Store dynamic_embedding
+        self.combination_layer = nn.Linear(2*embed_dim, embed_dim)
         self.temperature = temperature
         self.customized = customized
 
@@ -76,11 +79,14 @@ class CriticNetwork(nn.Module):
         """
         latent, _ = self.encoder(obs)  # [batch_size, N, embed_dim] -> [batch_size, N]
         hid = self.context_embedding(obs, latent)  # Apply context embedding
+        hid2 = self.dynamic_embedding(obs, latent)  # Apply dynamic embedding
+        hid_combined = torch.cat([hid, hid2], dim=-1) # Combine context and dynamic embeddings
+        hid = self.combination_layer(hid_combined)
         if action is not None:
             hidden = self.state_action_layer(torch.cat([hid, action], dim=-1))
         else:
             hidden = hid
-        if not self.customized:  # for for most of costructive tasks
+        if not self.customized:  # for most constructive tasks
             output = self.value_head(hidden).sum(dim=1, keepdims=True)  # [batch_size, N] -> [batch_size, 1]
         else:  # customized encoder and value head with hidden input
             output = self.value_head(hidden) # [batch_size, N] -> [batch_size, N]
