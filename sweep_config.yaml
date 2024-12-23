@@ -29,9 +29,9 @@ parameters:
     max: 1.0
   normalization:
     values: ["batch", "layer"]
-  normalize_adv:
-    values: [False, True]
-  normalize_return:
-    values: [False, True]
-  tanh_squashing:
-    values: [False, True]
+  scale_max:
+    min: 0.25
+    max: 2.0
+  dropout_rate:
+    min: 0.0
+    max: 0.2

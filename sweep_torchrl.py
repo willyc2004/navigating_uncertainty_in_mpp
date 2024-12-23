@@ -29,24 +29,17 @@ if __name__ == "__main__":
             config['model']['num_heads'] = sweep_config.num_heads
             config['model']['batch_size'] = sweep_config.batch_size
             config['model']['normalization'] = sweep_config.normalization
-            config['model']['tanh_squashing'] = sweep_config.tanh_squashing
-            # config['model']['embed_dim'] = sweep_config.embed_dim
-            # config['model']['dropout_rate'] = sweep_config.dropout_rate
-            # config['model']['lr_end_factor'] = sweep_config.lr_end_factor
+            config['model']['dropout_rate'] = sweep_config.dropout_rate
+            config['model']['scale_max'] = sweep_config.scale_max
 
             # PPO hyperparameters
             config['algorithm']['ppo_epochs'] = sweep_config.ppo_epochs
             config['algorithm']['mini_batch_size'] = sweep_config.mini_batch_size
             config['algorithm']['feasibility_lambda'] = sweep_config.feasibility_lambda
             config['algorithm']['entropy_lambda'] = sweep_config.entropy_lambda
-            config['algorithm']['normalize_adv'] = sweep_config.normalize_adv
-            config['algorithm']['normalize_return'] = sweep_config.normalize_return
 
             # # AM-PPO hyperparameters
             config['training']['lr'] = sweep_config.lr
-            # config['training']['projection_kwargs']['iters'] = sweep_config.projection_iters
-            # config['training']['train_data_size'] = sweep_config.train_data_size
-            # config['training']['val_data_size'] = sweep_config.val_data_size
 
             # Call your main() function
             model = main(config)
