@@ -673,6 +673,7 @@ def get_performance_metrics(subdata, td, env):
             "total_loaded": subdata["action"].sum(dim=(-2,-1)).mean().item(),
             "total_demand":subdata['realized_demand'][:,0,:].sum(dim=-1).mean(),
             "total_e[x]_demand": td['init_expected_demand'][:, 0, :].sum(dim=-1).mean(),
+            "mean_std[x]_demand": subdata['std_demand'][:, 0, :].std(dim=-1).mean(),
         }
 
 ## Early stopping
