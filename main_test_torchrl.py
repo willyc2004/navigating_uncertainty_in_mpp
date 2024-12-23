@@ -21,7 +21,7 @@ from torchrl.modules import TruncatedNormal, ValueOperator
 from rl_algorithms.utils import make_env, adapt_env_kwargs
 from rl_algorithms.train import train
 # Models
-from models.embeddings import MPPInitEmbedding, StaticEmbedding, MPPContextEmbedding
+from models.embeddings import MPPInitEmbedding, StaticEmbedding, MPPContextEmbedding, MPPDynamicStochasticDemandEmbedding
 from models.common import Autoencoder
 from models.encoder import MLPEncoder
 from models.decoder import AttentionDecoderWithCache, MLPDecoderWithCache
@@ -56,13 +56,13 @@ def main(config: Optional[DotMap] = None):
     ## Model initialization
     # Embedding dimensions
     embed_dim = config.model.embed_dim
-    obs_dim = env.observation_spec["observation"].shape[0]
+    obs_dim = 0 #env.observation_spec["observation"].shape[0]
     action_dim = env.action_spec.shape[0]
     sequence_dim = env.K * env.T if env.action_spec.shape[0] == env.B*env.D else env.P-1
     # Embedding initialization
-    init_embed = MPPInitEmbedding(obs_dim, action_dim, embed_dim, sequence_dim, env)
-    context_embed = MPPContextEmbedding(obs_dim, action_dim, embed_dim, sequence_dim, env, config.model.demand_aggregation)
-    dynamic_embed = StaticEmbedding(obs_dim, embed_dim)
+    init_embed = MPPInitEmbedding(action_dim, embed_dim, sequence_dim, env)
+    context_embed = MPPContextEmbedding(action_dim, embed_dim, sequence_dim, env, config.model.demand_aggregation)
+    dynamic_embed = MPPDynamicStochasticDemandEmbedding(embed_dim, sequence_dim, env,)
 
     # Model initialization
     hidden_dim = config.model.feedforward_hidden
@@ -102,6 +102,8 @@ def main(config: Optional[DotMap] = None):
     else:
         encoder = MLPEncoder(**encoder_args)
     if config.model.decoder_type == "attention":
+        # todo: update dynamic and context embedding into decoder
+        # path: C:\Users\jaiv\AppData\Local\JetBrains\PyCharm2023.1\remote_sources\-519725924\-311454031\rl4co\models\zoo\am\decoder.py
         decoder = AttentionDecoderWithCache(**decoder_args)
     elif config.model.decoder_type == "mlp":
         decoder = MLPDecoderWithCache(**decoder_args)
@@ -111,10 +113,11 @@ def main(config: Optional[DotMap] = None):
         # Define two Q-networks for the critics
         critic1 = ValueOperator(
             CriticNetwork(encoder, embed_dim=embed_dim, hidden_dim=hidden_dim, num_layers=decoder_layers,
-                          context_embedding=context_embed, normalization=config.model.normalization,
+                          context_embedding=context_embed, dynamic_embedding=dynamic_embed,
+                          normalization=config.model.normalization,
                           dropout_rate=dropout_rate, temperature=config.model.critic_temperature, customized=True,
                           use_q_value=True, action_dim=action_dim).to(device),
-            in_keys=["observation", "action"],  # Input tensor key in TensorDict
+            in_keys=["state", "action"],  # Input tensor key in TensorDict
             out_keys=["state_action_value"],
         )
         critic2 = copy.deepcopy(critic1)  # Second critic network
@@ -123,17 +126,18 @@ def main(config: Optional[DotMap] = None):
         # Get critic
         critic = TensorDictModule(
             CriticNetwork(encoder, embed_dim=embed_dim, hidden_dim=hidden_dim, num_layers=decoder_layers,
-                          context_embedding=context_embed, normalization=config.model.normalization,
+                          context_embedding=context_embed, dynamic_embedding=dynamic_embed,
+                          normalization=config.model.normalization,
                           dropout_rate=dropout_rate, temperature=config.model.critic_temperature,
                           customized=True).to(device),
-            in_keys=["observation",],  # Input tensor key in TensorDict
-            out_keys=["state_value"],  # ["state_action_value"]  # Output tensor key in TensorDict
+            in_keys=["state",],  # Input tensor key in TensorDict
+            out_keys=["state_value"], # Output tensor key in TensorDict
         )
 
     # Get ProbabilisticActor (for stochastic policies)
     actor = TensorDictModule(
         Autoencoder(encoder, decoder).to(device),
-        in_keys=["observation",],  # Input tensor key in TensorDict
+        in_keys=["state",],  # Input tensor key in TensorDict
         out_keys=["loc","scale"]  # Output tensor key in TensorDict
     )
     if config.training.projection_type in ["linear_violation", "linear_program", "convex_program"]:
