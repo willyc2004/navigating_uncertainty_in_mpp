@@ -130,10 +130,7 @@ class MPP_Generator(Generator):
         else:
             observed_demand = demand
 
-        print("realized_demand:", demand.mean())
-        print("expected_demand:", e_x.mean())
-        print("std_demand:", std_x.mean())
-        print("init_expected_demand:", e_x_init_demand.mean())
+        print("q, E[q], :", demand.mean(), e_x.mean())
 
         # Return demand matrix
         return TensorDict({"realized_demand": demand.view(*batch_size, self.T*self.K),

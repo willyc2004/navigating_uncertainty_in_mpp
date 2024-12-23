@@ -240,6 +240,8 @@ class PortMasterPlanningEnv(EnvBase):
             #todo: implement non-iid demand generation
             pass
 
+        print("reset: q, E[q]", td["realized_demand"].mean(), td["expected_demand"].mean())
+
         # Initialize
         device = td.device
         if batch_size == th.Size([]):
