@@ -77,15 +77,17 @@ class CriticNetwork(nn.Module):
         Returns:
             Value of the input state
         """
-        latent, _ = self.encoder(obs)  # [batch_size, N, embed_dim] -> [batch_size, N]
-        hid = self.context_embedding(obs, latent)  # Apply context embedding
-        hid2 = self.dynamic_embedding(obs, latent)  # Apply dynamic embedding
-        hid_combined = torch.cat([hid, hid2], dim=-1) # Combine context and dynamic embeddings
-        hid = self.combination_layer(hid_combined)
+        # Encode the input
+        hidden, _ = self.encoder(obs)  # [batch_size, N, embed_dim] -> [batch_size, N]
+        # Update the hidden state with dynamic embedding
+        hidden = self.dynamic_embedding(obs, hidden)  # Apply dynamic embedding
+        # Update the hidden state with context embedding
+        hidden = self.context_embedding(obs, hidden) # Apply context embedding
+
         if action is not None:
-            hidden = self.state_action_layer(torch.cat([hid, action], dim=-1))
-        else:
-            hidden = hid
+            hidden = self.state_action_layer(torch.cat([hidden, action], dim=-1))
+
+        # Compute the value
         if not self.customized:  # for most constructive tasks
             output = self.value_head(hidden).sum(dim=1, keepdims=True)  # [batch_size, N] -> [batch_size, 1]
         else:  # customized encoder and value head with hidden input

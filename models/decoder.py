@@ -177,6 +177,7 @@ class MLPDecoderWithCache(nn.Module):
         super(MLPDecoderWithCache, self).__init__()
         self.context_embedding = context_embedding
         self.dynamic_embedding = dynamic_embedding
+        self.combination_layer = nn.Linear(2*embed_dim, embed_dim)
         self.is_dynamic_embedding = (
             False if isinstance(self.dynamic_embedding, StaticEmbedding) else True
         )
@@ -208,11 +209,13 @@ class MLPDecoderWithCache(nn.Module):
         self.scale_max = scale_max
 
     def forward(self, obs, hidden:Optional=None) -> Dict[str, Tensor]:
-        # Context embedding
-        context = self.context_embedding(obs, hidden)
+        # Update the hidden state with dynamic embedding
+        hidden = self.dynamic_embedding(obs, hidden)  # Apply dynamic embedding
+        # Update the hidden state with context embedding
+        hidden = self.context_embedding(obs, hidden) # Apply context embedding
 
         # Compute mask and logits
-        hidden = self.policy_mlp(context)
+        hidden = self.policy_mlp(hidden)
         mean = self.mean_head(hidden)
         mean = mean/self.temperature
         mean = mean.clamp(min=0.0)

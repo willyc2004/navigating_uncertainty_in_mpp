@@ -7,7 +7,7 @@ from typing import Tuple, Callable, Optional, Dict
 from rl4co.utils.ops import gather_by_index
 
 class MPPInitEmbedding(nn.Module):
-    def __init__(self, obs_dim, action_dim, embed_dim, seq_dim, env):
+    def __init__(self, action_dim, embed_dim, seq_dim, env):
         super(MPPInitEmbedding, self).__init__()
         # Store environment and sequence size
         self.env = env
@@ -15,7 +15,7 @@ class MPPInitEmbedding(nn.Module):
 
         # Embedding layers
         if env.name == "mpp":
-            num_embeddings = 5  # Number of embeddings
+            num_embeddings = 7  # Number of embeddings
             self.fc = nn.Linear(num_embeddings, embed_dim)
         elif env.name == "port_mpp":
             num_embeddings = self.seq_dim  # Number of embeddings
@@ -43,12 +43,17 @@ class MPPInitEmbedding(nn.Module):
             }
         return norm_features
 
-
-    def forward(self, obs: Tensor,):
-        # todo: possibly add more exp, std of demand
-        batch_size = obs.shape[0] if obs.dim() > 1 else torch.Size([])
+    def forward(self, td: Tensor,):
+        batch_size = td.shape[0]
         cargo_parameters = self._combine_cargo_parameters(batch_size=batch_size)
-        combined_input = torch.cat([*cargo_parameters.values(),], dim=-1)
+        if td["expected_demand"].dim() == 2:
+            expected_demand = td["expected_demand"].unsqueeze(-1)
+            std_demand = td["std_demand"].unsqueeze(-1)
+        else:
+            expected_demand = td["expected_demand"][..., 0, :].unsqueeze(-1)
+            std_demand = td["std_demand"][..., 0, :].unsqueeze(-1)
+        combined_input = torch.cat([
+            expected_demand, std_demand, *cargo_parameters.values()], dim=-1)
         combined_emb = self.fc(combined_input)
 
         # Positional encoding
@@ -64,43 +69,69 @@ class MPPContextEmbedding(nn.Module):
     - Embeds the state of the MPP for the context
     """
 
-    def __init__(self, obs_dim, action_dim, embed_dim, seq_dim, env, demand_aggregation="full",):
+    def __init__(self, action_dim, embed_dim, seq_dim, env, demand_aggregation="full",):
         super(MPPContextEmbedding, self).__init__()
         self.env = env
         self.seq_dim = seq_dim
-        self.project_context = nn.Linear(embed_dim + obs_dim, embed_dim,)
+        self.project_context = nn.Linear(embed_dim + 71, embed_dim,)
 
-        # todo: give options for different demand aggregation methods; e.g. sum, self-attention
-        self.demand_aggregation = demand_aggregation
-        if self.demand_aggregation == "sum":
-            self.observed_demand = nn.Linear(1, embed_dim)
-            self.expected_demand = nn.Linear(1, embed_dim)
-            self.std_demand = nn.Linear(1, embed_dim)
-        elif self.demand_aggregation == "full":
-            self.observed_demand = nn.Linear(seq_dim, embed_dim)
-            self.expected_demand = nn.Linear(seq_dim, embed_dim)
-            self.std_demand = nn.Linear(seq_dim, embed_dim)
-        elif self.demand_aggregation == "self_attn":
-            self.observed_demand = SelfAttentionStateMapping(embed_dim=embed_dim,)
-            self.expected_demand = SelfAttentionStateMapping(embed_dim=embed_dim,)
-            self.std_demand = SelfAttentionStateMapping(embed_dim=embed_dim,)
-        else:
-            raise ValueError(f"Invalid demand aggregation: {demand_aggregation}")
 
-    def forward(self, obs: Tensor, latent_state: Optional[Tensor] = None):
+    def forward(self, td: Tensor, latent_state: Optional[Tensor] = None):
         """Embed the context for the MPP"""
-        # Get relevant init embedding (first element of obs)
-        time = (obs[..., 0] * self.seq_dim).long() if self.env.normalize_obs else (obs[..., 0]).long()
-        select_init_embedding = gather_by_index(latent_state, time)
-
+        # Get relevant init embedding
+        if td["timestep"].dim() == 1:
+            select_init_embedding = gather_by_index(latent_state, td["timestep"][0])
+        else:
+            select_init_embedding = latent_state
+            print("select_init_embedding", select_init_embedding.shape)
+            print("td", td["residual_capacity"].shape)
+            # breakpoint()
         # Project state, concat embeddings, and project concat to output
+        # todo: add normalization of obs
+
+
+        obs = torch.cat([td["residual_capacity"], td["residual_lc_capacity"], td["lcg"], td["vcg"],
+                         td["agg_pol_location"], td["agg_pod_location"],], dim=-1)
         context_embedding = torch.cat([obs, select_init_embedding], dim=-1)
         output = self.project_context(context_embedding)
         return output
 
-def reorder_demand(demand, tau, k, T, K, batch_size):
-    """Reorder demand to match the episode ordering"""
-    return demand.view(*batch_size, T, K)[..., tau, k]
+class MPPDynamicStochasticDemandEmbedding(nn.Module):
+    def __init__(self, embed_dim, seq_dim, env, demand_aggregation="full",):
+        super(MPPDynamicStochasticDemandEmbedding, self).__init__()
+        self.env = env
+        self.seq_dim = seq_dim
+        self.observed_demand = nn.Linear(1, embed_dim)
+        self.project_dynamic = nn.Linear(embed_dim * 2, embed_dim)
+
+        # todo: give options for different demand aggregation methods; e.g. sum, self-attention
+        # self.demand_aggregation = demand_aggregation
+        # if self.demand_aggregation == "sum":
+        #     self.expected_demand = nn.Linear(1, embed_dim)
+        #     self.std_demand = nn.Linear(1, embed_dim)
+        # elif self.demand_aggregation == "full":
+        #     self.observed_demand = nn.Linear(seq_dim, embed_dim)
+        #     self.expected_demand = nn.Linear(seq_dim, embed_dim)
+        #     self.std_demand = nn.Linear(seq_dim, embed_dim)
+        # elif self.demand_aggregation == "self_attn":
+        #     self.observed_demand = SelfAttentionStateMapping(embed_dim=embed_dim,)
+        #     self.expected_demand = SelfAttentionStateMapping(embed_dim=embed_dim,)
+        #     self.std_demand = SelfAttentionStateMapping(embed_dim=embed_dim,)
+        # else:
+        #     raise ValueError(f"Invalid demand aggregation: {demand_aggregation}")
+
+    def forward(self, td: Tensor, latent_state: Optional[Tensor] = None):
+        """Embed the dynamic demand for the MPP"""
+        # Get relevant demand embeddings
+        # todo: add normalization of obs
+        if td["observed_demand"].dim() == 2:
+            observed_demand = td["observed_demand"].unsqueeze(-1)
+        else:
+            observed_demand = td["observed_demand"][...,0,:].unsqueeze(-1)
+        hidden = self.observed_demand(observed_demand)
+        dynamic_embedding = torch.cat([hidden, latent_state], dim=-1)
+        output = self.project_dynamic(dynamic_embedding)
+        return output
 
 class StaticEmbedding(nn.Module):
     # This defines shape of key, value
