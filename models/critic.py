@@ -7,7 +7,7 @@ from rl4co.utils.pylogger import get_pylogger
 log = get_pylogger(__name__)
 
 # Custom imports
-from models.ffn_block import ResidualBlock, add_normalization_layer
+from models.common import ResidualBlock, add_normalization_layer
 
 class CriticNetwork(nn.Module):
     """Create a critic network with an encoder and a value head to transform the embeddings to a scalar value."""

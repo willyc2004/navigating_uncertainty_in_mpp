@@ -9,7 +9,7 @@ from tensordict import TensorDict
 
 # Custom rl4co modules
 from environment.embeddings import StaticEmbedding
-from models.ffn_block import ResidualBlock, add_normalization_layer
+from models.common import ResidualBlock, add_normalization_layer
 
 @dataclass
 class PrecomputedCache:
