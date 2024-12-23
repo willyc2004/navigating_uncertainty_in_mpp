@@ -17,6 +17,7 @@ class MPP_Generator(Generator):
         # Create a local generator with a fixed seed
         self.generator = th.Generator(device=self.device)
         self.generator.manual_seed(self.seed)
+        print("generator seed:", self.generator.seed())
 
         # Input env
         self.P = kwargs.get("ports")  # Number of ports
@@ -128,6 +129,11 @@ class MPP_Generator(Generator):
             observed_demand[:, load_tr, :] = demand[:, load_tr, :]
         else:
             observed_demand = demand
+
+        print("realized_demand:", demand.mean())
+        print("expected_demand:", e_x.mean())
+        print("std_demand:", std_x.mean())
+        print("init_expected_demand:", e_x_init_demand.mean())
 
         # Return demand matrix
         return TensorDict({"realized_demand": demand.view(*batch_size, self.T*self.K),
