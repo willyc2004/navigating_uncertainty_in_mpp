@@ -8,7 +8,7 @@ from torch import Tensor
 from tensordict import TensorDict
 
 # Custom rl4co modules
-from environment.embeddings import StaticEmbedding
+from models.embeddings import StaticEmbedding
 from models.common import ResidualBlock, add_normalization_layer
 
 @dataclass

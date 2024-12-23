@@ -5,26 +5,23 @@ import copy
 # Datatypes
 import yaml
 from dotmap import DotMap
-from collections import defaultdict
-from typing import Optional, Tuple, Dict, Union, Sequence
-from tensordict import TensorDict
+from typing import Optional
 from tensordict.nn import TensorDictModule
-from tensordict.utils import NestedKey
 
 # Machine learning
 import torch
 import wandb
 
 # TorchRL
-from torchrl.envs import EnvBase
 from torchrl.envs.utils import check_env_specs
-from torchrl.modules import ProbabilisticActor, IndependentNormal, TruncatedNormal, ValueOperator, TanhNormal, MLP
+from torchrl.modules import TruncatedNormal, ValueOperator
 
-# Custom environment
-from environment.embeddings import MPPInitEmbedding, StaticEmbedding, MPPContextEmbedding
+# Custom:
+# Training
 from models.utils import make_env, adapt_env_kwargs
-# Custom model and training
 from models.train import train
+# Models
+from models.embeddings import MPPInitEmbedding, StaticEmbedding, MPPContextEmbedding
 from models.common import Autoencoder
 from models.encoder import MLPEncoder
 from models.decoder import AttentionDecoderWithCache, MLPDecoderWithCache
