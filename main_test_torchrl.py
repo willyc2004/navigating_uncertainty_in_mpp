@@ -21,7 +21,7 @@ from torchrl.modules import TruncatedNormal, ValueOperator
 from rl_algorithms.utils import make_env, adapt_env_kwargs
 from rl_algorithms.train import train
 # Models
-from models.embeddings import MPPInitEmbedding, StaticEmbedding, MPPContextEmbedding, MPPDynamicStochasticDemandEmbedding
+from models.embeddings import MPPInitEmbedding, MPPContextEmbedding, MPPDynamicEmbedding
 from models.common import Autoencoder
 from models.encoder import MLPEncoder
 from models.decoder import AttentionDecoderWithCache, MLPDecoderWithCache
@@ -62,7 +62,7 @@ def main(config: Optional[DotMap] = None):
     # Embedding initialization
     init_embed = MPPInitEmbedding(action_dim, embed_dim, sequence_dim, env)
     context_embed = MPPContextEmbedding(action_dim, embed_dim, sequence_dim, env, config.model.demand_aggregation)
-    dynamic_embed = MPPDynamicStochasticDemandEmbedding(embed_dim, sequence_dim, env,)
+    dynamic_embed = MPPDynamicEmbedding(embed_dim, sequence_dim, env,)
 
     # Model initialization
     hidden_dim = config.model.feedforward_hidden
