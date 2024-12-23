@@ -1,6 +1,7 @@
 import time
 from typing import Optional, Iterable, List, Tuple, Dict
 
+import random
 import torch as th
 from torch import Tensor
 from tensordict.tensordict import TensorDict
@@ -35,9 +36,7 @@ class PortMasterPlanningEnv(EnvBase):
 
         # Seed
         self.seed = kwargs.get("seed")
-        if self.seed is None:
-            self.seed = th.empty((), dtype=th.int64).random_().item()
-        self.set_seed(self.seed)
+        self._set_seed(self.seed)
 
         # Init fns
         # todo: perform big clean-up here!
@@ -240,8 +239,6 @@ class PortMasterPlanningEnv(EnvBase):
             #todo: implement non-iid demand generation
             pass
 
-        print("reset: q, E[q]", td["realized_demand"].mean(), td["expected_demand"].mean())
-
         # Initialize
         device = td.device
         if batch_size == th.Size([]):
@@ -291,9 +288,16 @@ class PortMasterPlanningEnv(EnvBase):
         return out
 
     def _set_seed(self, seed: Optional[int]):
-        rng = th.Generator(device=self.device)
-        rng.manual_seed(seed)
-        self.rng = rng
+        if seed is not None:
+            # Set PyTorch global seed
+            th.manual_seed(seed)
+            if th.cuda.is_available():
+                th.cuda.manual_seed(seed)
+                th.cuda.manual_seed_all(seed)
+            # Set Python random seed
+            random.seed(seed)
+        else:
+            raise ValueError("Seed must be provided.")
 
     # Unpacking
     def _extract_from_td(self, td, batch_size) -> Tuple:
