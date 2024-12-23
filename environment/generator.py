@@ -14,10 +14,7 @@ class MPP_Generator(Generator):
         # Input simulation
         self.device = th.device("cuda" if th.cuda.is_available() else "cpu")
         self.seed = kwargs.get("seed")
-        # Create a local generator with a fixed seed
-        self.generator = th.Generator(device=self.device)
-        self.generator.manual_seed(self.seed)
-        print("generator seed:", self.generator.seed())
+        self.rng = th.Generator(device=self.device).manual_seed(self.seed)
 
         # Input env
         self.P = kwargs.get("ports")  # Number of ports
@@ -130,8 +127,6 @@ class MPP_Generator(Generator):
         else:
             observed_demand = demand
 
-        print("q, E[q], :", demand.mean(), e_x.mean())
-
         # Return demand matrix
         return TensorDict({"realized_demand": demand.view(*batch_size, self.T*self.K),
                            "observed_demand": observed_demand.view(*batch_size, self.T*self.K),
@@ -180,7 +175,7 @@ class MPP_Generator(Generator):
         - V[X] = (E[X] * cv)^2"""
         # Sample uniformly from 0 to bound (inclusive) using torch.rand
         expected = th.rand(*batch_size, self.T, self.K, dtype=bound.dtype, device=self.device,
-                           generator=self.generator) * bound.unsqueeze(0)
+                           generator=self.rng) * bound.unsqueeze(0)
         variance = (expected * cv.view(1, 1, self.K,)) ** 2
         return th.where(expected < eps, eps, expected), variance
 
