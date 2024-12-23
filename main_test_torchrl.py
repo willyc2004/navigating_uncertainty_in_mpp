@@ -50,6 +50,7 @@ from models.decoder import AttentionDecoderWithCache, MLPDecoderWithCache
 from models.critic import CriticNetwork
 from models.loss import FeasibilityClipPPOLoss
 from models.projection import ProjectionFactory
+from models.common import Autoencoder
 
 ## Helper functions
 def adapt_env_kwargs(config):
@@ -62,42 +63,6 @@ def adapt_env_kwargs(config):
 def make_env(env_kwargs:DotMap, batch_size:Optional[list] = [], device: torch.device = torch.device("cuda")):
     """Setup and transform the Pendulum environment."""
     return MasterPlanningEnv(batch_size=batch_size, **env_kwargs).to(device)
-
-def compute_surrogate_loss(ll, td, clip_epsilon, normalize_advantage=False) -> Dict:
-    """Compute the surrogate loss for PPO."""
-    # Unpack the tensors
-    old_ll = td["sample_log_prob"].clone()  # already detached
-    advantage = td["advantage"].clone().squeeze(-1)  # already detached
-    # Normalize the advantage
-    if normalize_advantage:
-        advantage = (advantage - advantage.mean()) / (advantage.std() + 1e-8)
-
-    if torch.isnan(ll).any():
-        raise ValueError("Log likelihood is NaN.")
-    if torch.isnan(old_ll).any():
-        raise ValueError("Old log likelihood is NaN.")
-    if torch.isnan(advantage).any():
-        raise ValueError("Advantage is NaN.")
-
-    # Compute the surrogate loss
-    ratio = torch.exp(ll - old_ll)
-    clipped_ratio = torch.clamp(ratio, 1 - clip_epsilon, 1 + clip_epsilon)
-    clip_fraction = (torch.abs(ratio - 1) > clip_epsilon).float().mean()
-    surrogate_loss = -torch.min(ratio * advantage, clipped_ratio * advantage).mean()
-
-    # if nan, raise error
-    if torch.isnan(ratio).any():
-        raise ValueError("Ratio is NaN.")
-    if torch.isnan(surrogate_loss):
-        raise ValueError("Surrogate loss is NaN.")
-
-    # Return dictionary with loss and metrics
-    return {"surrogate_loss": surrogate_loss,
-            "clip_fraction": clip_fraction,
-            "kl_approx": (old_ll - ll).mean(),
-            "ratio": ratio.mean(),
-            "advantage": advantage.mean(),
-            }
 
 # todo: redudant - also in loss_module of PPO_feas
 def compute_loss_feasibility(td, action, feasibility_coef, aggregate_feasibility="sum"):
@@ -114,54 +79,6 @@ def compute_loss_feasibility(td, action, feasibility_coef, aggregate_feasibility
         return feasibility_coef * violation.mean(), violation
 
 ## Classes
-class Autoencoder(nn.Module):
-    def __init__(self, encoder, decoder):
-        super().__init__()
-        self.encoder = encoder
-        self.decoder = decoder
-
-    def forward(self, obs):
-        hidden, init_embed = self.encoder(obs)
-        dec_out = self.decoder(obs, hidden)
-        return dec_out
-
-
-class ActorMLP(nn.Module):
-    def __init__(self, input_dim, hidden_dims, output_dim):
-        super(ActorMLP, self).__init__()
-        # Ensure hidden_dims is a list
-        if isinstance(hidden_dims, int):
-            hidden_dims = [hidden_dims]
-
-        # Create a list to hold all layers
-        layers = []
-
-        # Input layer
-        layers.append(nn.Linear(input_dim, hidden_dims[0]))
-
-        # Hidden layers
-        for i in range(len(hidden_dims) - 1):
-            layers.append(nn.ReLU())
-            layers.append(nn.Linear(hidden_dims[i], hidden_dims[i + 1]))
-
-        # Combine all layers into a Sequential module
-        self.hidden_layers = nn.Sequential(*layers)
-
-        # Output layers for mean and standard deviation
-        self.mean = nn.Linear(hidden_dims[-1], output_dim)
-        self.std = nn.Linear(hidden_dims[-1], output_dim)
-
-    def forward(self, x):
-        # Pass input through hidden layers
-        x = self.hidden_layers(x)
-        x = F.relu(x)  # Apply ReLU to the output of the last hidden layer
-
-        # Compute mean and standard deviation
-        mean = self.mean(x)
-        std = torch.exp(self.std(x))  # Ensure std is positive
-
-        return mean, std
-
 class ProjectionProbabilisticActor(ProbabilisticActor):
     def __init__(self,
                  module: TensorDictModule,
