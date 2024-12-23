@@ -580,13 +580,11 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
         pbar.set_description(
             # Loss, gn and rewards
             f"return: {log['return']: 4.4f}, "
-            # f"traj_return: {log['traj_return']: 4.4f}, "
-            # f"loss:  {log['loss']: 4.4f}, "
+            f"traj_return: {log['traj_return']: 4.4f}, "
             f"loss_actor:  {log['loss_actor']: 4.4f}, "
             f"loss_critic:  {log['loss_critic']: 4.4f}, "
             f"feasibility_loss: {log['loss_feasibility']: 4.4f}, "
             f"mean_violation: {log['mean_total_violation']: 4.4f}, "    
-            # f"gradient norm: {log['grad_norm']: 4.4}, "
             # Prediction
             f"x: {log['x']: 4.4f}, "
             f"loc(x): {log['loc(x)']: 4.4f}, "
@@ -600,7 +598,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
         if (step + 1) % int(train_updates * validation_freq) == 0:
             validation_performance = validate_policy(train_env, policy, n_step=n_step, )
             log.update(validation_performance)
-            val_rewards.append(validation_performance["validation", "reward"])
+            val_rewards.append(validation_performance["validation"]["traj_return"])
             if early_stopping(val_rewards, patience):
                 print(f"Early stopping at epoch {step} due to {patience} consecutive decreases in validation reward.")
                 break
