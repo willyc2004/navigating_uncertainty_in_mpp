@@ -166,6 +166,7 @@ class MLPDecoderWithCache(nn.Module):
                  context_embedding=None,
                  dynamic_embedding=None,
                  temperature: float = 1.0,
+                 scale_max: Optional[float] = None,
                  linear_bias: bool = False,
                  max_context_len: int = 256,
                  use_graph_context: bool = False,
@@ -204,6 +205,7 @@ class MLPDecoderWithCache(nn.Module):
 
         # Temperature for the policy
         self.temperature = temperature
+        self.scale_max = scale_max
 
     def forward(self, obs, hidden:Optional=None) -> Dict[str, Tensor]:
         # Context embedding
@@ -215,7 +217,8 @@ class MLPDecoderWithCache(nn.Module):
         mean = mean/self.temperature
         mean = mean.clamp(min=0.0)
         std = F.softplus(self.std_head(hidden))
-        std = std.clamp(max=0.5)
+        if self.scale_max is not None:
+            std = std.clamp(max=self.scale_max)
         # todo: add mask
         return mean, std
 

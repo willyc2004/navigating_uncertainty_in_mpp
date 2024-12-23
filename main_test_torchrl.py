@@ -267,6 +267,7 @@ def main(config: Optional[DotMap] = None):
         "dynamic_embedding": dynamic_embed,
         "normalization": config.model.normalization,
         "temperature": config.model.temperature,
+        "scale_max":config.model.scale_max,
     }
     encoder_args = {
         "embed_dim": embed_dim,
