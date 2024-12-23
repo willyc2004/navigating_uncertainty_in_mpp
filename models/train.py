@@ -29,31 +29,29 @@ from models.loss import FeasibilityClipPPOLoss, optimize_sac_loss
 
 # Training
 def train(policy, critic, device=torch.device("cuda"), **kwargs):
-    # Hyperparameters
+    """Train the policy using the specified algorithm."""
+    # Algorithm hyperparameters
+    lr = kwargs["training"]["lr"]
     batch_size = kwargs["model"]["batch_size"]
     mini_batch_size = int(kwargs["algorithm"]["mini_batch_size"] * batch_size)
     n_step = kwargs["algorithm"]["n_step"]
     num_epochs = kwargs["algorithm"]["ppo_epochs"]
+    gamma = kwargs["algorithm"]["gamma"]
+    gae_lambda = kwargs["algorithm"]["gae_lambda"]
+    # Loss hyperparameters
     vf_lambda = kwargs["algorithm"]["vf_lambda"]
     feasibility_lambda = kwargs["algorithm"]["feasibility_lambda"]
-    lr = kwargs["training"]["lr"]
+    entropy_lambda = kwargs["algorithm"]["entropy_lambda"]
+    clip_epsilon = kwargs["algorithm"]["clip_range"]
+    # Training hyperparameters
     train_data_size = kwargs["training"]["train_data_size"]
-    validation_episodes = kwargs["training"]["validation_episodes"]
     validation_freq = kwargs["training"]["validation_freq"]
+    validation_episodes = kwargs["training"]["validation_episodes"]
 
     # Environment
     train_env = make_env(env_kwargs=kwargs["env"], batch_size=[batch_size], device=device)
 
     # Optimizer, loss module, data collector, and scheduler
-    # if kwargs["algorithm"]["name"] == "reinforce":
-    #     loss_module = ReinforceLoss(actor_network=policy, critic_network=critic,)
-    # elif kwargs["algorithm"]["name"] == "ppo":
-    gamma = kwargs["algorithm"]["gamma"]
-    gae_lambda = kwargs["algorithm"]["gae_lambda"]
-    clip_epsilon = kwargs["algorithm"]["clip_range"]
-    entropy_lambda = kwargs["algorithm"]["entropy_lambda"]
-
-    # Loss modules
     advantage_module = GAE(
         gamma=gamma, lmbda=gae_lambda, value_network=critic, average_gae=True
     )
@@ -73,6 +71,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             loss_critic_type="smooth_l1",
         )
     elif kwargs["algorithm"]["type"] == "sac":
+        # todo: make feasibility_sac_loss_module
         # Create the SAC loss module
         # loss_module = SACLoss(
         #     actor_network=policy,
@@ -136,9 +135,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
 
     # Validation
     val_rewards = []
-    decrease_count = 0
     patience = 2
-
     # Training loop
     for step, td in enumerate(collector):
         if kwargs["algorithm"]["type"] == "ppo_feas":
@@ -243,15 +240,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     # Close environments
     train_env.close()
 
-## Validation
-def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episodes: int = 10, n_step: int = 100,):
-    """Validate the policy using the environment."""
-    # Perform a rollout to evaluate the policy
-    with torch.no_grad():
-        trajectory = env.rollout(policy=policy_module, max_steps=n_step, auto_reset=True)
-    val_metrics = get_performance_metrics(trajectory, trajectory, env)
-    return {"validation": val_metrics}
-
+# Get performance metrics
 def get_performance_metrics(subdata, td, env):
     """Compute performance metrics for the policy."""
     return {# Return
@@ -281,7 +270,16 @@ def get_performance_metrics(subdata, td, env):
             "mean_std[x]_demand": subdata['std_demand'][:, 0, :].std(dim=-1).mean(),
         }
 
-## Early stopping
+# Validation
+def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episodes: int = 10, n_step: int = 100,):
+    """Validate the policy using the environment."""
+    # Perform a rollout to evaluate the policy
+    with torch.no_grad():
+        trajectory = env.rollout(policy=policy_module, max_steps=n_step, auto_reset=True)
+    val_metrics = get_performance_metrics(trajectory, trajectory, env)
+    return {"validation": val_metrics}
+
+# Early stopping
 def early_stopping(val_rewards, patience=2):
     """
     Check for early stopping based on consecutive decreases in validation rewards.

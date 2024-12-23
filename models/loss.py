@@ -306,6 +306,8 @@ class FeasibilityClipPPOLoss(PPOLoss):
         return td_out
 
 def optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwargs):
+    # todo: make in similar format as loss_module
+
     ## Hyperparameters
     gamma = kwargs["algorithm"]["gamma"]
     tau = kwargs["algorithm"]["tau"]

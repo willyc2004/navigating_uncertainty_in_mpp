@@ -5,7 +5,6 @@ import torch
 from environment.env_torchrl import MasterPlanningEnv
 from environment.utils import compute_violation
 
-## Helper functions
 def make_env(env_kwargs:DotMap, batch_size:Optional[list] = [], device: torch.device = torch.device("cuda")):
     """Setup and transform the Pendulum environment."""
     return MasterPlanningEnv(batch_size=batch_size, **env_kwargs).to(device)
