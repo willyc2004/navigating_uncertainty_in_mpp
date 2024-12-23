@@ -1,3 +1,4 @@
+from dotmap import DotMap
 from typing import Any, Dict, Generator, Optional, Type, TypeVar, Union, Tuple
 import torch as th
 
