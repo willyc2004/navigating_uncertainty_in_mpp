@@ -13,7 +13,7 @@ from environment.models.zoo import AMPPO
 # Customized RL4CO modules
 from rl4co.ppo import ProjectionPPO
 from environment.models.zoo.am.encoder import AttentionModelEncoder
-from models.examples.decoder2 import AttentionModelDecoder
+from examples.decoder2 import AttentionModelDecoder
 from models.rl4co.construct_continuous import ConstructivePolicy
 from environment.rl4co.env import MasterPlanningEnv
 # AMPPO.__bases__ = (StepwisePPO,)  # Adapt base class
