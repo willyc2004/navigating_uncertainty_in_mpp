@@ -278,7 +278,7 @@ if __name__ == "__main__":
         demand = th.clamp(dist.sample(), min=0)
         demand_history.append(demand)
     demand_history = th.stack(demand_history)
-    teus = generator.teus.view(1, -1, 1)
+    teus = generator.teus.view(1, 1, -1)
 
     # Plot demand history
     print("#"*50)
@@ -295,12 +295,12 @@ if __name__ == "__main__":
     print("E[Sum(x)]_t=0 (#):", demand_history[0].sum(dim=(-1, -2)).mean(dim=0))
     print("Std[Sum(x)]_t=0 (#):", demand_history[0].sum(dim=(-1, -2)).std(dim=0))
     print("-"*50)
-    select_20 = (teus == 1).view(1, -1, 1)
+    select_20 = (teus == 1).view(1, 1, -1)
     print("Init 20 ft (#):", (e_x_init_demand * select_20).sum(dim=(-1, -2)).mean(dim=0))
     print("E[20 ft]_t=0 (#):", (demand_history[0] * select_20).sum(dim=(-1, -2)).mean(dim=0))
     print("Std[20 ft]_t=0 (#):", (demand_history[0] * select_20).sum(dim=(-1, -2)).std(dim=0))
     print("-"*50)
-    select_40 = (teus == 2).view(1, -1, 1)
+    select_40 = (teus == 2).view(1, 1, -1)
     print("Init 40 ft (#):", (e_x_init_demand * select_40).sum(dim=(-1, -2)).mean(dim=0))
     print("E[40 ft]_t=0 (#):", (demand_history[0] * select_40).sum(dim=(-1, -2)).mean(dim=0))
     print("Std[40 ft]_t=0 (#):", (demand_history[0] * select_40).sum(dim=(-1, -2)).std(dim=0))
