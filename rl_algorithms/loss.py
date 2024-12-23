@@ -264,17 +264,18 @@ def optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwa
         next_log_prob = torch.clamp(next_log_prob, -20, 2)  # Clip log_prob to avoid NaNs
 
         # Target value
-        target_q1 = target_critic1(next_policy_out["observation"], next_action)
-        target_q2 = target_critic2(next_policy_out["observation"], next_action)
-        target_q_min = torch.min(target_q1, target_q2) - entropy_lambda * next_log_prob
+        target_q1 = target_critic1(next_policy_out)
+        target_q2 = target_critic2(next_policy_out)
+        target_q_min = torch.min(target_q1["state_action_value"], target_q2["state_action_value"]) - entropy_lambda * next_log_prob
         target_value = subdata["next", "reward"] + (1 - subdata["done"].float()) * gamma * target_q_min
 
     # Current value
-    current_q1 = critic1(subdata["observation"], subdata["action"])
-    current_q2 = critic2(subdata["observation"], subdata["action"])
+    current_q1 = critic1(subdata)
+    current_q2 = critic2(subdata)
 
     # Update critic
-    loss_out["loss_critic"] = F.mse_loss(current_q1, target_value) + F.mse_loss(current_q2, target_value)
+    loss_out["loss_critic"] = F.mse_loss(current_q1["state_action_value"], target_value) \
+                              + F.mse_loss(current_q2["state_action_value"], target_value)
     critic_optim.zero_grad()
     loss_out["loss_critic"].backward()
     loss_out["gn_critic1"] = torch.nn.utils.clip_grad_norm_(critic1.parameters(), max_grad_norm)
@@ -293,9 +294,9 @@ def optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwa
 
     # Feasibility loss
     loss_out["loss_feasibility"], loss_out["mean_violation"] = compute_loss_feasibility(policy_out, policy_out["action"], feasibility_lambda, "sum")
-    q1 = critic1(policy_out["observation"], policy_out["action"])
-    q2 = critic2(policy_out["observation"], policy_out["action"])
-    q_min = torch.min(q1, q2)
+    q1 = critic1(policy_out)
+    q2 = critic2(policy_out)
+    q_min = torch.min(q1["state_action_value"], q2["state_action_value"])
 
     # Update actor
     loss_out["loss_actor"] = (entropy_lambda * policy_out["sample_log_prob"].unsqueeze(-1) - q_min).mean() + loss_out["loss_feasibility"]
