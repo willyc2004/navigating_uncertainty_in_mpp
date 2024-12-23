@@ -268,7 +268,6 @@ def optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwa
         target_q2 = target_critic2(next_policy_out["observation"], next_action)
         target_q_min = torch.min(target_q1, target_q2) - entropy_lambda * next_log_prob
         target_value = subdata["next", "reward"] + (1 - subdata["done"].float()) * gamma * target_q_min
-        check_for_nans(target_value, "target_value")
 
     # Current value
     current_q1 = critic1(subdata["observation"], subdata["action"])
@@ -276,14 +275,10 @@ def optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwa
 
     # Update critic
     loss_out["loss_critic"] = F.mse_loss(current_q1, target_value) + F.mse_loss(current_q2, target_value)
-    check_for_nans(loss_out["loss_critic"], "loss_critic")
     critic_optim.zero_grad()
     loss_out["loss_critic"].backward()
     loss_out["gn_critic1"] = torch.nn.utils.clip_grad_norm_(critic1.parameters(), max_grad_norm)
     loss_out["gn_critic2"] = torch.nn.utils.clip_grad_norm_(critic2.parameters(), max_grad_norm)
-    check_for_nans(loss_out["loss_critic"], "loss_critic")
-    check_for_nans(loss_out["gn_critic1"], "gn_critic1")
-    check_for_nans(loss_out["gn_critic2"], "gn_critic2")
     critic_optim.step()
 
     # Soft update target critics
@@ -295,22 +290,21 @@ def optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwa
     # Compute Actor Loss
     policy_out = policy(subdata)
     policy_out["sample_log_prob"] = torch.clamp(policy_out["sample_log_prob"], -20, 2)  # Clip log_prob to avoid NaNs
-    recursive_check_for_nans(policy_out)
 
     # Feasibility loss
     loss_out["loss_feasibility"], loss_out["mean_violation"] = compute_loss_feasibility(policy_out, policy_out["action"], feasibility_lambda, "sum")
-    check_for_nans(loss_out["loss_feasibility"], "loss_feasibility")
     q1 = critic1(policy_out["observation"], policy_out["action"])
     q2 = critic2(policy_out["observation"], policy_out["action"])
     q_min = torch.min(q1, q2)
-    check_for_nans(q_min, "q_min")
 
     # Update actor
     loss_out["loss_actor"] = (entropy_lambda * policy_out["sample_log_prob"].unsqueeze(-1) - q_min).mean() + loss_out["loss_feasibility"]
     actor_optim.zero_grad()
     loss_out["loss_actor"].backward()
-    check_for_nans(loss_out["loss_actor"], "loss_actor")
     loss_out["gn_actor"] = torch.nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
-    check_for_nans(loss_out["gn_actor"], "gn_actor")
     actor_optim.step()
+
+    # Check for NaNs
+    recursive_check_for_nans(loss_out)
+    recursive_check_for_nans(policy_out)
     return loss_out, policy_out
