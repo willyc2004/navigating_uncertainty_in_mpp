@@ -513,6 +513,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
         split_trajs=False,
         device=device,
     )
+    collector.set_seed(train_env.seed)
     replay_buffer = ReplayBuffer(
         storage=LazyTensorStorage(max_size=batch_size),
         sampler=SamplerWithoutReplacement(),
