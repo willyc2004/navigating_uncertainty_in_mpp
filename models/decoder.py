@@ -33,13 +33,16 @@ class AttentionDecoderWithCache(nn.Module):
                  init_embedding=None,
                  context_embedding=None,
                  dynamic_embedding=None,
+                 temperature: float = 1.0,
+                 scale_max: Optional[float] = None,
                  linear_bias: bool = False,
                  max_context_len: int = 256,
                  use_graph_context: bool = False,
                  mask_inner: bool = False,
                  out_bias_pointer_attn: bool = False,
                  check_nan: bool = True,
-                 sdpa_fn: Callable = None):
+                 sdpa_fn: Callable = None,
+                 **kwargs):
         super(AttentionDecoderWithCache, self).__init__()
 
         self.context_embedding = context_embedding
@@ -83,11 +86,15 @@ class AttentionDecoderWithCache(nn.Module):
 
         # Projection Layers
         self.project_embeddings_kv = nn.Linear(embed_dim, embed_dim * 3)  # For key, value, and logit
-        self.output_projection = nn.Linear(embed_dim * 2, action_size * 2)  # For mean and log_std
-        self.output_projection2 = nn.Linear(embed_dim, action_size * 2)  # For mean and log_std
+        self.mean_head = nn.Linear(embed_dim * 2, action_size)
+        self.std_head = nn.Linear(embed_dim * 2, action_size)
 
         # Optionally, use graph context
         self.use_graph_context = use_graph_context
+
+        # Temperature for the policy
+        self.temperature = temperature
+        self.scale_max = scale_max
 
     def _compute_q(self, cached: PrecomputedCache, td: TensorDict) -> Tensor:
         """Compute query of static and context embedding for the attention mechanism."""
@@ -96,9 +103,15 @@ class AttentionDecoderWithCache(nn.Module):
         glimpse_q = glimpse_q.unsqueeze(1) if glimpse_q.ndim == 2 else glimpse_q
         return glimpse_q
 
-    def _compute_kvl(self, cached: PrecomputedCache, td: TensorDict) -> Tuple[Tensor, Tensor, Tensor]:
-        """Compute key, value, and logit_key of static embedding for the attention mechanism."""
-        return cached.glimpse_key, cached.glimpse_val, cached.logit_key
+    def _compute_kvl(self, cached: PrecomputedCache, td: TensorDict):
+        glimpse_k_stat, glimpse_v_stat, logit_k_stat = (cached.glimpse_key, cached.glimpse_val, cached.logit_key,)
+        # Compute dynamic embeddings and add to static embeddings
+        glimpse_k_dyn, glimpse_v_dyn, logit_k_dyn = self.dynamic_embedding(td)
+        glimpse_k = glimpse_k_stat + glimpse_k_dyn
+        glimpse_v = glimpse_v_stat + glimpse_v_dyn
+        logit_k = logit_k_stat + logit_k_dyn
+        return glimpse_k, glimpse_v, logit_k
+
 
     def forward(self, td: TensorDict, cached: PrecomputedCache, num_starts: int = 0) -> Tuple[Tensor,Tensor]:
         # Multi-head Attention block
@@ -125,15 +138,14 @@ class AttentionDecoderWithCache(nn.Module):
 
         # Output block with softplus activation
         combined_output = self.output_layer_norm(combined_output)
-        if td["done"].dim() == 2:
-            view_transform = lambda x: x.view(td.batch_size[0], self.action_size, 2)
-        elif td["done"].dim() == 3:
-            view_transform = lambda x: x.view(td.batch_size[0], -1, self.action_size, 2)
-        else:
-            raise ValueError("Invalid dimension for done tensor.")
-        logits = view_transform(self.output_projection(combined_output))
-        output_logits = F.softplus(logits)
-        return output_logits, td["action_mask"]
+        mean = self.mean_head(combined_output)
+        std = F.softplus(self.std_head(combined_output))
+
+        if self.temperature is not None:
+            mean = mean/self.temperature
+            std = std/self.temperature
+
+        return mean, std
 
     def pre_decoder_hook(self, td: TensorDict, env, embeddings: Tensor, num_starts: int = 0):
         return td, env, self._precompute_cache(embeddings, num_starts)
@@ -162,9 +174,7 @@ class MLPDecoderWithCache(nn.Module):
                  num_hidden_layers: int = 3,  # Number of hidden layers
                  hidden_dim: int = None,  # Dimension for hidden layers (defaults to 4 * embed_dim)
                  normalization: Optional[str] = None,  # Type of normalization layer
-                 init_embedding=None,
-                 context_embedding=None,
-                 dynamic_embedding=None,
+                 obs_embedding=None,
                  temperature: float = 1.0,
                  scale_max: Optional[float] = None,
                  linear_bias: bool = False,
@@ -173,16 +183,13 @@ class MLPDecoderWithCache(nn.Module):
                  mask_inner: bool = False,
                  out_bias_pointer_attn: bool = False,
                  check_nan: bool = True,
-                 sdpa_fn: Callable = None,):
+                 sdpa_fn: Callable = None,
+                 **kwargs):
         super(MLPDecoderWithCache, self).__init__()
-        self.context_embedding = context_embedding
-        self.dynamic_embedding = dynamic_embedding
-        self.combination_layer = nn.Linear(2*embed_dim, embed_dim)
-        self.is_dynamic_embedding = (
-            False if isinstance(self.dynamic_embedding, StaticEmbedding) else True
-        )
         self.state_size = state_size
         self.action_size = action_size
+        self.obs_embedding = obs_embedding
+        self.combination_layer = nn.Linear(2*embed_dim, embed_dim)
 
         # Create policy MLP
         ffn_activation = nn.LeakyReLU()
@@ -209,17 +216,17 @@ class MLPDecoderWithCache(nn.Module):
         self.scale_max = scale_max
 
     def forward(self, obs, hidden:Optional=None) -> Dict[str, Tensor]:
-        # Update the hidden state with dynamic embedding
-        hidden = self.dynamic_embedding(obs, hidden)  # Apply dynamic embedding
-        # Update the hidden state with context embedding
-        hidden = self.context_embedding(obs, hidden) # Apply context embedding
-
+        # Use the observation embedding to process the input
+        hidden = self.obs_embedding(obs, hidden)
         # Compute mask and logits
         hidden = self.policy_mlp(hidden)
         mean = self.mean_head(hidden)
-        mean = mean/self.temperature
         mean = mean.clamp(min=0.0)
         std = F.softplus(self.std_head(hidden))
+        if self.temperature is not None:
+            mean = mean/self.temperature
+            std = std/self.temperature
+
         if self.scale_max is not None:
             std = std.clamp(max=self.scale_max)
         # todo: add mask

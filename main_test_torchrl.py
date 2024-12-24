@@ -21,7 +21,7 @@ from torchrl.modules import TruncatedNormal, ValueOperator
 from rl_algorithms.utils import make_env, adapt_env_kwargs
 from rl_algorithms.train import train
 # Models
-from models.embeddings import MPPInitEmbedding, MPPContextEmbedding, MPPDynamicEmbedding
+from models.embeddings import MPPInitEmbedding, MPPContextEmbedding, MPPDynamicEmbedding, MPPObservationEmbedding
 from models.common import Autoencoder
 from models.encoder import MLPEncoder
 from models.decoder import AttentionDecoderWithCache, MLPDecoderWithCache
@@ -63,6 +63,7 @@ def main(config: Optional[DotMap] = None):
     init_embed = MPPInitEmbedding(action_dim, embed_dim, sequence_dim, env)
     context_embed = MPPContextEmbedding(action_dim, embed_dim, sequence_dim, env, config.model.demand_aggregation)
     dynamic_embed = MPPDynamicEmbedding(embed_dim, sequence_dim, env,)
+    obs_embed = MPPObservationEmbedding(action_dim, embed_dim, sequence_dim, env, config.model.demand_aggregation)
 
     # Model initialization
     hidden_dim = config.model.feedforward_hidden
@@ -82,6 +83,7 @@ def main(config: Optional[DotMap] = None):
         "init_embedding": init_embed,
         "context_embedding": context_embed,
         "dynamic_embedding": dynamic_embed,
+        "obs_embedding": obs_embed,
         "normalization": config.model.normalization,
         "temperature": config.model.temperature,
         "scale_max":config.model.scale_max,
@@ -103,7 +105,6 @@ def main(config: Optional[DotMap] = None):
         encoder = MLPEncoder(**encoder_args)
     if config.model.decoder_type == "attention":
         # todo: update dynamic and context embedding into decoder
-        # path: C:\Users\jaiv\AppData\Local\JetBrains\PyCharm2023.1\remote_sources\-519725924\-311454031\rl4co\models\zoo\am\decoder.py
         decoder = AttentionDecoderWithCache(**decoder_args)
     elif config.model.decoder_type == "mlp":
         decoder = MLPDecoderWithCache(**decoder_args)
@@ -113,7 +114,7 @@ def main(config: Optional[DotMap] = None):
         # Define two Q-networks for the critics
         critic1 = ValueOperator(
             CriticNetwork(encoder, embed_dim=embed_dim, hidden_dim=hidden_dim, num_layers=decoder_layers,
-                          context_embedding=context_embed, dynamic_embedding=dynamic_embed,
+                          obs_embedding=obs_embed,
                           normalization=config.model.normalization,
                           dropout_rate=dropout_rate, temperature=config.model.critic_temperature, customized=True,
                           use_q_value=True, action_dim=action_dim).to(device),
@@ -126,7 +127,7 @@ def main(config: Optional[DotMap] = None):
         # Get critic
         critic = TensorDictModule(
             CriticNetwork(encoder, embed_dim=embed_dim, hidden_dim=hidden_dim, num_layers=decoder_layers,
-                          context_embedding=context_embed, dynamic_embedding=dynamic_embed,
+                          obs_embedding=obs_embed,
                           normalization=config.model.normalization,
                           dropout_rate=dropout_rate, temperature=config.model.critic_temperature,
                           customized=True).to(device),

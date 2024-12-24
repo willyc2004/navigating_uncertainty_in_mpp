@@ -63,6 +63,45 @@ class MPPInitEmbedding(nn.Module):
         initial_embedding = combined_emb
         return initial_embedding
 
+class MPPObservationEmbedding(nn.Module):
+    """Context embedding of the MPP;
+    - Selects the initial embedding based on the episodic step
+    - Embeds the state of the MPP for the context
+    """
+
+    def __init__(self, action_dim, embed_dim, seq_dim, env, demand_aggregation="full",):
+        super(MPPObservationEmbedding, self).__init__()
+        self.env = env
+        self.seq_dim = seq_dim
+        self.project_context = nn.Linear(embed_dim + 143, embed_dim,)
+
+    def normalize_obs(self, td):
+        batch_size = td.batch_size
+        max_demand = td["realized_demand"].max()
+        return torch.cat([
+            (td["observed_demand"] / max_demand ).view(*batch_size, self.env.T * self.env.K),
+            (td["residual_capacity"] / self.env.capacity.view(1, self.env.B * self.env.D)).view(*batch_size, self.env.B * self.env.D),
+            (td["residual_lc_capacity"] / td["target_long_crane"].unsqueeze(0)).view(*batch_size, self.env.B - 1),
+            td["lcg"],
+            td["vcg"],
+            td["agg_pol_location"] / self.env.P,
+            td["agg_pod_location"] / self.env.P,
+        ], dim=-1)
+
+    def forward(self, td: Tensor, latent_state: Optional[Tensor] = None):
+        """Embed the context for the MPP"""
+        # Get relevant init embedding
+        if td["timestep"].dim() == 1:
+            select_init_embedding = gather_by_index(latent_state, td["timestep"][0])
+        else:
+            select_init_embedding = latent_state
+
+        # Project state, concat embeddings, and project concat to output
+        obs = self.normalize_obs(td)
+        context_embedding = torch.cat([obs, select_init_embedding], dim=-1)
+        output = self.project_context(context_embedding)
+        return output
+
 
 class MPPContextEmbedding(nn.Module):
     """Context embedding of the MPP;
@@ -106,7 +145,7 @@ class MPPDynamicEmbedding(nn.Module):
         self.env = env
         self.seq_dim = seq_dim
         self.observed_demand = nn.Linear(1, embed_dim)
-        self.project_dynamic = nn.Linear(embed_dim * 2, embed_dim)
+        self.project_dynamic = nn.Linear(embed_dim * 2, 3 * embed_dim)
 
         # todo: give options for different demand aggregation methods; e.g. sum, self-attention
         # self.demand_aggregation = demand_aggregation
@@ -134,8 +173,8 @@ class MPPDynamicEmbedding(nn.Module):
             observed_demand = td["observed_demand"][...,0,:].unsqueeze(-1) / max_demand
         hidden = self.observed_demand(observed_demand)
         dynamic_embedding = torch.cat([hidden, latent_state], dim=-1)
-        output = self.project_dynamic(dynamic_embedding)
-        return output
+        glimpse_k_dyn, glimpse_v_dyn, logit_k_dyn = self.project_dynamic(dynamic_embedding).chunk(3, dim=-1)
+        return glimpse_k_dyn, glimpse_v_dyn, logit_k_dyn
 
 class StaticEmbedding(nn.Module):
     # This defines shape of key, value
