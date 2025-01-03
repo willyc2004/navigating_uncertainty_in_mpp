@@ -65,7 +65,7 @@ class MPP_Generator(Generator):
         return self._generate(batch_size, td)
 
     ## Generate demand
-    def _gbm_lognormal_distribution(self, t:th.Tensor, s0:th.Tensor, mu=th.tensor(0.00), sigma=th.tensor(0.01),):
+    def _gbm_lognormal_distribution(self, t:th.Tensor, s0:th.Tensor, mu=th.tensor(0.0000), sigma=th.tensor(0.01),):
         """
         Obtain a log-normal distribution that corresponds to the GBM process for each element in s0.
 
@@ -107,17 +107,22 @@ class MPP_Generator(Generator):
             batch_updates = th.zeros(batch_size, device=self.device).view(*batch_size, 1)
         else:
             e_x_init_demand = td["state", "init_expected_demand"].view(-1, self.T, self.K)
-            batch_updates = td["state", "batch_updates"].clone()
+            batch_updates = td["state", "batch_updates"].clone() + 1
 
         # Get moments and distribution
         if not self.iid_demand:
-            e_x, std_x, dist = self._gbm_lognormal_distribution(batch_updates + 1, e_x_init_demand,)
+            e_x, std_x, dist = self._gbm_lognormal_distribution(batch_updates, e_x_init_demand,)
         else:
             std_x = self._create_std_x(e_x_init_demand, self.cv_demand)
             e_x, std_x, dist = self._iid_normal_distribution(e_x_init_demand, std_x,)
 
         # Sample demand
         demand = th.clamp(dist.sample(), min=1)
+        print("batch updates", batch_updates.mean())
+        print("init e[x]", e_x_init_demand.mean())
+        print("e[x]", e_x.mean())
+        print("std", std_x.mean())
+        print("gen = x", demand.mean())
 
         # Return demand matrix
         return TensorDict({"state":
@@ -125,7 +130,7 @@ class MPP_Generator(Generator):
                                 "expected_demand": e_x.view(*batch_size, self.T*self.K),
                                 "std_demand":std_x.view(*batch_size, self.T*self.K),
                                 "init_expected_demand": e_x_init_demand.view(*batch_size, self.T*self.K),
-                                "batch_updates":batch_updates + 1,}}, batch_size=batch_size, device=self.device,)
+                                "batch_updates":batch_updates.clone(),}}, batch_size=batch_size, device=self.device,)
 
     ## Initial demand
     def _initial_contract_demand(self, batch_size,) -> Tuple[th.Tensor,th.Tensor]:
@@ -243,8 +248,8 @@ if __name__ == "__main__":
     weight_classes = 3
     capacity = [50]
     seed = 42
-    iid_demand = True
-    cv_demand = 0.5
+    iid_demand = False
+    cv_demand = 0.3
 
     # Create generator
     generator = MPP_Generator(ports=ports, bays=bays, decks=decks, cargo_classes=cargo_classes,
