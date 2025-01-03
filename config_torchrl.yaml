@@ -23,7 +23,7 @@ env:
   utilization_rate_initial_demand: 1.1
   spot_percentage: 0.3
   iid_demand: True
-  cv_demand: 0.3
+  cv_demand: 0.5
   demand_uncertainty: True
 
 # Model settings
@@ -55,7 +55,7 @@ model:
 
 # PPO parameters
 algorithm:
-  type: "ppo" # reinforce, ppo, ppo_feas, ddpg, sac
+  type: "sac" # reinforce, ppo_feas, ddpg, sac
   clip_range: 0.2
   ppo_epochs: 5 # 2, 3, 5, 7, 10
   mini_batch_size: 0.5
