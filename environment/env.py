@@ -318,12 +318,8 @@ class MasterPlanningEnv(EnvBase):
         """Reset the environment to the initial state."""
         # Extract batch_size from td if it exists
         batch_size = getattr(td, 'batch_size', self.batch_size)
-        if td is None or td.is_empty():
-            # Generate new demand
-            td = self.generator(batch_size=batch_size, td=self.td_gen)
-        else:
-            #todo: implement non-iid demand generation
-            pass
+        # todo: non-iid not supported yet
+        td = self.generator(batch_size=batch_size, td=self.td_gen)
 
         # Initialize
         # Parameters
