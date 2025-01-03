@@ -317,8 +317,9 @@ class MasterPlanningEnv(EnvBase):
     def _reset(self,  td: Optional[TensorDict] = None, seed:Optional=None) -> TensorDict:
         """Reset the environment to the initial state."""
         # Extract batch_size from td if it exists
+        if td is None: td = self.td_gen
         batch_size = getattr(td, 'batch_size', self.batch_size)
-        td = self.generator(batch_size=batch_size, td=self.td_gen)
+        td = self.generator(batch_size=batch_size, td=td)
 
         # Initialize
         # Parameters
@@ -360,7 +361,7 @@ class MasterPlanningEnv(EnvBase):
             "expected_demand": td["state", "expected_demand"].view(*batch_size, self.T * self.K),
             "std_demand": td["state", "std_demand"].view(*batch_size, self.T * self.K),
             "init_expected_demand": td["state", "init_expected_demand"].view(*batch_size, self.T * self.K),
-            "batch_updates": td["state", "batch_updates"] + 1,
+            "batch_updates": td["state", "batch_updates"],
             # Vessel
             "utilization": utilization.view(*batch_size, self.B * self.D * self.T * self.K),
             "target_long_crane": target_long_crane,
