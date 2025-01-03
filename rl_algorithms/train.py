@@ -144,7 +144,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             if kwargs["algorithm"]["type"] == "sac":
                 loss_out, policy_out = optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwargs)
             elif kwargs["algorithm"]["type"] == "ppo":
-                raise NotImplementedError("PPO not implemented yet.")
+                raise NotImplementedError("PPO without feasibility not implemented yet.")
             elif kwargs["algorithm"]["type"] == "ppo_feas":
                 for _ in range(num_epochs):
                     loss_out = loss_module(subdata.to(device))
