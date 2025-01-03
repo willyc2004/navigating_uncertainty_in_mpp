@@ -118,11 +118,6 @@ class MPP_Generator(Generator):
 
         # Sample demand
         demand = th.clamp(dist.sample(), min=1)
-        print("batch updates", batch_updates.mean())
-        print("init e[x]", e_x_init_demand.mean())
-        print("e[x]", e_x.mean())
-        print("std", std_x.mean())
-        print("gen = x", demand.mean())
 
         # Return demand matrix
         return TensorDict({"state":
