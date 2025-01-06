@@ -3,20 +3,8 @@ import torch
 from torch import nn
 
 from rl4co.models.nn.mlp import MLP
-from rl4co.models.nn.ops import Normalization
 from rl4co.utils.pylogger import get_pylogger
 log = get_pylogger(__name__)
-
-class Autoencoder(nn.Module):
-    def __init__(self, encoder, decoder):
-        super().__init__()
-        self.encoder = encoder
-        self.decoder = decoder
-
-    def forward(self, obs):
-        hidden, init_embed = self.encoder(obs)
-        dec_out = self.decoder(obs, hidden)
-        return dec_out
 
 class CustomMLP(MLP):
     @staticmethod
@@ -84,3 +72,45 @@ def add_normalization_layer(normalization, embed_dim):
         return nn.LayerNorm(embed_dim)
     else:
         return nn.Identity()
+
+class FP32LayerNorm(nn.LayerNorm):
+    """LayerNorm using FP32 computation and FP16 storage."""
+    def __init__(self, normalized_shape, eps=1e-4):
+        super(FP32LayerNorm, self).__init__(normalized_shape, eps=eps)
+
+    def forward(self, x):
+        x_fp32 = x.to(torch.float32)
+        normalized_output = super(FP32LayerNorm, self).forward(x_fp32)
+        return normalized_output.to(x.dtype)
+
+class FP32Attention(nn.MultiheadAttention):
+    """Multi-head Attention using FP32 computation and FP16 storage, with adjusted initialization."""
+
+    def __init__(self, embed_dim: int, num_heads: int, **kwargs):
+        # Ensure embed_dim is divisible by num_heads
+        if embed_dim % num_heads != 0:
+            print(f"Warning: embed_dim ({embed_dim}) is not divisible by num_heads ({num_heads}). Adjusting embed_dim.")
+            embed_dim = (embed_dim // num_heads) * num_heads
+
+        # Call superclass with adjusted embed_dim
+        super(FP32Attention, self).__init__(embed_dim, num_heads, **kwargs)
+        self.embed_dim = embed_dim  # Store adjusted embed_dim if it was changed
+        self.num_heads = num_heads  # Ensure num_heads is consistent
+
+    def forward(self, query, key, value, **kwargs):
+        # Cast inputs to FP32 for stable attention computation
+        query_fp32 = query.float()
+        key_fp32 = key.float()
+        value_fp32 = value.float()
+
+        # Ensure head_dim is consistent
+        head_dim = self.embed_dim // self.num_heads
+        assert self.embed_dim == head_dim * self.num_heads, (
+            f"embed_dim ({self.embed_dim}) is not compatible with num_heads ({self.num_heads})."
+        )
+
+        # Perform multi-head attention in FP32 and cast back to input dtype
+        attn_output_fp32, attn_weights_fp32 = super(FP32Attention, self).forward(query_fp32, key_fp32, value_fp32)
+        attn_output = attn_output_fp32.to(query.dtype)
+        attn_weights = attn_weights_fp32.to(query.dtype)
+        return attn_output, attn_weights
