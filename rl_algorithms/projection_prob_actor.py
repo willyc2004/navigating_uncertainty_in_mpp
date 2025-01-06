@@ -21,6 +21,7 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
                  *,
                  spec: Optional[TensorSpec] = None,
                  projection_layer: Optional[nn.Module] = None,
+                 projection_type: Optional[str] = None,
                  action_rescale_min: Optional[float] = None,
                  action_rescale_max: Optional[float] = None,
                  **kwargs):
@@ -32,11 +33,14 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
             self.rescale_action = lambda x: x * (action_rescale_max - action_rescale_min) + action_rescale_min
         # Initialize projection layer
         self.projection_layer = projection_layer
+        self.projection_type = projection_type
 
     @staticmethod
     def conditional_softmax(sample, upper_bound):
         if sample.dim() - upper_bound.dim() == 1:
             upper_bound = upper_bound.unsqueeze(-1)
+        if sample.dim() - upper_bound.dim() == 2:
+            upper_bound = upper_bound.view(-1, 1, 1)
         elif sample.dim() - upper_bound.dim() < 0 or sample.dim() - upper_bound.dim() > 1:
             raise ValueError(f"Sample dim {sample.dim()} and upper_bound dim {upper_bound.dim()} not compatible.")
 
@@ -49,14 +53,25 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         )
         return scaled_sample
 
+    @staticmethod
+    def conditional_direct_scaling(sample, upper_bound, epsilon=1e-8):
+        sum_sample = sample.sum(dim=-1, keepdim=True)
+        scaling_factor = upper_bound / (sum_sample + epsilon)  # Avoid division by zero
+        scaled_sample = torch.where(
+            sum_sample > upper_bound,
+            sample * scaling_factor,
+            sample
+        )
+        return scaled_sample
+
     def forward(self, *args, **kwargs):
         out = super().forward(*args, **kwargs)
         ub = out["state", "realized_demand"][...,out["state", "timestep"][0]] if out["state","realized_demand"].dim() == 2 \
             else out["state", "realized_demand"][..., out["state", "timestep"][0,0],:]
-        out["action"] = self.conditional_softmax(out["action"], upper_bound=ub).clone()
-        if not self.training:
-            out["action"] = out["loc"]
-        #
+        if self.projection_type == "softmax":
+            out["action"] = self.conditional_softmax(out["action"], upper_bound=ub).clone()
+        elif self.projection_type == "direct_scaling":
+            out["action"] = self.conditional_direct_scaling(out["action"], upper_bound=ub).clone()
         #     if self.rescale_action is not None:
         #         out["action"] = self.rescale_action((out["loc"] + self.upscale) / 2)
         # else:
@@ -65,4 +80,6 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         if self.projection_layer is not None:
             action = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
             out["action"] = action
+
+        # todo: what about the logprobs?
         return out
