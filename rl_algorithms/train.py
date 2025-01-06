@@ -132,6 +132,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     # Validation
     val_rewards = []
     patience = 2
+    policy.train()
     # Training loop
     for step, td in enumerate(collector):
         if kwargs["algorithm"]["type"] == "ppo_feas":
@@ -194,12 +195,15 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
 
         # Validation step
         if (step + 1) % int(train_updates * validation_freq) == 0:
+            policy.eval()
+            print("Validating policy...")
             validation_performance = validate_policy(train_env, policy, n_step=n_step, )
             log.update(validation_performance)
             val_rewards.append(validation_performance["validation"]["traj_return"])
             if early_stopping(val_rewards, patience):
                 print(f"Early stopping at epoch {step} due to {patience} consecutive decreases in validation reward.")
                 break
+            policy.train()
 
         # Update wandb and scheduler
         wandb.log(log)
