@@ -37,7 +37,7 @@ model:
   num_decoder_layers: 2
   num_heads: 4
   dropout_rate: 0.1
-  normalization: "batch" # layer, batch
+  normalization: "layer" # layer, batch
   out_bias_pointer_attn: False
   temperature: 1.0
   critic_temperature: 1.0
@@ -55,7 +55,7 @@ model:
 
 # PPO parameters
 algorithm:
-  type: "sac" # reinforce, ppo_feas, ddpg, sac
+  type: "ppo_feas" # reinforce, ppo_feas, ddpg, sac
   clip_range: 0.2
   ppo_epochs: 5 # 2, 3, 5, 7, 10
   mini_batch_size: 0.5

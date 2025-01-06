@@ -196,7 +196,6 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
         # Validation step
         if (step + 1) % int(train_updates * validation_freq) == 0:
             policy.eval()
-            print("Validating policy...")
             validation_performance = validate_policy(train_env, policy, n_step=n_step, )
             log.update(validation_performance)
             val_rewards.append(validation_performance["validation"]["traj_return"])
