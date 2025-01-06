@@ -1,4 +1,11 @@
+from typing import List, Union
+import torch
 from torch import nn
+
+from rl4co.models.nn.mlp import MLP
+from rl4co.models.nn.ops import Normalization
+from rl4co.utils.pylogger import get_pylogger
+log = get_pylogger(__name__)
 
 class Autoencoder(nn.Module):
     def __init__(self, encoder, decoder):
@@ -10,6 +17,24 @@ class Autoencoder(nn.Module):
         hidden, init_embed = self.encoder(obs)
         dec_out = self.decoder(obs, hidden)
         return dec_out
+
+class CustomMLP(MLP):
+    @staticmethod
+    def _get_norm_layer(norm_method, dim):
+        if norm_method == "Batch":
+            # Use BatchNorm1d but ensure compatibility with vectorized operations
+            in_norm = nn.BatchNorm1d(dim, track_running_stats=False)
+        elif norm_method == "Layer":
+            # Use LayerNorm
+            in_norm = nn.LayerNorm(dim)
+        elif norm_method == "None":
+            # No normalization
+            in_norm = nn.Identity()
+        else:
+            raise RuntimeError(
+                f"Not implemented normalization layer type {norm_method}"
+            )
+        return in_norm
 
 
 class ResidualBlock(nn.Module):
@@ -52,7 +77,7 @@ def add_normalization_layer(normalization, embed_dim):
     if normalization == "batch":
         return nn.Sequential(
             Permute((0, 2, 1)),  # Permute for BatchNorm1d
-            nn.BatchNorm1d(embed_dim),
+            nn.BatchNorm1d(embed_dim, track_running_stats=False),
             Permute((0, 2, 1)),  # Revert permutation
         )
     elif normalization == "layer":
