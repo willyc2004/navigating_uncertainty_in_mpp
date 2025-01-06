@@ -94,7 +94,7 @@ class MPPObservationEmbedding(nn.Module):
         if td["timestep"].dim() == 1:
             select_init_embedding = gather_by_index(latent_state, td["timestep"][0])
         else:
-            select_init_embedding = latent_state
+            select_init_embedding = latent_state.squeeze()
 
         # Project state, concat embeddings, and project concat to output
         obs = self.normalize_obs(td)
