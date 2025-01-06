@@ -9,7 +9,7 @@ from tensordict import TensorDict
 
 # Custom rl4co modules
 from models.embeddings import StaticEmbedding
-from models.common import ResidualBlock, add_normalization_layer
+from models.common import ResidualBlock, add_normalization_layer, FP32Attention, FP32LayerNorm
 
 @dataclass
 class PrecomputedCache:
@@ -50,14 +50,11 @@ class AttentionDecoderWithCache(nn.Module):
         self.is_dynamic_embedding = not isinstance(self.dynamic_embedding, StaticEmbedding)
         self.state_size = state_size
         self.action_size = action_size
-        self.total_steps = total_steps
-        self.total_step_range = torch.arange(total_steps, device="cuda")
-        self.dropout = nn.Dropout(dropout_rate)
 
         # Attention and Feedforward Layers
         self.attention = FP32Attention(embed_dim, num_heads, batch_first=True)
 
-        # Layer Normalization
+        # Layer Normalization # todo: make equal to encoder
         norm_dict = {
             "layer": FP32LayerNorm,
             "batch": nn.BatchNorm1d,
@@ -81,13 +78,12 @@ class AttentionDecoderWithCache(nn.Module):
             feed_forward_layers.append(nn.Dropout(dropout_rate))
             feed_forward_layers.append(nn.Linear(hidden_dim, embed_dim))
             # feed_forward_layers.append(nn.LayerNorm(embed_dim))
-
         self.feed_forward = nn.Sequential(*feed_forward_layers)
 
         # Projection Layers
         self.project_embeddings_kv = nn.Linear(embed_dim, embed_dim * 3)  # For key, value, and logit
-        self.mean_head = nn.Linear(embed_dim * 2, action_size)
-        self.std_head = nn.Linear(embed_dim * 2, action_size)
+        self.mean_head = nn.Linear(embed_dim * 2, action_size) # Mean head
+        self.std_head = nn.Linear(embed_dim * 2, action_size) # Standard deviation head
 
         # Optionally, use graph context
         self.use_graph_context = use_graph_context
@@ -104,14 +100,13 @@ class AttentionDecoderWithCache(nn.Module):
         return glimpse_q
 
     def _compute_kvl(self, cached: PrecomputedCache, td: TensorDict):
+        # Compute dynamic embeddings and add to kv embeddings
         glimpse_k_stat, glimpse_v_stat, logit_k_stat = (cached.glimpse_key, cached.glimpse_val, cached.logit_key,)
-        # Compute dynamic embeddings and add to static embeddings
         glimpse_k_dyn, glimpse_v_dyn, logit_k_dyn = self.dynamic_embedding(td)
         glimpse_k = glimpse_k_stat + glimpse_k_dyn
         glimpse_v = glimpse_v_stat + glimpse_v_dyn
         logit_k = logit_k_stat + logit_k_dyn
         return glimpse_k, glimpse_v, logit_k
-
 
     def forward(self, td: TensorDict, cached: PrecomputedCache, num_starts: int = 0) -> Tuple[Tensor,Tensor]:
         # Multi-head Attention block
@@ -189,7 +184,6 @@ class MLPDecoderWithCache(nn.Module):
         self.state_size = state_size
         self.action_size = action_size
         self.obs_embedding = obs_embedding
-        self.combination_layer = nn.Linear(2*embed_dim, embed_dim)
 
         # Create policy MLP
         ffn_activation = nn.LeakyReLU()
@@ -231,57 +225,3 @@ class MLPDecoderWithCache(nn.Module):
             std = std.clamp(max=self.scale_max)
         # todo: add mask
         return mean, std
-
-    def pre_decoder_hook(self, td, env, embeddings, num_starts: int = 0):
-        return td, env, self._precompute_cache(embeddings, num_starts)
-
-    def _precompute_cache(self, embeddings: Tensor, num_starts: int = 0) -> PrecomputedCache:
-        return PrecomputedCache(
-            init_embeddings=embeddings,
-            graph_context=None,
-            glimpse_key=None,
-            glimpse_val=None,
-            logit_key=None,
-        )
-
-class FP32LayerNorm(nn.LayerNorm):
-    """LayerNorm using FP32 computation and FP16 storage."""
-    def __init__(self, normalized_shape, eps=1e-4):
-        super(FP32LayerNorm, self).__init__(normalized_shape, eps=eps)
-
-    def forward(self, x):
-        x_fp32 = x.to(torch.float32)
-        normalized_output = super(FP32LayerNorm, self).forward(x_fp32)
-        return normalized_output.to(x.dtype)
-
-class FP32Attention(nn.MultiheadAttention):
-    """Multi-head Attention using FP32 computation and FP16 storage, with adjusted initialization."""
-
-    def __init__(self, embed_dim: int, num_heads: int, **kwargs):
-        # Ensure embed_dim is divisible by num_heads
-        if embed_dim % num_heads != 0:
-            print(f"Warning: embed_dim ({embed_dim}) is not divisible by num_heads ({num_heads}). Adjusting embed_dim.")
-            embed_dim = (embed_dim // num_heads) * num_heads
-
-        # Call superclass with adjusted embed_dim
-        super(FP32Attention, self).__init__(embed_dim, num_heads, **kwargs)
-        self.embed_dim = embed_dim  # Store adjusted embed_dim if it was changed
-        self.num_heads = num_heads  # Ensure num_heads is consistent
-
-    def forward(self, query, key, value, **kwargs):
-        # Cast inputs to FP32 for stable attention computation
-        query_fp32 = query.float()
-        key_fp32 = key.float()
-        value_fp32 = value.float()
-
-        # Ensure head_dim is consistent
-        head_dim = self.embed_dim // self.num_heads
-        assert self.embed_dim == head_dim * self.num_heads, (
-            f"embed_dim ({self.embed_dim}) is not compatible with num_heads ({self.num_heads})."
-        )
-
-        # Perform multi-head attention in FP32 and cast back to input dtype
-        attn_output_fp32, attn_weights_fp32 = super(FP32Attention, self).forward(query_fp32, key_fp32, value_fp32)
-        attn_output = attn_output_fp32.to(query.dtype)
-        attn_weights = attn_weights_fp32.to(query.dtype)
-        return attn_output, attn_weights
