@@ -73,16 +73,6 @@ def add_normalization_layer(normalization, embed_dim):
     else:
         return nn.Identity()
 
-class FP32LayerNorm(nn.LayerNorm):
-    """LayerNorm using FP32 computation and FP16 storage."""
-    def __init__(self, normalized_shape, eps=1e-4):
-        super(FP32LayerNorm, self).__init__(normalized_shape, eps=eps)
-
-    def forward(self, x):
-        x_fp32 = x.to(torch.float32)
-        normalized_output = super(FP32LayerNorm, self).forward(x_fp32)
-        return normalized_output.to(x.dtype)
-
 class FP32Attention(nn.MultiheadAttention):
     """Multi-head Attention using FP32 computation and FP16 storage, with adjusted initialization."""
 

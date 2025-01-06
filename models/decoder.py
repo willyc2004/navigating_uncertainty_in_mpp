@@ -9,7 +9,7 @@ from tensordict import TensorDict
 
 # Custom rl4co modules
 from models.embeddings import StaticEmbedding
-from models.common import ResidualBlock, add_normalization_layer, FP32Attention, FP32LayerNorm
+from models.common import ResidualBlock, add_normalization_layer, FP32Attention
 
 @dataclass
 class PrecomputedCache:
@@ -44,49 +44,46 @@ class AttentionDecoderWithCache(nn.Module):
                  sdpa_fn: Callable = None,
                  **kwargs):
         super(AttentionDecoderWithCache, self).__init__()
-
         self.context_embedding = context_embedding
         self.dynamic_embedding = dynamic_embedding
         self.is_dynamic_embedding = not isinstance(self.dynamic_embedding, StaticEmbedding)
         self.state_size = state_size
         self.action_size = action_size
-
-        # Attention and Feedforward Layers
-        self.attention = FP32Attention(embed_dim, num_heads, batch_first=True)
-
-        # Layer Normalization # todo: make equal to encoder
-        norm_dict = {
-            "layer": FP32LayerNorm,
-            "batch": nn.BatchNorm1d,
-        }
-        norm = norm_dict.get(normalization, nn.Identity)
-        self.q_layer_norm = norm(embed_dim)
-        self.attn_layer_norm = norm(embed_dim)
-        self.ffn_layer_norm = norm(embed_dim)
-        self.output_layer_norm = norm(embed_dim*2)
+        # Optionally, use graph context
+        self.use_graph_context = use_graph_context
 
         # Configurable Feedforward Network with Variable Hidden Layers
         if hidden_dim is None:
             hidden_dim = 4 * embed_dim  # Default hidden dimension is 4 times the embed_dim
 
-        feed_forward_layers = []
-        ffn_activation = nn.LeakyReLU() # nn.GELU(), nn.ReLU(), nn.SiLU(), nn.LeakyReLU()
-        for _ in range(num_hidden_layers):
-            feed_forward_layers.append(nn.Linear(embed_dim, hidden_dim))
-            # feed_forward_layers.append(nn.LayerNorm(hidden_dim))
-            feed_forward_layers.append(ffn_activation)
-            feed_forward_layers.append(nn.Dropout(dropout_rate))
-            feed_forward_layers.append(nn.Linear(hidden_dim, embed_dim))
-            # feed_forward_layers.append(nn.LayerNorm(embed_dim))
-        self.feed_forward = nn.Sequential(*feed_forward_layers)
+        # Attention Layers
+        self.project_embeddings_kv = nn.Linear(embed_dim, embed_dim * 3)  # For key, value, and logit
+        self.attention = FP32Attention(embed_dim, num_heads, batch_first=True)
+        self.q_norm = add_normalization_layer(normalization, embed_dim)
+        self.attn_norm = add_normalization_layer(normalization, embed_dim)
+
+        # Build the layers
+        ffn_activation = nn.LeakyReLU()  # nn.GELU(), nn.ReLU(), nn.SiLU(), nn.LeakyReLU()
+        norm_fn_input = add_normalization_layer("identity", embed_dim)
+        norm_fn_hidden = add_normalization_layer("identity", hidden_dim)
+        layers = [
+            norm_fn_input,
+            nn.Linear(embed_dim, hidden_dim),
+            ffn_activation,
+        ]
+        # Add residual blocks
+        for _ in range(num_hidden_layers - 1):
+            layers.append(ResidualBlock(hidden_dim, ffn_activation, norm_fn_hidden, dropout_rate,))
+
+        # Output layer
+        layers.append(nn.Linear(hidden_dim, embed_dim))
+        self.feed_forward = nn.Sequential(*layers)
+        self.ffn_norm = add_normalization_layer(normalization, embed_dim)
 
         # Projection Layers
-        self.project_embeddings_kv = nn.Linear(embed_dim, embed_dim * 3)  # For key, value, and logit
+        self.output_norm = add_normalization_layer(normalization, embed_dim * 2)
         self.mean_head = nn.Linear(embed_dim * 2, action_size) # Mean head
         self.std_head = nn.Linear(embed_dim * 2, action_size) # Standard deviation head
-
-        # Optionally, use graph context
-        self.use_graph_context = use_graph_context
 
         # Temperature for the policy
         self.temperature = temperature
@@ -113,17 +110,17 @@ class AttentionDecoderWithCache(nn.Module):
         # Compute query, key, and value for the attention mechanism
         glimpse_k, glimpse_v, logit_k = self._compute_kvl(cached, td)
         glimpse_q = self._compute_q(cached, td)
-        glimpse_q = self.q_layer_norm(glimpse_q)
+        glimpse_q = self.q_norm(glimpse_q)
         attn_output, _ = self.attention(glimpse_q, glimpse_k, glimpse_v)
 
         # Feedforward Network with Residual Connection block
-        attn_output = self.attn_layer_norm(attn_output + glimpse_q)
+        attn_output = self.attn_norm(attn_output + glimpse_q)
         ffn_output = self.feed_forward(attn_output)
 
         # Pointer Attention block
         # Compute pointer logits (scores) over the sequence
         # The pointer logits are used to select an index (action) from the input sequence
-        ffn_output = self.ffn_layer_norm(ffn_output + attn_output)
+        ffn_output = self.ffn_norm(ffn_output + attn_output)
         pointer_logits = torch.matmul(ffn_output, glimpse_k.transpose(-2, -1))  # [batch_size, seq_len, seq_len]
         pointer_probs = F.softmax(pointer_logits, dim=-1)
         # Compute the context vector (weighted sum of values based on attention probabilities)
@@ -132,15 +129,14 @@ class AttentionDecoderWithCache(nn.Module):
         combined_output = torch.cat([ffn_output, pointer_output], dim=-1)
 
         # Output block with softplus activation
-        combined_output = self.output_layer_norm(combined_output)
+        combined_output = self.output_norm(combined_output)
         mean = self.mean_head(combined_output)
         std = F.softplus(self.std_head(combined_output))
 
         if self.temperature is not None:
             mean = mean/self.temperature
             std = std/self.temperature
-
-        return mean, std
+        return mean.squeeze(), std.squeeze()
 
     def pre_decoder_hook(self, td: TensorDict, env, embeddings: Tensor, num_starts: int = 0):
         return td, env, self._precompute_cache(embeddings, num_starts)
