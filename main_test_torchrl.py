@@ -22,7 +22,7 @@ from rl_algorithms.utils import make_env, adapt_env_kwargs
 from rl_algorithms.train import train
 # Models
 from models.embeddings import MPPInitEmbedding, MPPContextEmbedding, MPPDynamicEmbedding, MPPObservationEmbedding
-from models.common import Autoencoder
+from models.autoencoder import Autoencoder
 from models.encoder import MLPEncoder, AttentionEncoder
 from models.decoder import AttentionDecoderWithCache, MLPDecoderWithCache
 from models.critic import CriticNetwork
@@ -134,7 +134,7 @@ def main(config: Optional[DotMap] = None):
 
     # Get ProbabilisticActor (for stochastic policies)
     actor = TensorDictModule(
-        Autoencoder(encoder, decoder).to(device),
+        Autoencoder(encoder, decoder, env).to(device),
         in_keys=["state",],  # Input tensor key in TensorDict
         out_keys=["loc","scale"]  # Output tensor key in TensorDict
     )
