@@ -23,14 +23,11 @@ from rl_algorithms.train import train
 # Models
 from models.embeddings import MPPInitEmbedding, MPPContextEmbedding, MPPDynamicEmbedding, MPPObservationEmbedding
 from models.common import Autoencoder
-from models.encoder import MLPEncoder
+from models.encoder import MLPEncoder, AttentionEncoder
 from models.decoder import AttentionDecoderWithCache, MLPDecoderWithCache
 from models.critic import CriticNetwork
 from rl_algorithms.projection import ProjectionFactory
 from rl_algorithms.projection_prob_actor import ProjectionProbabilisticActor
-# RL4CO model
-from rl4co.models.zoo.am.encoder import AttentionModelEncoder
-
 
 # Main function
 def main(config: Optional[DotMap] = None):
@@ -100,7 +97,7 @@ def main(config: Optional[DotMap] = None):
 
     # Setup model
     if config.model.encoder_type == "attention":
-        encoder = AttentionModelEncoder(**encoder_args,)
+        encoder = AttentionEncoder(**encoder_args,)
     else:
         encoder = MLPEncoder(**encoder_args)
     if config.model.decoder_type == "attention":
