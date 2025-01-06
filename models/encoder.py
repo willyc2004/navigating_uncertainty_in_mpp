@@ -149,7 +149,6 @@ def replace_norm_layers(layer, norm_type="batch", track_running_stats=False):
         if isinstance(child, nn.BatchNorm1d):
             if norm_type == "batch":
                 setattr(layer, name, nn.BatchNorm1d(child.num_features, track_running_stats=False))
-                print(f"Replaced {name} with BatchNorm1d", child)
             else:
                 raise ValueError(f"Unsupported normalization type: {norm_type}")
 
