@@ -152,6 +152,7 @@ def main(config: Optional[DotMap] = None):
         # distribution_kwargs={"upscale":1.0},
         return_log_prob=True,
         projection_layer=projection_layer,
+        projection_type=config.training.projection_type,
         # action_rescale_min=env.action_spec.low[0],
         # action_rescale_max=env.action_spec.high[0],
     )
