@@ -12,8 +12,8 @@ from rl4co.models.zoo.am.encoder import AttentionModelEncoder
 from models.common import CustomMLP
 
 class MLPEncoder(AutoregressiveEncoder):
-    """Graph Attention Encoder as in Kool et al. (2019).
-    First embed the input and then process it with a Graph Attention Network.
+    """MLP Encoder.
+    First embed the input and then process it with a feedforward network.
 
     Args:
         embed_dim: Dimension of the embedding space
