@@ -133,9 +133,13 @@ class AttentionDecoderWithCache(nn.Module):
         mean = self.mean_head(combined_output)
         std = F.softplus(self.std_head(combined_output))
 
+        # Apply temperature scaling and max scaling
         if self.temperature is not None:
             mean = mean/self.temperature
             std = std/self.temperature
+        if self.scale_max is not None:
+            std = std.clamp(max=self.scale_max)
+        # todo: add mask
         return mean.squeeze(), std.squeeze()
 
     def pre_decoder_hook(self, td: TensorDict, env, embeddings: Tensor, num_starts: int = 0):
