@@ -126,13 +126,13 @@ class MPPContextEmbedding(nn.Module):
             td["agg_pod_location"] / self.env.P,
         ], dim=-1)
 
-    def forward(self, td: Tensor, latent_state: Optional[Tensor] = None):
+    def forward(self, init_embed: Tensor, td: TensorDict):
         """Embed the context for the MPP"""
         # Get relevant init embedding
         if td["timestep"].dim() == 1:
-            select_init_embedding = gather_by_index(latent_state, td["timestep"][0])
+            select_init_embedding = gather_by_index(init_embed, td["timestep"][0])
         else:
-            select_init_embedding = latent_state
+            select_init_embedding = init_embed
         # Project state, concat embeddings, and project concat to output
         obs = self.normalize_obs(td)
         context_embedding = torch.cat([obs, select_init_embedding], dim=-1)
@@ -145,7 +145,7 @@ class MPPDynamicEmbedding(nn.Module):
         self.env = env
         self.seq_dim = seq_dim
         self.observed_demand = nn.Linear(1, embed_dim)
-        self.project_dynamic = nn.Linear(embed_dim * 2, 3 * embed_dim)
+        self.project_dynamic = nn.Linear(embed_dim, 3 * embed_dim)
 
         # todo: give options for different demand aggregation methods; e.g. sum, self-attention
         # self.demand_aggregation = demand_aggregation
@@ -172,8 +172,7 @@ class MPPDynamicEmbedding(nn.Module):
         else:
             observed_demand = td["observed_demand"][...,0,:].unsqueeze(-1) / max_demand
         hidden = self.observed_demand(observed_demand)
-        dynamic_embedding = torch.cat([hidden, latent_state], dim=-1)
-        glimpse_k_dyn, glimpse_v_dyn, logit_k_dyn = self.project_dynamic(dynamic_embedding).chunk(3, dim=-1)
+        glimpse_k_dyn, glimpse_v_dyn, logit_k_dyn = self.project_dynamic(hidden).chunk(3, dim=-1)
         return glimpse_k_dyn, glimpse_v_dyn, logit_k_dyn
 
 class StaticEmbedding(nn.Module):
