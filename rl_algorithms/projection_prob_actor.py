@@ -13,6 +13,9 @@ import torch.nn.functional as F
 from torchrl.modules import ProbabilisticActor
 from torchrl.data.tensor_specs import Composite, TensorSpec
 
+# Custom
+from environment.utils import compute_violation
+
 class ProjectionProbabilisticActor(ProbabilisticActor):
     def __init__(self,
                  module: TensorDictModule,
@@ -54,8 +57,9 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         return scaled_sample
 
     @staticmethod
-    def conditional_direct_scaling(sample, upper_bound, epsilon=1e-8):
+    def conditional_direct_scaling(sample, ub, epsilon=1e-8):
         sum_sample = sample.sum(dim=-1, keepdim=True)
+        upper_bound = ub.unsqueeze(-1)
         scaling_factor = upper_bound / (sum_sample + epsilon)  # Avoid division by zero
         scaled_sample = torch.where(
             sum_sample > upper_bound,
@@ -64,22 +68,52 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         )
         return scaled_sample
 
+    def jacobian_adaptation(self, logprob, jacobian) -> Tensor:
+        """Perform logprob adaptation for invertible and differentiable projection functions with non-singular Jacobians."""
+        # log pi'(x|s) = log pi(x|s) - log|det(J_g(x))|
+        if jacobian is None:
+            return logprob
+        sign, log_abs_det = torch.linalg.slogdet(jacobian)
+        return logprob - log_abs_det
+
+    def jacobian_direct_scaling(self, x, y, epsilon=1e-8):
+        """Compute the Jacobian of the direct scaling projection:
+            J_g(x) = y / (sum(x) + epsilon)^2 * (diag(sum(x)) - x * 1^T)"""
+        sum_x = x.sum(dim=-1, keepdim=True)
+        scaling_factor = y.unsqueeze(-1) / (sum_x + epsilon)**2
+        jacobian = scaling_factor.unsqueeze(-1) * (torch.diag_embed(sum_x) - x.unsqueeze(-1) * torch.ones(1, x.size(-1), device=x.device))
+        return jacobian
+
+    def jacobian_violation(self, x, A, b, alpha,):
+        """Compute the Jacobian of the violation projection:
+            J_g(x) = I + alpha * A^T D A, where D = diag((Ax-b) > 0)"""
+        batch, m, n = A.shape
+        I = torch.eye(n, device=x.device).expand(batch, n, n)  # Identity matrix for each batch
+        violation = compute_violation(x, A, b)
+        D = torch.diag_embed(violation > 0).float()
+        jacobian = I + alpha * torch.bmm(A.transpose(1, 2), D).bmm(A)
+        return jacobian
+
     def forward(self, *args, **kwargs):
         out = super().forward(*args, **kwargs)
-        ub = out["state", "realized_demand"][...,out["state", "timestep"][0]] if out["state","realized_demand"].dim() == 2 \
-            else out["state", "realized_demand"][..., out["state", "timestep"][0,0],:]
-        if self.projection_type == "softmax":
-            out["action"] = self.conditional_softmax(out["action"], upper_bound=ub).clone()
-        elif self.projection_type == "direct_scaling":
-            out["action"] = self.conditional_direct_scaling(out["action"], upper_bound=ub).clone()
-        #     if self.rescale_action is not None:
-        #         out["action"] = self.rescale_action((out["loc"] + self.upscale) / 2)
-        # else:
-        #     if self.rescale_action is not None:
-        #         out["action"] = self.rescale_action((out["action"] + self.upscale) / 2)  # Rescale from [-x, x] to (min, max)
-        if self.projection_layer is not None:
-            action = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
-            out["action"] = action
+        # if self.rescale_action is not None:
+        #     out["action"] = self.rescale_action((out["loc"] + self.upscale) / 2) # Rescale from [-x, x] to (min, max)
 
-        # todo: what about the logprobs?
+        # Apply projection and logprob adaptation with Jacobian
+        if self.projection_type == "direct_scaling":
+            ub = out["state", "realized_demand"][..., out["state", "timestep"][0]] if out["state", "realized_demand"].dim() == 2 \
+                else out["state", "realized_demand"][..., out["state", "timestep"][0, 0], :]
+            out["action"] = self.conditional_direct_scaling(out["action"], ub=ub).clone()
+            jacobian = self.jacobian_direct_scaling(out["action"], ub)
+        # elif self.projection_type == "softmax":
+        #     out["action"] = self.conditional_softmax(out["action"], upper_bound=ub).clone()
+        elif self.projection_type == "linear_violation":
+                out["action"] = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
+                jacobian = self.jacobian_violation(out["action"], out["lhs_A"],  out["rhs"], self.projection_layer.alpha)
+        elif self.projection_type in ["convex_program", "worst_case_violation", "linear_program"]:
+            raise ValueError(f"Jacobian adaptation of log probs for projection type \'{self.projection_type}\' not supported.")
+        else:
+            jacobian = None
+
+        out["sample_log_prob"] = self.jacobian_adaptation(out["sample_log_prob"], jacobian=jacobian).clone()
         return out
