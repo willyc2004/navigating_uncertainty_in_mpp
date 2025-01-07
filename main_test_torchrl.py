@@ -6,7 +6,7 @@ import copy
 import yaml
 from dotmap import DotMap
 from typing import Optional
-from tensordict.nn import TensorDictModule
+from tensordict.nn import TensorDictModule, TensorDictSequential
 
 # Machine learning
 import torch
@@ -19,7 +19,7 @@ from torchrl.modules import TruncatedNormal, ValueOperator
 # Custom:
 # Training
 from rl_algorithms.utils import make_env, adapt_env_kwargs
-from rl_algorithms.train import train
+from rl_algorithms.train import run_training
 # Models
 from models.embeddings import MPPInitEmbedding, MPPContextEmbedding, MPPDynamicEmbedding, MPPObservationEmbedding
 from models.autoencoder import Autoencoder
@@ -109,17 +109,16 @@ def main(config: Optional[DotMap] = None):
         raise ValueError(f"Decoder type {config.model.decoder_type} not recognized.")
     if config.algorithm.type == "sac":
         # Define two Q-networks for the critics
-        critic1 = ValueOperator(
-            CriticNetwork(encoder, embed_dim=embed_dim, hidden_dim=hidden_dim, num_layers=decoder_layers,
+        critic1 = CriticNetwork(encoder, embed_dim=embed_dim, hidden_dim=hidden_dim, num_layers=decoder_layers,
                           obs_embedding=obs_embed,
                           normalization=config.model.normalization,
                           dropout_rate=dropout_rate, temperature=config.model.critic_temperature, customized=True,
-                          use_q_value=True, action_dim=action_dim).to(device),
-            in_keys=["state", "action"],  # Input tensor key in TensorDict
-            out_keys=["state_action_value"],
+                          use_q_value=True, action_dim=action_dim).to(device)
+        critic2 = copy.deepcopy(critic1)
+        critic = TensorDictSequential(
+            TensorDictModule(critic1, in_keys=["observation", "action"], out_keys=["state_action_value"]),
+            TensorDictModule(critic2, in_keys=["observation", "action"], out_keys=["state_action_value"]),
         )
-        critic2 = copy.deepcopy(critic1)  # Second critic network
-        critic = [critic1, critic2]
     else:
         # Get critic
         critic = TensorDictModule(
@@ -128,14 +127,14 @@ def main(config: Optional[DotMap] = None):
                           normalization=config.model.normalization,
                           dropout_rate=dropout_rate, temperature=config.model.critic_temperature,
                           customized=True).to(device),
-            in_keys=["state",],  # Input tensor key in TensorDict
+            in_keys=["observation",],  # Input tensor key in TensorDict
             out_keys=["state_value"], # Output tensor key in TensorDict
         )
 
     # Get ProbabilisticActor (for stochastic policies)
     actor = TensorDictModule(
         Autoencoder(encoder, decoder, env).to(device),
-        in_keys=["state",],  # Input tensor key in TensorDict
+        in_keys=["observation",],  # Input tensor key in TensorDict
         out_keys=["loc","scale"]  # Output tensor key in TensorDict
     )
     if config.training.projection_type in ["linear_violation", "linear_program", "convex_program"]:
@@ -160,7 +159,7 @@ def main(config: Optional[DotMap] = None):
     ## Main loop
     # Train the model
     if config.model.phase == "train":
-        train(policy, critic, **config)
+        run_training(policy, critic, **config)
     # Test the model
     elif config.model.phase == "test":
             # todo: extract trained hyper-parameters
