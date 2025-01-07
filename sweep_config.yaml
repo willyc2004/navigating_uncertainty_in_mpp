@@ -17,7 +17,7 @@ parameters:
   batch_size:
     values: [64, 128, 256] # 32, 64, 128 (each sample is a trajectory)
   mini_batch_size:
-    values: [0.125, 0.25, 0.5,] # todo: 1.0 causes issue with sampling
+    values: [0.125, 0.25, 0.5,] # 1.0 causes issue with sampling
   lr:
     min: 0.000001
     max: 0.001
@@ -27,8 +27,6 @@ parameters:
   entropy_lambda:
     min: 0.01
     max: 1.0
-  normalization:
-    values: ["batch", "layer"]
   scale_max:
     min: 0.25
     max: 2.0
