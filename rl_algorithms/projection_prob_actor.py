@@ -110,8 +110,8 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
 
         # Apply projection and logprob adaptation with Jacobian
         if self.projection_type == "direct_scaling":
-            ub = out["state", "realized_demand"][..., out["state", "timestep"][0]] if out["state", "realized_demand"].dim() == 2 \
-                else out["state", "realized_demand"][..., out["state", "timestep"][0, 0], :]
+            ub = out["observation", "realized_demand"][..., out["observation", "timestep"][0]] if out["observation", "realized_demand"].dim() == 2 \
+                else out["observation", "realized_demand"][..., out["observation", "timestep"][0, 0], :]
             out["action"] = self.conditional_direct_scaling(out["action"], ub=ub).clone()
             jacobian = self.jacobian_direct_scaling(out["action"], ub)
         # elif self.projection_type == "softmax":
