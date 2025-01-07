@@ -13,6 +13,7 @@ from torchrl.modules import ProbabilisticActor
 from torchrl.objectives.ddpg import DDPGLoss
 from torchrl.objectives.ppo import ClipPPOLoss
 from torchrl.objectives.reinforce import ReinforceLoss
+from torchrl.objectives.sac import SACLoss
 from torchrl.objectives.value import GAE
 from torchrl.collectors import SyncDataCollector
 from torchrl.data.replay_buffers import ReplayBuffer
@@ -21,10 +22,10 @@ from torchrl.data.replay_buffers.storages import LazyTensorStorage
 
 # Custom code
 from rl_algorithms.utils import make_env
-from rl_algorithms.loss import FeasibilityClipPPOLoss, optimize_sac_loss
+from rl_algorithms.loss import FeasibilityClipPPOLoss, FeasibilitySACLoss
 
 # Training
-def train(policy, critic, device=torch.device("cuda"), **kwargs):
+def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     """Train the policy using the specified algorithm."""
     # Algorithm hyperparameters
     lr = kwargs["training"]["lr"]
@@ -39,6 +40,8 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     feasibility_lambda = kwargs["algorithm"]["feasibility_lambda"]
     entropy_lambda = kwargs["algorithm"]["entropy_lambda"]
     clip_epsilon = kwargs["algorithm"]["clip_range"]
+    max_grad_norm = kwargs["algorithm"]["max_grad_norm"]
+    tau = kwargs["algorithm"]["tau"]
     # Training hyperparameters
     train_data_size = kwargs["training"]["train_data_size"]
     validation_freq = kwargs["training"]["validation_freq"]
@@ -51,12 +54,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     advantage_module = GAE(
         gamma=gamma, lmbda=gae_lambda, value_network=critic, average_gae=True
     )
-    if kwargs["algorithm"]["type"] == "reinforce":
-        loss_module = ReinforceLoss(
-            actor_network=policy,
-            critic_network=critic,
-        )
-    elif kwargs["algorithm"]["type"] == "ppo":
+    if kwargs["algorithm"]["type"] == "ppo":
         loss_module = ClipPPOLoss(
             actor_network=policy,
             critic_network=critic,
@@ -67,17 +65,15 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             loss_critic_type="smooth_l1",
         )
     elif kwargs["algorithm"]["type"] == "sac":
-        # todo: make feasibility_sac_loss_module
         # Create the SAC loss module
-        # loss_module = SACLoss(
-        #     actor_network=policy,
-        #     qvalue_network=critic,  # List of two Q-networks
-        # )
+        loss_module = FeasibilitySACLoss(
+            actor_network=policy,
+            qvalue_network=critic,  # List of two Q-networks
+        )
         critic1 = critic[0]
         critic2 = critic[1]
         target_critic1 = copy.deepcopy(critic1).to(device)
         target_critic2 = copy.deepcopy(critic2).to(device)
-        critics = {"critic1": critic1, "critic2": critic2, "target_critic1": target_critic1, "target_critic2": target_critic2}
 
     elif kwargs["algorithm"]["type"] == "ddpg":
         # Create the DDPG loss module
@@ -97,7 +93,6 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             entropy_coef=entropy_lambda,
             critic_coef=vf_lambda,
             loss_critic_type="smooth_l1",
-            feasibility_coef=feasibility_lambda,
             normalize_advantage=True,
         )
     else:
@@ -122,6 +117,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     actor_optim = torch.optim.Adam(policy.parameters(), lr=lr)
     if kwargs["algorithm"]["type"] == "sac":
         critic_optim = torch.optim.Adam(list(critic1.parameters()) + list(critic2.parameters()), lr=lr)
+        alpha_optim = torch.optim.Adam(policy.parameters(), lr=lr)
     else:
         critic_optim = torch.optim.Adam(critic.parameters(), lr=lr)
     train_updates = train_data_size // (batch_size * n_step)
@@ -140,9 +136,38 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
         for _ in range(batch_size // mini_batch_size):
             # Sample mini-batch (including actions, n-step returns, old log likelihoods, target_values)
             subdata = replay_buffer.sample(mini_batch_size).to(device)
-            # Loss computation and backpropagation # todo: make sac into custom loss module
+            # Loss computation and backpropagation
             if kwargs["algorithm"]["type"] == "sac":
-                loss_out, policy_out = optimize_sac_loss(subdata, policy, critics, actor_optim, critic_optim, **kwargs)
+                # Loss computation
+                torch.autograd.set_detect_anomaly(True)
+                loss_out = loss_module(subdata.to(device))
+
+                # Update critic
+                critic_optim.zero_grad()
+                loss_out["loss_qvalue"].backward()
+                loss_out["gn_critic1"] = torch.nn.utils.clip_grad_norm_(critic1.parameters(), max_grad_norm)
+                loss_out["gn_critic2"] = torch.nn.utils.clip_grad_norm_(critic2.parameters(), max_grad_norm)
+                critic_optim.step()
+
+                # Soft update target critics
+                for target_param, param in zip(target_critic1.parameters(), critic1.parameters()):
+                    target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+                for target_param, param in zip(target_critic2.parameters(), critic2.parameters()):
+                    target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+
+                # Update actor
+                actor_optim.zero_grad()
+                loss_out["total_loss_actor"] = loss_out["loss_actor"] + feasibility_lambda * loss_out["loss_feasibility"]
+                loss_out["total_loss_actor"].backward()
+                loss_out["gn_actor"] = torch.nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
+                actor_optim.step()
+
+                # Update alpha
+                alpha_optim.zero_grad()
+                loss_out["total_loss_alpha"] = entropy_lambda * loss_out["loss_alpha"]
+                loss_out["total_loss_alpha"].backward()
+                alpha_optim.step()
+
             elif kwargs["algorithm"]["type"] == "ppo":
                 raise NotImplementedError("PPO without feasibility not implemented yet.")
             elif kwargs["algorithm"]["type"] == "ppo_feas":
@@ -153,7 +178,8 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
 
                     # Optimization: backward, grad clipping and optimization step
                     loss_out["total_loss"].backward()
-                    loss_out["gn_actor"] = torch.nn.utils.clip_grad_norm_(loss_module.parameters(), kwargs["algorithm"]["max_grad_norm"])
+                    loss_out["gn_actor"] = torch.nn.utils.clip_grad_norm_(
+                        loss_module.parameters(), kwargs["algorithm"]["max_grad_norm"])
                     actor_optim.step()
                     actor_optim.zero_grad()
 
@@ -242,20 +268,20 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
 def get_performance_metrics(subdata, td, env):
     """Compute performance metrics for the policy."""
     return {# Return
-            "return": subdata['next', 'reward'].mean().item(),
-            "traj_return": subdata['next', 'reward'].sum(dim=(-2, -1)).mean().item(),
+            "return": subdata["next", "reward"].mean().item(),
+            "traj_return": subdata["next", "reward"].sum(dim=(-2, -1)).mean().item(),
 
             # Prediction
-            "x": subdata['action'].mean().item(),
-            "loc(x)": subdata['loc'].mean().item(),
-            "scale(x)": subdata['scale'].mean().item(),
+            "x": subdata["action"].mean().item(),
+            "loc(x)": subdata["loc"].mean().item(),
+            "scale(x)": subdata["scale"].mean().item(),
 
             # Constraints
-            "total_violation": subdata['violation'].sum(dim=(-2,-1)).mean().item(),
-            "demand_violation": subdata['violation'][...,0].sum(dim=(1)).mean().item(),
-            "capacity_violation": subdata['violation'][...,1:-4].sum(dim=(1)).mean().item(),
-            "LCG_violation": subdata['violation'][..., env.next_port_mask, -4:-2].sum(dim=(1,2)).mean().item(),
-            "VCG_violation": subdata['violation'][..., env.next_port_mask, -2:].sum(dim=(1,2)).mean().item(),
+            "total_violation": subdata["violation"].sum(dim=(-2,-1)).mean().item(),
+            "demand_violation": subdata["violation"][...,0].sum(dim=(1)).mean().item(),
+            "capacity_violation": subdata["violation"][...,1:-4].sum(dim=(1)).mean().item(),
+            "LCG_violation": subdata["violation"][..., env.next_port_mask, -4:-2].sum(dim=(1,2)).mean().item(),
+            "VCG_violation": subdata["violation"][..., env.next_port_mask, -2:].sum(dim=(1,2)).mean().item(),
 
             # Environment
             "total_revenue": subdata["revenue"].sum(dim=(-2,-1)).mean().item(),
@@ -263,9 +289,9 @@ def get_performance_metrics(subdata, td, env):
             "total_profit": subdata["revenue"].sum(dim=(-2,-1)).mean().item() -
                             subdata["cost"].sum(dim=(-2,-1)).mean().item(),
             "total_loaded": subdata["action"].sum(dim=(-2,-1)).mean().item(),
-            "total_demand":subdata['state', 'realized_demand'][:,0,:].sum(dim=-1).mean(),
-            "total_e[x]_demand": td['state', 'init_expected_demand'][:, 0, :].sum(dim=-1).mean(),
-            "mean_std[x]_demand": subdata['state', 'std_demand'][:, 0, :].std(dim=-1).mean(),
+            "total_demand":subdata["observation", "realized_demand"][:,0,:].sum(dim=-1).mean(),
+            "total_e[x]_demand": td["observation", "init_expected_demand"][:, 0, :].sum(dim=-1).mean(),
+            "mean_std[x]_demand": subdata["observation", "std_demand"][:, 0, :].std(dim=-1).mean(),
         }
 
 # Validation
