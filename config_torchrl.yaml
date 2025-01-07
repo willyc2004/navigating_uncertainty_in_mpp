@@ -55,7 +55,7 @@ model:
 
 # PPO parameters
 algorithm:
-  type: "sac" # reinforce, ppo_feas, ddpg, sac
+  type: "sac" # ppo, ddpg, sac
   clip_range: 0.2
   ppo_epochs: 5 # 2, 3, 5, 7, 10
   mini_batch_size: 0.5
