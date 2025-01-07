@@ -74,20 +74,29 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         if jacobian is None:
             return logprob
         sign, log_abs_det = torch.linalg.slogdet(jacobian)
+        # print("logprob", logprob.mean(),"log_abs_det", log_abs_det.mean())
         return logprob - log_abs_det
 
     def jacobian_direct_scaling(self, x, y, epsilon=1e-8):
         """Compute the Jacobian of the direct scaling projection:
-            J_g(x) = y / (sum(x) + epsilon)^2 * (diag(sum(x)) - x * 1^T)"""
+            J_g(x) = y / sum(x)^2 * (diag(sum(x)) - x * 1^T)"""
+        batch, n = x.shape
         sum_x = x.sum(dim=-1, keepdim=True)
-        scaling_factor = y.unsqueeze(-1) / (sum_x + epsilon)**2
-        jacobian = scaling_factor.unsqueeze(-1) * (torch.diag_embed(sum_x) - x.unsqueeze(-1) * torch.ones(1, x.size(-1), device=x.device))
+        scaling_factor = y.unsqueeze(-1) / (sum_x)**2 # Shape: (batch_size, n)
+        kronecker_delta = torch.eye(n).unsqueeze(0).expand(batch, n, n).to(x.device)  # Shape: (batch_size, n, n)
+        x_product = x.unsqueeze(-1) * torch.ones(x.size(-1), device=x.device)  # Shape: (batch_size, n, n)
+        jacobian = scaling_factor.unsqueeze(-1) * (kronecker_delta * sum_x.unsqueeze(-1)) - x_product # Shape: (batch_size, n, n)
         return jacobian
 
     def jacobian_violation(self, x, A, b, alpha,):
         """Compute the Jacobian of the violation projection:
             J_g(x) = I + alpha * A^T D A, where D = diag((Ax-b) > 0)"""
-        batch, m, n = A.shape
+        print("shape", x.shape, A.shape, b.shape)
+        if A.dim() == 3:
+            batch, m, n = A.shape
+        else:
+            batch, n = A.shape
+        # todo: SAC issue with shapes
         I = torch.eye(n, device=x.device).expand(batch, n, n)  # Identity matrix for each batch
         violation = compute_violation(x, A, b)
         D = torch.diag_embed(violation > 0).float()
