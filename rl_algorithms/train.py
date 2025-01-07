@@ -188,11 +188,11 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
         log = {
             # Losses
             "total_loss": loss_out.get("total_loss", 0),
-            "loss_actor": loss_out.get("loss_actor", loss_out.get("loss_objective")),
-            "loss_critic":  loss_out["loss_critic"],
+            "loss_actor": loss_out.get("total_loss_actor", "loss_objective"),
+            "loss_critic": loss_out.get("loss_qvalue", "loss_critic"),
             "loss_feasibility":loss_out["loss_feasibility"],
-            "mean_total_violation": loss_out["mean_violation"].sum(dim=(-2, -1)).mean().item(),
-            "loss_entropy": loss_out.get("loss_entropy", 0),
+            "mean_total_violation": loss_out.get("violation", "mean_violation").sum(dim=(-2, -1)).mean().item(),
+            "loss_entropy": loss_out.get("total_loss_alpha", "loss_entropy"),
             # Supporting metrics
             "step": step,
             "gn_actor": loss_out["gn_actor"].item(),
