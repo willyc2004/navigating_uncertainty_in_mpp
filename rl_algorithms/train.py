@@ -51,21 +51,8 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     train_env = make_env(env_kwargs=kwargs["env"], batch_size=[batch_size], device=device)
 
     # Optimizer, loss module, data collector, and scheduler
-    advantage_module = GAE(
-        gamma=gamma, lmbda=gae_lambda, value_network=critic, average_gae=True
-    )
-    if kwargs["algorithm"]["type"] == "ppo":
-        loss_module = ClipPPOLoss(
-            actor_network=policy,
-            critic_network=critic,
-            clip_epsilon=clip_epsilon,
-            entropy_bonus=bool(entropy_lambda),
-            entropy_coef=entropy_lambda,
-            critic_coef=vf_lambda,
-            loss_critic_type="smooth_l1",
-        )
-    elif kwargs["algorithm"]["type"] == "sac":
-        # Create the SAC loss module
+    advantage_module = GAE(gamma=gamma, lmbda=gae_lambda, value_network=critic, average_gae=True)
+    if kwargs["algorithm"]["type"] == "sac":
         loss_module = FeasibilitySACLoss(
             actor_network=policy,
             qvalue_network=critic,  # List of two Q-networks
@@ -74,17 +61,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
         critic2 = critic[1]
         target_critic1 = copy.deepcopy(critic1).to(device)
         target_critic2 = copy.deepcopy(critic2).to(device)
-
-    elif kwargs["algorithm"]["type"] == "ddpg":
-        # Create the DDPG loss module
-        loss_module = DDPGLoss(
-            actor_network=policy,
-            value_network=critic,
-            delay_actor=True,
-            delay_value=True,
-        )
-
-    elif kwargs["algorithm"]["type"] == "ppo_feas":
+    elif kwargs["algorithm"]["type"] == "ppo":
         loss_module = FeasibilityClipPPOLoss(
             actor_network=policy,
             critic_network=critic,
@@ -94,6 +71,14 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
             critic_coef=vf_lambda,
             loss_critic_type="smooth_l1",
             normalize_advantage=True,
+        )
+    elif kwargs["algorithm"]["type"] == "ddpg":
+        # Create the DDPG loss module
+        loss_module = DDPGLoss(
+            actor_network=policy,
+            value_network=critic,
+            delay_actor=True,
+            delay_value=True,
         )
     else:
         raise ValueError(f"Algorithm {kwargs['algorithm']['type']} not recognized.")
@@ -157,20 +142,17 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
 
                 # Update actor
                 actor_optim.zero_grad()
-                loss_out["total_loss_actor"] = loss_out["loss_actor"] + feasibility_lambda * loss_out["loss_feasibility"]
-                loss_out["total_loss_actor"].backward()
+                loss_out["loss_actor"] = loss_out["loss_actor"] + feasibility_lambda * loss_out["loss_feasibility"]
+                loss_out["loss_actor"].backward()
                 loss_out["gn_actor"] = torch.nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
                 actor_optim.step()
 
                 # Update alpha
                 alpha_optim.zero_grad()
-                loss_out["total_loss_alpha"] = entropy_lambda * loss_out["loss_alpha"]
-                loss_out["total_loss_alpha"].backward()
+                loss_out["loss_alpha"] = entropy_lambda * loss_out["loss_alpha"]
+                loss_out["loss_alpha"].backward()
                 alpha_optim.step()
-
             elif kwargs["algorithm"]["type"] == "ppo":
-                raise NotImplementedError("PPO without feasibility not implemented yet.")
-            elif kwargs["algorithm"]["type"] == "ppo_feas":
                 for _ in range(num_epochs):
                     loss_out = loss_module(subdata.to(device))
                     loss_out["total_loss"] = (loss_out["loss_objective"] + loss_out["loss_critic"]
@@ -188,11 +170,11 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
         log = {
             # Losses
             "total_loss": loss_out.get("total_loss", 0),
-            "loss_actor": loss_out.get("total_loss_actor", "loss_objective"),
-            "loss_critic": loss_out.get("loss_qvalue", "loss_critic"),
+            "loss_actor": loss_out.get("loss_actor", loss_out.get("loss_objective")),
+            "loss_critic": loss_out.get("loss_qvalue", loss_out.get("loss_critic")),
             "loss_feasibility":loss_out["loss_feasibility"],
-            "mean_total_violation": loss_out.get("violation", "mean_violation").sum(dim=(-2, -1)).mean().item(),
-            "loss_entropy": loss_out.get("total_loss_alpha", "loss_entropy"),
+            "mean_total_violation": loss_out.get("violation", loss_out.get("mean_violation")).sum(dim=(-2, -1)).mean().item(),
+            "loss_entropy": loss_out.get("loss_alpha", loss_out.get("loss_entropy")),
             # Supporting metrics
             "step": step,
             "gn_actor": loss_out["gn_actor"].item(),
