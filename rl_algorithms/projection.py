@@ -66,8 +66,12 @@ class ConvexProgramLayer(th.nn.Module):
 class LinearViolationAdaption(th.nn.Module):
     def __init__(self, **kwargs):
         super(LinearViolationAdaption, self).__init__()
+        self.alpha = kwargs.get('alpha', 0.005)
+        self.delta = kwargs.get('delta', 0.01)
+        self.tolerance = kwargs.get('tolerance', 0.01)
+        self.max_iter = kwargs.get('max_iter', 100)
 
-    def forward(self, x, A, b, alpha=0.005, delta=0.01, tolerance=0.01, max_iter=100, **kwargs):
+    def forward(self, x, A, b, **kwargs):
         """
         - alpha => 0.04 diverges, 0.025 might also cause nans
         - delta, tolerance = 0.05 causes overshooting demand
@@ -104,8 +108,8 @@ class LinearViolationAdaption(th.nn.Module):
             total_violation = th.sum(violation_new, dim=-1)  # Sum violations in [batch_size, n_step]
 
             # Define batch-wise stopping conditions
-            no_violation = total_violation < tolerance
-            stalling_check = th.abs(total_violation - th.sum(violation_old, dim=-1)) < delta
+            no_violation = total_violation < self.tolerance
+            stalling_check = th.abs(total_violation - th.sum(violation_old, dim=-1)) < self.delta
 
             # Update active mask: only keep batches and steps that are neither within tolerance nor stalled
             active_mask = ~(no_violation | stalling_check)
@@ -118,14 +122,14 @@ class LinearViolationAdaption(th.nn.Module):
             penalty_gradient = th.matmul(violation_new.unsqueeze(2), A).squeeze(2)  # Shape: [32, 1, 20]
 
             # Apply penalty gradient update only for active batches/steps
-            x_ = th.where(active_mask.unsqueeze(2), x_ - alpha * penalty_gradient, x_)
+            x_ = th.where(active_mask.unsqueeze(2), x_ - self.alpha * penalty_gradient, x_)
             x_ = th.clamp(x_, min=0) # Ensure non-negativity
             # print("count", count, "total_violation", total_violation.mean(),
             #       "diff", th.abs(total_violation - th.sum(violation_old, dim=-1)).mean())
             # Update violation_old for the next iteration
             violation_old = violation_new.clone()
             count += 1
-            if count > max_iter:
+            if count > self.max_iter:
                 break
         # print("tot_count", count)
         # Return the adjusted x_, reshaped to remove n_step dimension if it was initially 2D
