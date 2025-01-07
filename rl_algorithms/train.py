@@ -42,7 +42,7 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
     # Training hyperparameters
     train_data_size = kwargs["training"]["train_data_size"]
     validation_freq = kwargs["training"]["validation_freq"]
-    validation_episodes = kwargs["training"]["validation_episodes"]
+    validation_patience = kwargs["training"]["validation_patience"]
 
     # Environment
     train_env = make_env(env_kwargs=kwargs["env"], batch_size=[batch_size], device=device)
@@ -131,7 +131,6 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
 
     # Validation
     val_rewards = []
-    patience = 2
     policy.train()
     # Training loop
     for step, td in enumerate(collector):
@@ -199,8 +198,8 @@ def train(policy, critic, device=torch.device("cuda"), **kwargs):
             validation_performance = validate_policy(train_env, policy, n_step=n_step, )
             log.update(validation_performance)
             val_rewards.append(validation_performance["validation"]["traj_return"])
-            if early_stopping(val_rewards, patience):
-                print(f"Early stopping at epoch {step} due to {patience} consecutive decreases in validation reward.")
+            if early_stopping(val_rewards, validation_patience):
+                print(f"Early stopping at epoch {step} due to {validation_patience} consecutive decreases in validation reward.")
                 break
             policy.train()
 
@@ -279,7 +278,7 @@ def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episode
     return {"validation": val_metrics}
 
 # Early stopping
-def early_stopping(val_rewards, patience=2):
+def early_stopping(val_rewards, patience=5):
     """
     Check for early stopping based on consecutive decreases in validation rewards.
 
