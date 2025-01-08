@@ -180,9 +180,6 @@ class MasterPlanningEnv(EnvBase):
         moves = self.moves_idx[pol]
 
         ## Current state
-        # Action clipping: clip range are in containers
-        action = action.clamp(min=td["clip_min"].view(*batch_size, self.B, self.D), max=td["clip_max"].view(*batch_size, self.B, self.D))
-
         # Check done, update utilization, and compute violation
         done = self._check_done(t)
         utilization = update_state_loading(action, utilization, tau, k,)

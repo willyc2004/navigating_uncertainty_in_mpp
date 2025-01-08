@@ -15,6 +15,7 @@ from torchrl.data.tensor_specs import Composite, TensorSpec
 
 # Custom
 from environment.utils import compute_violation
+from rl_algorithms.clipped_gaussian import ClippedGaussian
 
 class ProjectionProbabilisticActor(ProbabilisticActor):
     def __init__(self,
@@ -89,7 +90,7 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         # log pi'_norm(x|s) = log(exp(pi'(x|s)) / sum(exp(pi'(x|s))))
         prob_norm = torch.nn.functional.softmax(logprob_unnorm, dim=-1) # Use softmax to re-normalize the probabilities
         logprob_norm = torch.log(prob_norm + epsilon) # Obtain log probabilities with epsilon for numerical stability
-        return logprob_norm.sum(dim=-1) # Apply reduction for loss computations. Shape: [Batch]
+        return logprob_norm # Apply reduction for loss computations. Shape: [Batch]
 
     def jacobian_direct_scaling(self, x, y, epsilon=1e-8):
         """Compute the Jacobian of the direct scaling projection:
@@ -127,11 +128,11 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         # if self.rescale_action is not None:
         #     out["action"] = self.rescale_action((out["loc"] + self.upscale) / 2) # Rescale from [-x, x] to (min, max)
 
-        # Apply projection and logprob adaptation with Jacobian
+        # Apply projection and logprob adjustment with Jacobian
         if self.projection_type == "direct_scaling":
             ub = out["observation", "realized_demand"][..., out["observation", "timestep"][0]] if out["observation", "realized_demand"].dim() == 2 \
                 else out["observation", "realized_demand"][..., out["observation", "timestep"][0, 0], :]
-            out["action"] = self.conditional_direct_scaling(out["action"], ub=ub).clone()
+            out["action"] = self.conditional_direct_scaling(out["action"], ub=ub)
             jacobian = self.jacobian_direct_scaling(out["action"], ub)
         # elif self.projection_type == "softmax":
         #     out["action"] = self.conditional_softmax(out["action"], upper_bound=ub).clone()
@@ -142,6 +143,13 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
             raise ValueError(f"Jacobian adaptation of log probs for projection type \'{self.projection_type}\' not supported.")
         else:
             jacobian = None
+        out["log_prob"] = self.jacobian_adaptation(out["log_prob"], jacobian=jacobian)
 
-        out["sample_log_prob"] = self.jacobian_adaptation(out["log_prob"], jacobian=jacobian).clone()
+        # Apply action clamping and log_prob adjustment based on https://arxiv.org/pdf/1802.07564v2.pdf
+        out["action"] = out["action"].clamp(min=out["clip_min"], max=out["clip_max"])
+        clipped_gaussian = ClippedGaussian(out["loc"], out["scale"], out["clip_min"], out["clip_max"])
+        out["log_prob"] = clipped_gaussian.log_prob(out["action"])
+
+        # Get sample log probabilities for loss computations
+        out["sample_log_prob"] = out["log_prob"].sum(dim=-1)
         return out
