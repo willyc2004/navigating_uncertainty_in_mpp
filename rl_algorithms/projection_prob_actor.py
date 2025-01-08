@@ -105,12 +105,14 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
     def jacobian_violation(self, x, A, b, alpha,):
         """Compute the Jacobian of the violation projection:
             J_g(x) = I + alpha * A^T D A, where D = diag((Ax-b) > 0)"""
-        print("shape", x.shape, A.shape, b.shape)
-        if A.dim() == 3:
-            batch, m, n = A.shape
-        else:
+        if A.dim() == 2:
             batch, n = A.shape
-        # todo: SAC issue with shapes
+        elif A.dim() == 3:
+            batch, _, n = A.shape
+        elif A.dim() == 4:
+            batch, _, _, n = A.shape
+        else:
+            raise ValueError(f"Invalid dimension of A: {A.dim()}")
         I = torch.eye(n, device=x.device).expand(batch, n, n)  # Identity matrix for each batch
         violation = compute_violation(x, A, b)
         D = torch.diag_embed(violation > 0).float()
