@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch import Tensor
 from tensordict import TensorDict
 
-# Custom rl4co modules
+# Custom modules
 from models.embeddings import StaticEmbedding
 from models.common import ResidualBlock, add_normalization_layer, FP32Attention
 

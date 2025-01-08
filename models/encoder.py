@@ -3,9 +3,11 @@ from tensordict import TensorDict
 from torch import Tensor
 import torch.nn as nn
 
+# todo: remove connection to rl4co
 from rl4co.envs import RL4COEnvBase
 from rl4co.models.common.constructive import AutoregressiveEncoder
 from rl4co.models.nn.env_embeddings import env_init_embedding
+# todo: remove super AttentionModelEncoder
 from rl4co.models.zoo.am.encoder import AttentionModelEncoder
 
 # Custom
