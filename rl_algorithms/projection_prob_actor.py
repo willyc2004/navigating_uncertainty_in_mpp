@@ -38,6 +38,10 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         self.projection_layer = projection_layer
         self.projection_type = projection_type
 
+    def get_logprobs(self, action, dist):
+        """Compute the log probabilities of the actions given the distribution."""
+        return dist.base_dist.log_prob(action) # Shape: [Batch, Features]
+
     @staticmethod
     def conditional_softmax(sample, upper_bound):
         if sample.dim() - upper_bound.dim() == 1:
@@ -68,14 +72,24 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         )
         return scaled_sample
 
-    def jacobian_adaptation(self, logprob, jacobian) -> Tensor:
-        """Perform logprob adaptation for invertible and differentiable projection functions with non-singular Jacobians."""
-        # log pi'(x|s) = log pi(x|s) - log|det(J_g(x))|
+    def jacobian_adaptation(self, logprob, jacobian, epsilon=1e-8) -> Tensor:
+        """Perform logprob adaptation for invertible and differentiable projection functions with non-singular Jacobians.
+        - log pi'(x|s) = log pi(x|s) - log|det(J_g(x))|
+        - log pi'_norm(x|s) = log(exp(pi'(x|s)) / sum(exp(pi'(x|s))))
+        """
+        # If no Jacobian is provided, return the original log probabilities
         if jacobian is None:
             return logprob
-        sign, log_abs_det = torch.linalg.slogdet(jacobian)
-        # print("logprob", logprob.mean(),"log_abs_det", log_abs_det.mean())
-        return logprob - log_abs_det
+
+        # log pi'(x|s) = log pi(x|s) - log|det(J_g(x))|
+        sign, log_abs_det = torch.linalg.slogdet(jacobian) # Compute the sign and log absolute determinant of the Jacobian
+        logprob_unnorm = logprob - log_abs_det.unsqueeze(-1) # Note log_abs_det is a scalar applied to all batch elements
+        # This is appropriate for our projection functions, as the actions are transformed globally rather than per element
+
+        # log pi'_norm(x|s) = log(exp(pi'(x|s)) / sum(exp(pi'(x|s))))
+        prob_norm = torch.nn.functional.softmax(logprob_unnorm, dim=-1) # Use softmax to re-normalize the probabilities
+        logprob_norm = torch.log(prob_norm + epsilon) # Obtain log probabilities with epsilon for numerical stability
+        return logprob_norm.sum(dim=-1) # Apply reduction for loss computations. Shape: [Batch]
 
     def jacobian_direct_scaling(self, x, y, epsilon=1e-8):
         """Compute the Jacobian of the direct scaling projection:
@@ -105,6 +119,9 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
 
     def forward(self, *args, **kwargs):
         out = super().forward(*args, **kwargs)
+        # Get distribution and full log probabilities
+        dist = self.get_dist(out)
+        out["log_prob"] = self.get_logprobs(out["action"], dist)
         # if self.rescale_action is not None:
         #     out["action"] = self.rescale_action((out["loc"] + self.upscale) / 2) # Rescale from [-x, x] to (min, max)
 
@@ -124,5 +141,5 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         else:
             jacobian = None
 
-        out["sample_log_prob"] = self.jacobian_adaptation(out["sample_log_prob"], jacobian=jacobian).clone()
+        out["sample_log_prob"] = self.jacobian_adaptation(out["log_prob"], jacobian=jacobian).clone()
         return out
