@@ -102,7 +102,8 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     actor_optim = torch.optim.Adam(policy.parameters(), lr=lr)
     if kwargs["algorithm"]["type"] == "sac":
         critic_optim = torch.optim.Adam(list(critic1.parameters()) + list(critic2.parameters()), lr=lr)
-        alpha_optim = torch.optim.Adam(policy.parameters(), lr=lr)
+        alpha = torch.tensor(1.0, requires_grad=True)  # Example parameter
+        alpha_optim = torch.optim.Adam([alpha], lr=lr)
     else:
         critic_optim = torch.optim.Adam(critic.parameters(), lr=lr)
     train_updates = train_data_size // (batch_size * n_step)
@@ -113,6 +114,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     # Validation
     val_rewards = []
     policy.train()
+    torch.autograd.set_detect_anomaly(True)
     # Training loop
     for step, td in enumerate(collector):
         if kwargs["algorithm"]["type"] == "ppo_feas":
@@ -124,7 +126,6 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
             # Loss computation and backpropagation
             if kwargs["algorithm"]["type"] == "sac":
                 # Loss computation
-                torch.autograd.set_detect_anomaly(True)
                 loss_out = loss_module(subdata.to(device))
 
                 # Update critic
@@ -170,11 +171,12 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
         log = {
             # Losses
             "total_loss": loss_out.get("total_loss", 0),
-            "loss_actor": loss_out.get("loss_actor", loss_out.get("loss_objective")),
-            "loss_critic": loss_out.get("loss_qvalue", loss_out.get("loss_critic")),
-            "loss_feasibility":loss_out["loss_feasibility"],
-            "mean_total_violation": loss_out.get("violation", loss_out.get("mean_violation")).sum(dim=(-2, -1)).mean().item(),
-            "loss_entropy": loss_out.get("loss_alpha", loss_out.get("loss_entropy")),
+            "loss_actor": loss_out.get("loss_actor", 0) or loss_out.get("loss_objective", 0),
+            "loss_critic": loss_out.get("loss_qvalue", 0) or loss_out.get("loss_critic", 0),
+            "loss_feasibility":loss_out.get("loss_feasibility", 0),
+            "mean_total_violation": loss_out.get("violation", 0).sum(dim=(-2, -1)).mean().item()
+                                    or loss_out.get("mean_violation", 0).sum(dim=(-2, -1)).mean().item(),
+            "loss_entropy": loss_out.get("loss_alpha", 0) or loss_out.get("loss_entropy", 0),
             # Supporting metrics
             "step": step,
             "gn_actor": loss_out["gn_actor"].item(),
