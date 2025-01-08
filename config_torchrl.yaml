@@ -48,8 +48,8 @@ model:
   val_decode_type: "continuous_projection"
   test_decode_type: "continuous_projection"
   phase: "train" # train, test
-  encoder_type: "attention" # mlp, attention
-  decoder_type: "attention" # mlp, attention
+  encoder_type: "mlp" # mlp, attention
+  decoder_type: "mlp" # mlp, attention
   demand_aggregation: "full" # sum, self_attn, full
   logger: "wandb" #"wandb" # None, wandb
 
