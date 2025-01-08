@@ -1,4 +1,4 @@
-from typing import Tuple, Union
+from typing import Tuple, Union, Optional
 from tensordict import TensorDict
 from torch import Tensor
 import torch.nn as nn
@@ -133,23 +133,118 @@ class AttentionEncoder(AttentionModelEncoder):
             sdpa_fn,
             moe_kwargs,
         )
-        replace_norm_layers(self.net, normalization)
+        self.net = (
+            GraphAttentionNetwork(
+                num_heads,
+                embed_dim,
+                num_layers,
+                normalization,
+                feedforward_hidden,
+                sdpa_fn=sdpa_fn,
+                moe_kwargs=moe_kwargs,
+            )
+            if net is None
+            else net
+        )
 
-def replace_norm_layers(layer, norm_type="batch", track_running_stats=False):
-    """
-    Recursively replace normalization layers in the given layer/module.
+    def forward(
+        self, td: TensorDict, mask: Union[Tensor, None] = None
+    ) -> Tuple[Tensor, Tensor]:
+        """Forward pass of the encoder.
+        Transform the input TensorDict into a latent representation.
 
-    Args:
-        layer (nn.Module): The layer/module to process.
-        norm_type (str): Type of normalization to use ("Batch", "Layer", "None").
-        track_running_stats (bool): Whether to track running stats for BatchNorm (if used).
-    """
-    for name, child in layer.named_children():
-        # Check if the child is an instance of a normalization layer directly
-        if isinstance(child, nn.BatchNorm1d):
-            if norm_type == "batch":
-                setattr(layer, name, nn.BatchNorm1d(child.num_features, track_running_stats=False))
-            else:
-                raise ValueError(f"Unsupported normalization type: {norm_type}")
+        Args:
+            td: Input TensorDict containing the environment state
+            mask: Mask to apply to the attention
 
-        replace_norm_layers(child, norm_type, track_running_stats)
+        Returns:
+            h: Latent representation of the input
+            init_h: Initial embedding of the input
+        """
+        # Transfer to embedding space
+        init_h = self.init_embedding(td)
+
+        # Process embedding
+        h = self.net(init_h, mask)
+
+        # Return latent representation and initial embedding
+        return h, init_h
+
+class GraphAttentionNetwork(nn.Module):
+    """Manually implemented Graph Attention Network with multiple MHA layers."""
+
+    def __init__(
+            self,
+            num_heads: int,
+            embed_dim: int,
+            num_layers: int,
+            normalization: str = "batch",
+            feedforward_hidden: int = 512,
+            **kwargs,
+    ):
+        super().__init__()
+
+        self.layers = nn.ModuleList([
+            MultiHeadAttentionLayer(
+                embed_dim=embed_dim,
+                num_heads=num_heads,
+                feedforward_hidden=feedforward_hidden,
+                normalization=normalization,
+                **kwargs,
+            )
+            for _ in range(num_layers)
+        ])
+
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+        """Forward pass of the encoder."""
+        assert mask is None, "Mask not yet supported!"
+
+        for layer in self.layers:
+            x = layer(x)
+
+        return x
+
+
+class MultiHeadAttentionLayer(nn.Module):
+    """Manually implemented Multi-Head Attention Layer with normalization and feed-forward."""
+
+    def __init__(
+            self,
+            embed_dim: int,
+            num_heads: int = 8,
+            feedforward_hidden: int = 512,
+            normalization: Optional[str] = "batch",
+            bias: bool = True,
+            **kwargs,
+    ):
+        super().__init__()
+
+        self.mha = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True, bias=bias)
+        self.norm1 = nn.BatchNorm1d(embed_dim) if normalization == "batch" else nn.LayerNorm(embed_dim)
+        self.norm2 = nn.BatchNorm1d(embed_dim) if normalization == "batch" else nn.LayerNorm(embed_dim)
+
+        # Define feed-forward network
+        self.feedforward = nn.Sequential(
+            nn.Linear(embed_dim, feedforward_hidden),
+            nn.ReLU(),
+            nn.Linear(feedforward_hidden, embed_dim)
+        )
+
+    def forward(self, x: Tensor) -> Tensor:
+        # Multi-Head Attention with residual connection
+        attn_output, _ = self.mha(x, x, x)
+        x = x + attn_output
+        if isinstance(self.norm1, nn.BatchNorm1d):
+            x = self.norm1(x.permute(0, 2, 1)).permute(0, 2, 1)  # BatchNorm expects (N, C, L)
+        else:
+            x = self.norm1(x)
+
+        # Feed-forward network with residual connection
+        ff_output = self.feedforward(x)
+        x = x + ff_output
+        if isinstance(self.norm2, nn.BatchNorm1d):
+            x = self.norm2(x.permute(0, 2, 1)).permute(0, 2, 1)
+        else:
+            x = self.norm2(x)
+
+        return x
