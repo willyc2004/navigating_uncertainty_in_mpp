@@ -114,7 +114,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     # Validation
     val_rewards = []
     policy.train()
-    torch.autograd.set_detect_anomaly(True)
+    # torch.autograd.set_detect_anomaly(True)
     # Training loop
     for step, td in enumerate(collector):
         if kwargs["algorithm"]["type"] == "ppo_feas":
