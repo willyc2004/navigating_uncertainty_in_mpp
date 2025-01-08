@@ -145,7 +145,7 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
             jacobian = None
         out["log_prob"] = self.jacobian_adaptation(out["log_prob"], jacobian=jacobian)
 
-        # Apply action clamping and log_prob adjustment based on https://arxiv.org/pdf/1802.07564v2.pdf
+        # Apply action clipping and log_prob adjustment based on https://arxiv.org/pdf/1802.07564v2.pdf
         if "clip_min" in out and "clip_max" in out:
             out["action"] = out["action"].clamp(min=out["clip_min"], max=out["clip_max"])
             clipped_gaussian = ClippedGaussian(out["loc"], out["scale"], out["clip_min"], out["clip_max"])
