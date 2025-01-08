@@ -101,7 +101,6 @@ def main(config: Optional[DotMap] = None):
     else:
         encoder = MLPEncoder(**encoder_args)
     if config.model.decoder_type == "attention":
-        # todo: update dynamic and context embedding into decoder
         decoder = AttentionDecoderWithCache(**decoder_args)
     elif config.model.decoder_type == "mlp":
         decoder = MLPDecoderWithCache(**decoder_args)
