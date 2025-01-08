@@ -28,9 +28,9 @@ if __name__ == "__main__":
             config['model']['num_decoder_layers'] = sweep_config.num_decoder_layers
             config['model']['num_heads'] = sweep_config.num_heads
             config['model']['batch_size'] = sweep_config.batch_size
-            config['model']['normalization'] = sweep_config.normalization
             config['model']['dropout_rate'] = sweep_config.dropout_rate
             config['model']['scale_max'] = sweep_config.scale_max
+            # config['model']['normalization'] = sweep_config.normalization
 
             # PPO hyperparameters
             config['algorithm']['ppo_epochs'] = sweep_config.ppo_epochs
