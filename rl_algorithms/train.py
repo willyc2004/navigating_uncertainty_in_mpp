@@ -3,6 +3,7 @@ import os
 import copy
 import wandb
 import tqdm
+import yaml
 
 # Torch
 import torch
@@ -219,32 +220,44 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
         actor_scheduler.step()
         critic_scheduler.step()
 
-    # todo: cleanup model saving
     # Generate a timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # Save the model checkpoint with timestamp
-    policy_save_path = f"saved_models/policy_{timestamp}.pth"
-    critic_save_path = f"saved_models/critic_{timestamp}.pth"
-    os.makedirs(os.path.dirname(policy_save_path), exist_ok=True)
+    save_path = f"saved_models/{timestamp}.pth"
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
     # Save the policy model
+    policy_save_path = os.path.join(save_path, "policy.pth")
     torch.save(policy.state_dict(), policy_save_path)
     wandb.save(policy_save_path)
 
     # Save the critic model
     if kwargs["algorithm"]["type"] == "sac":
-        torch.save(critic1.state_dict(), f"saved_models/critic1_{timestamp}.pth")
-        torch.save(critic2.state_dict(), f"saved_models/critic2_{timestamp}.pth")
-        torch.save(target_critic1.state_dict(), f"saved_models/target_critic1_{timestamp}.pth")
-        torch.save(target_critic2.state_dict(), f"saved_models/target_critic2_{timestamp}.pth")
-        wandb.save(f"saved_models/critic1_{timestamp}.pth")
-        wandb.save(f"saved_models/critic2_{timestamp}.pth")
-        wandb.save(f"saved_models/target_critic1_{timestamp}.pth")
-        wandb.save(f"saved_models/target_critic2_{timestamp}.pth")
+        critic_paths = {
+            "critic1": os.path.join(save_path, "critic1.pth"),
+            "critic2": os.path.join(save_path, "critic2.pth"),
+            "target_critic1": os.path.join(save_path, "target_critic1.pth"),
+            "target_critic2": os.path.join(save_path, "target_critic2.pth"),
+        }
+        torch.save(critic1.state_dict(), critic_paths["critic1"])
+        torch.save(critic2.state_dict(), critic_paths["critic2"])
+        torch.save(target_critic1.state_dict(), critic_paths["target_critic1"])
+        torch.save(target_critic2.state_dict(), critic_paths["target_critic2"])
+
+        # Log to wandb
+        for path in critic_paths.values():
+            wandb.save(path)
     else:
+        critic_save_path = os.path.join(save_path, "critic.pth")
         torch.save(critic.state_dict(), critic_save_path)
         wandb.save(critic_save_path)
+
+    # Save the configuration to a YAML file
+    config_save_path = os.path.join(save_path, "config.yaml")
+    with open(config_save_path, "w") as yaml_file:
+        yaml.dump(kwargs, yaml_file, default_flow_style=False)
+    wandb.save(config_save_path)
 
     # Close environments
     train_env.close()
