@@ -232,6 +232,8 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
         actor_scheduler.step()
         critic_scheduler.step()
 
+
+    # todo: make clean function
     # Generate a timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
