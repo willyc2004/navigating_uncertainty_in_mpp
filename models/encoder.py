@@ -122,6 +122,7 @@ class AttentionEncoder(AttentionModelEncoder):
         net: nn.Module = None,
         sdpa_fn = None,
         moe_kwargs: dict = None,
+        **kwargs,
     ):
         super(AttentionEncoder, self).__init__(
             embed_dim,

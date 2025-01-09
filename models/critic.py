@@ -23,10 +23,11 @@ class CriticNetwork(nn.Module):
             obs_embedding: Optional[nn.Module] = None,  # Observation embedding for additional input
             normalization: Optional[str] = None,
             dropout_rate: Optional[float] = None,
-            temperature: float = 1.0,
+            critic_temperature: float = 1.0,
             customized: bool = False,
             use_q_value: Optional[nn.Module] = False,
             action_dim: Optional[nn.Module] = None,
+            **kwargs
     ):
         super(CriticNetwork, self).__init__()
 
@@ -35,7 +36,7 @@ class CriticNetwork(nn.Module):
         self.dynamic_embedding = dynamic_embedding  # Store dynamic_embedding
         self.obs_embedding = obs_embedding
         self.combination_layer = nn.Linear(2*embed_dim, embed_dim)
-        self.temperature = temperature
+        self.temperature = critic_temperature
         self.customized = customized
 
         if use_q_value:

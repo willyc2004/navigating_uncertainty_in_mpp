@@ -21,7 +21,6 @@ class PrecomputedCache:
 
 class AttentionDecoderWithCache(nn.Module):
     def __init__(self,
-                 state_size: int,
                  action_size: int,
                  embed_dim: int,
                  total_steps: int,
@@ -47,7 +46,6 @@ class AttentionDecoderWithCache(nn.Module):
         self.context_embedding = context_embedding
         self.dynamic_embedding = dynamic_embedding
         self.is_dynamic_embedding = not isinstance(self.dynamic_embedding, StaticEmbedding)
-        self.state_size = state_size
         self.action_size = action_size
         # Optionally, use graph context
         self.use_graph_context = use_graph_context
@@ -160,7 +158,6 @@ class AttentionDecoderWithCache(nn.Module):
 
 class MLPDecoderWithCache(nn.Module):
     def __init__(self,
-                 state_size: int,
                  action_size: int,
                  embed_dim: int,
                  total_steps: int,
@@ -181,7 +178,6 @@ class MLPDecoderWithCache(nn.Module):
                  sdpa_fn: Callable = None,
                  **kwargs):
         super(MLPDecoderWithCache, self).__init__()
-        self.state_size = state_size
         self.action_size = action_size
         self.obs_embedding = obs_embedding
 
