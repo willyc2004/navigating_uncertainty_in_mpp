@@ -2,8 +2,8 @@ import json
 import numpy as np
 
 # Load JSON file
-s = 8
-perfect_information = True
+s = 4
+perfect_information = False
 with open(f'results_scenario_tree_s{s}_pi{perfect_information}.json', 'r') as file:
     data = json.load(file)
 
@@ -23,11 +23,22 @@ for x in data:
 
 # Helper function to print statistics
 def print_stats(data, name=""):
+    """Summary statistics of the data"""
+    n = len(data)
+    mean = np.mean(data)
+    std = np.std(data)
+    max = np.max(data)
+    min = np.min(data)
+    z = 1.96
+    LB = mean - z * std / np.sqrt(n)
+    UB = mean + z * std / np.sqrt(n)
     print(f"\n{name}")
-    print(f"Mean: {np.mean(data)}")
-    print(f"Std: {np.std(data)}")
-    print(f"Max: {np.max(data)}")
-    print(f"Min: {np.min(data)}")
+    print(f"n: {n}")
+    print(f"Mean: {mean}")
+    print(f"Std: {std}")
+    print(f"95% CI: ({LB}, {UB})")
+    print(f"Min: {min}")
+    print(f"Max: {max}")
 
 print_stats(obj, "Objective")
 print_stats(time, "Time")
