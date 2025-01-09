@@ -31,6 +31,14 @@ from rl_algorithms.projection_prob_actor import ProjectionProbabilisticActor
 from rl_algorithms.test import evaluate_model
 
 # Functions
+def load_config(config_path: str) -> DotMap:
+    with open(config_path, 'r') as file:
+        config = yaml.safe_load(file)
+        config = DotMap(config)
+        config = adapt_env_kwargs(config)
+    return config
+
+
 def initialize_encoder(encoder_type, encoder_args, device):
     """Initialize the encoder based on the type."""
     if encoder_type == "attention":
@@ -165,25 +173,23 @@ def main(config: Optional[DotMap] = None):
     # Test the model
     elif config.model.phase == "test":
         # Extract trained hyperparameters
-        timestamp = "xxxxxx"  # todo: add timestamp from the saved model
+        timestamp = config.testing.timestamp
         config_load_path = f"saved_models/{timestamp}/config.yaml"
-        with open(config_load_path, "r") as yaml_file:
-            loaded_config = yaml.safe_load(yaml_file)
+        loaded_config = load_config(config_load_path)
 
         # Reload policy model
         policy_load_path = f"saved_models/{timestamp}/policy.pth"
         policy.load_state_dict(torch.load(policy_load_path, map_location=device))
 
         # Evaluate the model
-        metrics = evaluate_model(policy, loaded_config["env"], device=device, num_episodes=20, n_step=100)
+        # todo: fix evaluate_model
+        metrics = evaluate_model(policy, loaded_config, device=device, **config.testing)
+        breakpoint()
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
     file_path = os.getcwd()
-    with open(f'{file_path}/config_torchrl.yaml', 'r') as file:
-        config = yaml.safe_load(file)
-        config = DotMap(config)
-        config = adapt_env_kwargs(config)
+    config = load_config(f'{file_path}/config_torchrl.yaml')
 
     # Call your main() function
     try:
