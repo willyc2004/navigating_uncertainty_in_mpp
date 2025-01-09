@@ -97,8 +97,7 @@ def main(config: Optional[DotMap] = None):
 
     ## Environment initialization
     env = make_env(config.env)
-    seed = config.env.seed
-    env.set_seed(seed)
+    env.set_seed(config.env.seed)
     # env = ParallelEnv(4, make_env)     # todo: fix parallel env
     check_env_specs(env)  # this must pass for ParallelEnv to work
 

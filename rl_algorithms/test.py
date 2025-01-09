@@ -3,7 +3,28 @@ import torch
 from rl_algorithms.utils import make_env
 from rl_algorithms.train import get_performance_metrics
 
-def evaluate_model(policy, env_kwargs, device=torch.device("cuda"), num_episodes=10, n_step=100):
+# Functions
+def compute_summary_stats(metrics):
+    """
+    Compute mean, median, std, min, and max for each metric in the dictionary.
+    Args:
+        metrics (dict): Dictionary with metrics as tensors.
+    Returns:
+        dict: Summary statistics for each metric.
+    """
+    summary_stats = {}
+    for key, values in metrics.items():
+        summary_stats[key] = {
+            "mean": values.mean().item(),
+            "median": values.median().item(),
+            "std": values.std().item(),
+            "min": values.min().item(),
+            "max": values.max().item(),
+        }
+    return summary_stats
+
+# Main function
+def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     """
     Evaluate the policy and critic on the test environment.
 
@@ -17,20 +38,25 @@ def evaluate_model(policy, env_kwargs, device=torch.device("cuda"), num_episodes
     Returns:
         dict: A dictionary of evaluation metrics.
     """
+    # Extract evaluation hyperparameters
+    env_kwargs = config.env
+    n_step = config.algorithm.n_step
+    num_episodes = kwargs.get("num_episodes", 10)
+
     # Create the test environment
-    test_env = make_env(env_kwargs=env_kwargs, batch_size=[1], device=device)  # Single batch for evaluation
+    # todo; error with batch_size [1], policy does add batch dimension
+    test_env = make_env(env_kwargs=env_kwargs, batch_size=[2], device=device)  # Single batch for evaluation
     test_env.eval()  # Set environment to evaluation mode
     policy.eval()  # Set policy to evaluation mode
 
     # Initialize metrics storage
     metrics = {
-        "return": 0,
-        "traj_return": 0,
-        "total_violation": 0,
-        "total_profit": 0,
-        "inference_time": 0,
-        "num_episodes": num_episodes,
+        "traj_return": torch.zeros(num_episodes, device=device),  # [num_episodes]
+        "total_profit": torch.zeros(num_episodes, device=device),  # [num_episodes]
+        "total_violations": torch.zeros(num_episodes, device=device),  # [num_episodes]
+        "inference_times": torch.zeros(num_episodes, device=device),  # [num_episodes]
     }
+
     with torch.no_grad():
         # Warm-up phase
         for _ in range(10):
@@ -42,6 +68,9 @@ def evaluate_model(policy, env_kwargs, device=torch.device("cuda"), num_episodes
 
         # Evaluation phase
         for episode in range(num_episodes):
+            # Test on different seeds
+            test_env.set_seed(episode + 1 + config.env.seed)
+
             # Synchronize and measure inference time
             torch.cuda.synchronize() if device.type == "cuda" else None
             start_time = time.perf_counter()
@@ -56,19 +85,16 @@ def evaluate_model(policy, env_kwargs, device=torch.device("cuda"), num_episodes
             torch.cuda.synchronize() if device.type == "cuda" else None
             end_time = time.perf_counter()
 
-            # Accumulate inference time for this episode
-            metrics["inference_time"] += end_time - start_time
+            # Extract episode-level metrics
+            metrics["total_profit"][episode] = trajectory["revenue"].sum() - trajectory["cost"].sum()
+            metrics["total_violations"][episode] = trajectory["violation"].sum()
+            metrics["inference_times"][episode] = end_time - start_time
 
-            # Compute performance metrics for the episode
-            episode_metrics = get_performance_metrics(trajectory, trajectory, test_env)
-            for key, value in episode_metrics.items():
-                if key in metrics:
-                    metrics[key] += value  # Aggregate metrics
+    # Summarize episode-level metrics (mean and std)
+    summary_stats = compute_summary_stats(metrics)
 
-    # Average metrics over the episodes
-    for key in metrics:
-        if key != "num_episodes":
-            metrics[key] /= num_episodes
+    # print the metrics
+    print(summary_stats)
 
     # todo: add visualizations if needed
     test_env.close()
