@@ -434,12 +434,12 @@ if __name__ == "__main__":
     deterministic = False
     debug = False
 
-    num_seed = 20
-    for scen in [4, 8,12,16,20,24,28,32]:
+    num_episodes = config.testing.num_episodes
+    for scen in [4,8,12,16,20,24,28]: # 32
         results = []
         vars = []
-        for x in range(num_seed):
-            seed = config.env.seed + x
+        for x in range(num_episodes):
+            seed = config.env.seed + x + 1
             set_unique_seed(seed)
             result, var = main(config, scen, seed, perfect_information, deterministic)
             results.append(result)
