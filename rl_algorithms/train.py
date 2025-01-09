@@ -224,7 +224,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # Save the model checkpoint with timestamp
-    save_path = f"saved_models/{timestamp}.pth"
+    save_path = f"saved_models/{timestamp}/"
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
     # Save the policy model

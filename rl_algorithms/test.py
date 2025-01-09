@@ -70,7 +70,6 @@ def evaluate_model(policy, env_kwargs, device=torch.device("cuda"), num_episodes
         if key != "num_episodes":
             metrics[key] /= num_episodes
 
-    # Cleanup
+    # todo: add visualizations if needed
     test_env.close()
-
     return metrics

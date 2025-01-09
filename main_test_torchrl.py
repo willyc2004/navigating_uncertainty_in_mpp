@@ -28,10 +28,9 @@ from models.decoder import AttentionDecoderWithCache, MLPDecoderWithCache
 from models.critic import CriticNetwork
 from rl_algorithms.projection import ProjectionFactory
 from rl_algorithms.projection_prob_actor import ProjectionProbabilisticActor
+from rl_algorithms.test import evaluate_model
 
 # Functions
-
-
 def initialize_encoder(encoder_type, encoder_args, device):
     """Initialize the encoder based on the type."""
     if encoder_type == "attention":
@@ -159,19 +158,24 @@ def main(config: Optional[DotMap] = None):
         # action_rescale_max=env.action_spec.high[0],
     )
 
-    breakpoint()
-
-
     ## Main loop
     # Train the model
     if config.model.phase == "train":
         run_training(policy, critic, **config)
     # Test the model
     elif config.model.phase == "test":
-            # todo: extract trained hyper-parameters
-            # todo: check if two models can be re-loaded
-            # todo: use validation function, add visualizations per episode
-        raise NotImplementedError("Testing not implemented yet.")
+        # Extract trained hyperparameters
+        timestamp = "xxxxxx"  # todo: add timestamp from the saved model
+        config_load_path = f"saved_models/{timestamp}/config.yaml"
+        with open(config_load_path, "r") as yaml_file:
+            loaded_config = yaml.safe_load(yaml_file)
+
+        # Reload policy model
+        policy_load_path = f"saved_models/{timestamp}/policy.pth"
+        policy.load_state_dict(torch.load(policy_load_path, map_location=device))
+
+        # Evaluate the model
+        metrics = evaluate_model(policy, loaded_config["env"], device=device, num_episodes=20, n_step=100)
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
