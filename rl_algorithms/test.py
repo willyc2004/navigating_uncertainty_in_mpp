@@ -102,9 +102,5 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     # Summarize episode-level metrics (mean and std)
     summary_stats = compute_summary_stats(metrics)
 
-    # print the metrics
-    print(summary_stats)
-
-    # todo: add visualizations if needed
     test_env.close()
-    return metrics
+    return metrics, summary_stats

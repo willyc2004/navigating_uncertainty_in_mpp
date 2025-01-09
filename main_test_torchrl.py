@@ -181,9 +181,9 @@ def main(config: Optional[DotMap] = None):
         policy.load_state_dict(torch.load(policy_load_path, map_location=device))
 
         # Evaluate the model
-        # todo: fix evaluate_model
-        metrics = evaluate_model(policy, loaded_config, device=device, **config.testing)
-        breakpoint()
+        metrics, summary_stats = evaluate_model(policy, loaded_config, device=device, **config.testing)
+        # todo: add visualization of the metrics/summary_stats
+        print(summary_stats)
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
