@@ -268,7 +268,6 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     # Save the configuration to a YAML file
     config_save_path = os.path.join(save_path, "config.yaml")
     cleaned_config = convert_to_dict(kwargs) # Convert DotMap to dictionary
-    # Dump the cleaned dictionary to YAML
     with open(config_save_path, "w") as yaml_file:
         yaml.dump(cleaned_config, yaml_file, default_flow_style=False)
     wandb.save(config_save_path)
