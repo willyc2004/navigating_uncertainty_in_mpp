@@ -188,7 +188,7 @@ def main(config: Optional[DotMap] = None):
 if __name__ == "__main__":
     # Load static configuration from the YAML file
     file_path = os.getcwd()
-    config = load_config(f'{file_path}/config_torchrl.yaml')
+    config = load_config(f'{file_path}/config.yaml')
 
     # Call your main() function
     try:

@@ -1,7 +1,7 @@
 import yaml
 import wandb
 from dotmap import DotMap
-from main_test_torchrl import main, adapt_env_kwargs
+from main import main, adapt_env_kwargs
 import argparse
 
 if __name__ == "__main__":
@@ -13,7 +13,7 @@ if __name__ == "__main__":
     def train():
         try:
             # Load static configuration from the YAML file
-            with open('config_torchrl.yaml', 'r') as file:
+            with open('config.yaml', 'r') as file:
                 config = yaml.safe_load(file)
                 config = DotMap(config)
                 config = adapt_env_kwargs(config)
