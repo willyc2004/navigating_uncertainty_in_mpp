@@ -29,13 +29,58 @@ from models.critic import CriticNetwork
 from rl_algorithms.projection import ProjectionFactory
 from rl_algorithms.projection_prob_actor import ProjectionProbabilisticActor
 
+# Functions
+
+
+def initialize_encoder(encoder_type, encoder_args, device):
+    """Initialize the encoder based on the type."""
+    if encoder_type == "attention":
+        return AttentionEncoder(**encoder_args).to(device)
+    elif encoder_type == "mlp":
+        return MLPEncoder(**encoder_args).to(device)
+    else:
+        raise ValueError(f"Unsupported encoder type: {encoder_type}")
+
+def initialize_decoder(decoder_type, decoder_args, device):
+    """Initialize the decoder based on the type."""
+    if decoder_type == "attention":
+        return AttentionDecoderWithCache(**decoder_args).to(device)
+    elif decoder_type == "mlp":
+        return MLPDecoderWithCache(**decoder_args).to(device)
+    else:
+        raise ValueError(f"Unsupported decoder type: {decoder_type}")
+
+def initialize_critic(algorithm_type, encoder, critic_args, device):
+    """Initialize the critic based on the algorithm type."""
+    if algorithm_type == "sac":
+        # Define two Q-networks for SAC
+        critic1 = CriticNetwork(encoder, customized=True, use_q_value=True, **critic_args).to(device)
+        critic2 = copy.deepcopy(critic1)
+        return TensorDictSequential(
+            TensorDictModule(critic1, in_keys=["observation", "action"], out_keys=["state_action_value"]),
+            TensorDictModule(critic2, in_keys=["observation", "action"], out_keys=["state_action_value"]),
+        )
+    else:
+        # Standard critic
+        return TensorDictModule(
+            CriticNetwork(encoder, customized=True, **critic_args).to(device),
+            in_keys=["observation"],
+            out_keys=["state_value"]
+        )
+
+def initialize_projection_layer(projection_type, projection_kwargs, action_dim, n_constraints):
+    """Initialize the projection layer based on the projection type."""
+    projection_type = (projection_type or "").lower()  # Normalize to lowercase and handle None
+    if projection_type in ["linear_violation", "linear_program", "convex_program"]:
+        projection_kwargs["n_action"] = action_dim
+        projection_kwargs["n_constraints"] = n_constraints
+        return ProjectionFactory.create_class(projection_type, projection_kwargs)
+    else:
+        return None
+
 # Main function
 def main(config: Optional[DotMap] = None):
-    # todo: clean-up and refactor all hyperparameters etc.
-    # Environment kwargs
-    env_kwargs = config.env
-
-    # Initialize torch and cuda
+    ## Torch and cuda initialization
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.cuda.empty_cache()
     torch._dynamo.config.cache_size_limit = 64  # or some higher value
@@ -44,8 +89,8 @@ def main(config: Optional[DotMap] = None):
     torch.backends.cudnn.benchmark = False
 
     ## Environment initialization
-    env = make_env(env_kwargs)
-    seed = env_kwargs.seed
+    env = make_env(config.env)
+    seed = config.env.seed
     env.set_seed(seed)
     # env = ParallelEnv(4, make_env)     # todo: fix parallel env
     check_env_specs(env)  # this must pass for ParallelEnv to work
@@ -53,7 +98,6 @@ def main(config: Optional[DotMap] = None):
     ## Model initialization
     # Embedding dimensions
     embed_dim = config.model.embed_dim
-    obs_dim = 0 #env.observation_spec["observation"].shape[0]
     action_dim = env.action_spec.shape[0]
     sequence_dim = env.K * env.T if env.action_spec.shape[0] == env.B*env.D else env.P-1
     # Embedding initialization
@@ -61,99 +105,62 @@ def main(config: Optional[DotMap] = None):
     context_embed = MPPContextEmbedding(action_dim, embed_dim, sequence_dim, env, config.model.demand_aggregation)
     dynamic_embed = MPPDynamicEmbedding(embed_dim, sequence_dim, env,)
     obs_embed = MPPObservationEmbedding(action_dim, embed_dim, sequence_dim, env, config.model.demand_aggregation)
-
-    # Model initialization
-    hidden_dim = config.model.feedforward_hidden
-    encoder_layers = config.model.num_encoder_layers
-    decoder_layers = config.model.num_decoder_layers
-    num_heads = config.model.num_heads
-    dropout_rate = config.model.dropout_rate
+    # Model arguments
     decoder_args = {
         "embed_dim": embed_dim,
-        "num_heads": num_heads,
-        "num_hidden_layers": decoder_layers,
-        "hidden_dim": hidden_dim,
-        "dropout_rate": dropout_rate,
         "action_size": action_dim,
-        "state_size": obs_dim,
         "total_steps": sequence_dim,
         "init_embedding": init_embed,
         "context_embedding": context_embed,
         "dynamic_embedding": dynamic_embed,
         "obs_embedding": obs_embed,
-        "normalization": config.model.normalization,
-        "temperature": config.model.temperature,
-        "scale_max":config.model.scale_max,
+        **config.model,
     }
     encoder_args = {
         "embed_dim": embed_dim,
-        "num_heads": num_heads,
         "init_embedding": init_embed,
         "env_name": env.name,
-        "num_layers": encoder_layers,
-        "feedforward_hidden": hidden_dim,
-        "normalization": config.model.normalization,
+        **config.model,
     }
+    critic_args = {
+        "embed_dim": embed_dim,
+        "action_dim": action_dim,
+        "obs_embedding": obs_embed,
+        **config.model,
+    }
+    # Init models: encoder, decoder, and critic
+    encoder = initialize_encoder(config.model.encoder_type, encoder_args, device)
+    decoder = initialize_decoder(config.model.decoder_type, decoder_args, device)
+    critic = initialize_critic(config.algorithm.type, encoder, critic_args, device)
 
-    # Setup model
-    if config.model.encoder_type == "attention":
-        encoder = AttentionEncoder(**encoder_args,)
-    else:
-        encoder = MLPEncoder(**encoder_args)
-    if config.model.decoder_type == "attention":
-        decoder = AttentionDecoderWithCache(**decoder_args)
-    elif config.model.decoder_type == "mlp":
-        decoder = MLPDecoderWithCache(**decoder_args)
-    else:
-        raise ValueError(f"Decoder type {config.model.decoder_type} not recognized.")
-    if config.algorithm.type == "sac":
-        # Define two Q-networks for the critics
-        critic1 = CriticNetwork(encoder, embed_dim=embed_dim, hidden_dim=hidden_dim, num_layers=decoder_layers,
-                          obs_embedding=obs_embed,
-                          normalization=config.model.normalization,
-                          dropout_rate=dropout_rate, temperature=config.model.critic_temperature, customized=True,
-                          use_q_value=True, action_dim=action_dim).to(device)
-        critic2 = copy.deepcopy(critic1)
-        critic = TensorDictSequential(
-            TensorDictModule(critic1, in_keys=["observation", "action"], out_keys=["state_action_value"]),
-            TensorDictModule(critic2, in_keys=["observation", "action"], out_keys=["state_action_value"]),
-        )
-    else:
-        # Get critic
-        critic = TensorDictModule(
-            CriticNetwork(encoder, embed_dim=embed_dim, hidden_dim=hidden_dim, num_layers=decoder_layers,
-                          obs_embedding=obs_embed,
-                          normalization=config.model.normalization,
-                          dropout_rate=dropout_rate, temperature=config.model.critic_temperature,
-                          customized=True).to(device),
-            in_keys=["observation",],  # Input tensor key in TensorDict
-            out_keys=["state_value"], # Output tensor key in TensorDict
-        )
+    # Init projection layer
+    projection_layer = initialize_projection_layer(
+        config.training.projection_type,
+        config.training.projection_kwargs,
+        action_dim,
+        env.n_constraints
+    )
 
-    # Get ProbabilisticActor (for stochastic policies)
+    # Init actor (policy)
     actor = TensorDictModule(
         Autoencoder(encoder, decoder, env).to(device),
         in_keys=["observation",],  # Input tensor key in TensorDict
         out_keys=["loc","scale"]  # Output tensor key in TensorDict
     )
-    if config.training.projection_type in ["linear_violation", "linear_program", "convex_program"]:
-        config.training.projection_kwargs["n_action"] = action_dim
-        config.training.projection_kwargs["n_constraints"] = env.n_constraints
-        projection_layer = ProjectionFactory.create_class(config.training.projection_type, config.training.projection_kwargs)
-    else:
-        projection_layer = None
     policy = ProjectionProbabilisticActor(
         module=actor,
         in_keys=["loc", "scale"],
         distribution_class=TruncatedNormal,
         distribution_kwargs={"low": env.action_spec.low[0], "high": env.action_spec.high[0]},
-        # distribution_kwargs={"upscale":1.0},
         return_log_prob=True,
         projection_layer=projection_layer,
         projection_type=config.training.projection_type,
         # action_rescale_min=env.action_spec.low[0],
         # action_rescale_max=env.action_spec.high[0],
     )
+
+    breakpoint()
+
 
     ## Main loop
     # Train the model
