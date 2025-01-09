@@ -90,3 +90,7 @@ training:
   train_data_size: 72_000_000  #5_000_000 # 3_000_000
   val_data_size: 5000
   test_data_size: 5000
+
+testing:
+  timestamp: "20250109_114807"
+  num_episodes: 30
