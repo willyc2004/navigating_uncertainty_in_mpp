@@ -17,10 +17,16 @@ from main import adapt_env_kwargs, make_env
 from environment.utils import get_pol_pod_pair
 
 def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, deterministic=False):
+    # Scenario tree parameters
+    M = 10 ** 3 # Big M
+    stages = config.env.ports - 1  # Number of load ports (P-1)
+    max_paths = scenarios_per_stage ** (stages-1) + 1
+    num_nodes_per_stage = [1*scenarios_per_stage**stage for stage in range(stages)]
+
     # Create the environment on cpu
     env_kwargs = config.env
     env_kwargs.seed = seed
-    env = make_env(env_kwargs, device='cpu')
+    env = make_env(env_kwargs, batch_size=[max_paths], device='cpu')
 
     # Problem parameters
     P = env.P
@@ -39,12 +45,6 @@ def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, det
     longitudinal_position = env.longitudinal_position.detach().cpu().numpy()
     vertical_position = env.vertical_position.detach().cpu().numpy()
 
-    # Scenario tree parameters
-    M = 10 ** 3 # Big M
-    stages = P - 1  # Number of load ports (P-1)
-    max_paths = scenarios_per_stage ** (stages-1) + 1
-    num_nodes_per_stage = [1*scenarios_per_stage**stage for stage in range(stages)]
-
     # Precompute functions
     def precompute_node_list(stages, scenarios_per_stage):
         """Precompute the list of nodes and their coordinates in the scenario tree"""
@@ -61,15 +61,15 @@ def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, det
 
     def precompute_demand(node_list):
         """Precompute the demand scenarios for each node in the scenario tree"""
-        td = env.reset(batch_size=[max_paths])
-        pregen_demand = td["realized_demand"].detach().cpu().numpy()
+        td = env.reset()
+        pregen_demand = td["observation", "realized_demand"].detach().cpu().numpy().reshape(-1, T, K)
 
         # Preallocate demand array for transport demands
         demand_ = np.zeros((max_paths, K, P, P))
         # Precompute transport demands for all paths
         for transport in range(T):
             pol, pod = get_pol_pod_pair(th.tensor(transport), P)
-            demand_[:, :, pol, pod] = pregen_demand[:, :, transport]
+            demand_[:, :, pol, pod] = pregen_demand[:, transport, :]
 
         demand_ = demand_.transpose(2, 0, 1, 3)
 
