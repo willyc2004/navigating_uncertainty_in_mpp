@@ -1,10 +1,11 @@
 import time
 import torch
+import math
 from rl_algorithms.utils import make_env
 from rl_algorithms.train import get_performance_metrics
 
 # Functions
-def compute_summary_stats(metrics):
+def compute_summary_stats(metrics, confidence_level=0.95):
     """
     Compute mean, median, std, min, and max for each metric in the dictionary.
     Args:
@@ -13,13 +14,22 @@ def compute_summary_stats(metrics):
         dict: Summary statistics for each metric.
     """
     summary_stats = {}
+    z = 1.96 if confidence_level == 0.95 else None  # Z-value for 95% CI (you can extend this logic for other levels)
+
     for key, values in metrics.items():
+        n = values.numel()  # Number of elements in the tensor
+        mean = values.mean().item()
+        std = values.std().item()
+        margin_of_error = z * (std / math.sqrt(n)) if n > 1 else 0.0  # CI margin of error
+
         summary_stats[key] = {
-            "mean": values.mean().item(),
+            "mean": mean,
             "median": values.median().item(),
-            "std": values.std().item(),
+            "std": std,
             "min": values.min().item(),
             "max": values.max().item(),
+            "lb_ci": mean - margin_of_error,  # Lower bound of the CI
+            "ub_ci": mean + margin_of_error,  # Upper bound of the CI
         }
     return summary_stats
 
@@ -51,7 +61,6 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
 
     # Initialize metrics storage
     metrics = {
-        "traj_return": torch.zeros(num_episodes, device=device),  # [num_episodes]
         "total_profit": torch.zeros(num_episodes, device=device),  # [num_episodes]
         "total_violations": torch.zeros(num_episodes, device=device),  # [num_episodes]
         "inference_times": torch.zeros(num_episodes, device=device),  # [num_episodes]
