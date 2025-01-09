@@ -17,7 +17,7 @@ class CriticNetwork(nn.Module):
             value_head: Optional[nn.Module] = None,
             embed_dim: int = 128,
             hidden_dim: int = 512,
-            num_layers: int = 1,
+            decoder_layers: int = 1,
             context_embedding: Optional[nn.Module] = None,  # Context embedding for additional input
             dynamic_embedding: Optional[nn.Module] = None,  # Dynamic embedding for additional input
             obs_embedding: Optional[nn.Module] = None,  # Observation embedding for additional input
@@ -62,7 +62,7 @@ class CriticNetwork(nn.Module):
                 ffn_activation,
             ]
             # Add residual blocks
-            for _ in range(num_layers - 1):
+            for _ in range(decoder_layers - 1):
                 layers.append(ResidualBlock(hidden_dim, ffn_activation, norm_fn_hidden, dropout_rate, ))
 
             # Output layer
