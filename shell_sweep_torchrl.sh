@@ -3,7 +3,7 @@
 # Script to run a Python script in the background using nohup
 
 # Define the path to the Python script you want to run
-SCRIPT_PATH="sweep_torchrl.py"
+SCRIPT_PATH="sweep.py"
 
 # Define the initial log file for output
 LOG_FILE="output_files/output.log"
