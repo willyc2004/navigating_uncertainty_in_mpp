@@ -4,6 +4,7 @@ import copy
 import wandb
 import tqdm
 import yaml
+from dotmap import DotMap
 
 # Torch
 import torch
@@ -24,6 +25,17 @@ from torchrl.data.replay_buffers.storages import LazyTensorStorage
 # Custom code
 from rl_algorithms.utils import make_env
 from rl_algorithms.loss import FeasibilityClipPPOLoss, FeasibilitySACLoss
+
+# Functions
+def convert_to_dict(obj):
+    """Recursively convert DotMap or other custom objects to standard Python dictionaries."""
+    if isinstance(obj, DotMap):
+        return {key: convert_to_dict(value) for key, value in obj.items()}
+    elif isinstance(obj, dict):  # Handle nested dictionaries
+        return {key: convert_to_dict(value) for key, value in obj.items()}
+    elif isinstance(obj, list):  # Handle lists containing DotMaps or dicts
+        return [convert_to_dict(item) for item in obj]
+    return obj  # Return primitive data types as-is
 
 # Training
 def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
@@ -255,8 +267,10 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
 
     # Save the configuration to a YAML file
     config_save_path = os.path.join(save_path, "config.yaml")
+    cleaned_config = convert_to_dict(kwargs) # Convert DotMap to dictionary
+    # Dump the cleaned dictionary to YAML
     with open(config_save_path, "w") as yaml_file:
-        yaml.dump(kwargs, yaml_file, default_flow_style=False)
+        yaml.dump(cleaned_config, yaml_file, default_flow_style=False)
     wandb.save(config_save_path)
 
     # Close environments
