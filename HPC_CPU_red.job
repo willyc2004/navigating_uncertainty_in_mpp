@@ -12,4 +12,4 @@
 hostname
 
 # Run the Python script
-python -u scenario_tree_mip.py > output_files/print_cpu.out
+python -u scenario_tree_mip.py > output_files/print_cpu2.out
