@@ -1,14 +1,15 @@
 #!/bin/bash
 #SBATCH --job-name=scenario_tree_mip.py         # Job name
 #SBATCH --output=output_files/cpu_job.%j.out    # Name of output file (%j expands to jobId)
-#SBATCH --cpus-per-task=32                      # Schedule one core
-#SBATCH --time=3-00:00:00                       # Run time (d-hh:mm:ss)
-#SBATCH --partition=cores_any                   # Select queue; --partition=red,brown,short;
-#SBATCH --exclude=cn12,cn16,cn18                 # Select nodes:
+#SBATCH --error=output_files/cpu_job.%j.err     # Separate error log
+#SBATCH --cpus-per-task=32                      # Use fewer CPUs to fit into `mix` nodes
+#SBATCH --time=7-00:00:00                       # Run time (d-hh:mm:ss)
+#SBATCH --partition=cores_any                   # Select the cores_any partition
+#SBATCH --exclude=cn12,cn16,cn18                # Exclude unavailable (drain) nodes
 #SBATCH --mail-type=FAIL,END                    # Send an email when the job finishes or fails
 
 # Print out the hostname of the node the job is running on
 hostname
 
-# Print statements from python file
+# Run the Python script
 python -u scenario_tree_mip.py > output_files/print_cpu.out
