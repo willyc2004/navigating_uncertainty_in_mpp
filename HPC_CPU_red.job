@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-task=32                      # Schedule one core
 #SBATCH --time=3-00:00:00                       # Run time (d-hh:mm:ss)
 #SBATCH --partition=cores_any                   # Select queue; --partition=red,brown,short;
-#SBATCH --nodelist=cn[3-4,6-7,12,16-18]         # Select nodes
+#SBATCH --nodelist=cn[3-4,6-7,17]               # Select nodes
 #SBATCH --mail-type=FAIL,END                    # Send an email when the job finishes or fails
 
 # Print out the hostname of the node the job is running on
