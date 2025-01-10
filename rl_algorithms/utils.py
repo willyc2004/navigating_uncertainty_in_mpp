@@ -7,7 +7,7 @@ from environment.utils import compute_violation
 
 def make_env(env_kwargs:DotMap, batch_size:Optional[list] = [], device: torch.device = torch.device("cuda")):
     """Setup and transform the Pendulum environment."""
-    return MasterPlanningEnv(batch_size=batch_size, **env_kwargs).to(device)
+    return MasterPlanningEnv(batch_size=batch_size, device=device, **env_kwargs).to(device)
 
 def adapt_env_kwargs(config):
     """Adapt environment kwargs based on configuration"""
