@@ -71,7 +71,7 @@ class CriticNetwork(nn.Module):
 
         self.value_head = value_head
 
-    def forward(self, obs: Union[Tensor, TensorDict], action:Optional=None, hidden=None) -> Tensor:
+    def forward(self, obs: Union[Tensor, TensorDict], action:Optional=None,) -> Tensor:
         """Forward pass of the critic network: encode the imput in embedding space and return the value
 
         Args:
@@ -83,7 +83,6 @@ class CriticNetwork(nn.Module):
         # Encode the input
         hidden, _ = self.encoder(obs)  # [batch_size, N, embed_dim] -> [batch_size, N]
         hidden = self.obs_embedding(hidden, obs)
-
         if action is not None:
             hidden = self.state_action_layer(torch.cat([hidden, action], dim=-1))
 
