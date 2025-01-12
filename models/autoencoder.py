@@ -9,7 +9,7 @@ class Autoencoder(nn.Module):
         self.env = env
 
     def forward(self, obs):
-        hidden, init_embed = self.encoder(obs)
+        hidden, init_h = self.encoder(obs)
         if isinstance(self.decoder, AttentionDecoderWithCache):
             _, _, hidden = self.decoder.pre_decoder_hook(obs, self.env, hidden)
         dec_out = self.decoder(obs, hidden)
