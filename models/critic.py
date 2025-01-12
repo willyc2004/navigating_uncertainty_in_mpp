@@ -82,7 +82,7 @@ class CriticNetwork(nn.Module):
         """
         # Encode the input
         hidden, _ = self.encoder(obs)  # [batch_size, N, embed_dim] -> [batch_size, N]
-        hidden = self.obs_embedding(obs, hidden)
+        hidden = self.obs_embedding(hidden, obs)
 
         if action is not None:
             hidden = self.state_action_layer(torch.cat([hidden, action], dim=-1))
