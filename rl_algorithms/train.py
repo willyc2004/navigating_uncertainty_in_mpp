@@ -24,7 +24,7 @@ from torchrl.data.replay_buffers.storages import LazyTensorStorage
 
 # Custom code
 from rl_algorithms.utils import make_env
-from rl_algorithms.loss import FeasibilityClipPPOLoss, FeasibilitySACLoss
+from rl_algorithms.loss import FeasibilityClipPPOLoss, FeasibilitySACLoss, CustomSACLoss
 
 # Functions
 def convert_to_dict(obj):
@@ -66,14 +66,22 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     # Optimizer, loss module, data collector, and scheduler
     advantage_module = GAE(gamma=gamma, lmbda=gae_lambda, value_network=critic, average_gae=True)
     if kwargs["algorithm"]["type"] == "sac":
+        critic1, critic2 = critic
+        target_critic1 = copy.deepcopy(critic1).to(device)
+        target_critic2 = copy.deepcopy(critic2).to(device)
         loss_module = FeasibilitySACLoss(
             actor_network=policy,
             qvalue_network=critic,  # List of two Q-networks
+            fixed_alpha=True,
+            min_alpha=1e-2, #[1e-2, 1e-3]
+            max_alpha=1.0, #[1.0, 10]
         )
-        critic1 = critic[0]
-        critic2 = critic[1]
-        target_critic1 = copy.deepcopy(critic1).to(device)
-        target_critic2 = copy.deepcopy(critic2).to(device)
+        # loss_module = CustomSACLoss(
+        #     actor=policy,
+        #     critics=[critic1, critic2],  # List of two Q-networks
+        #     target_critics=[target_critic1, target_critic2],  # List of two target Q-networks
+        #     value_network=None,
+        # )
     elif kwargs["algorithm"]["type"] == "ppo":
         loss_module = FeasibilityClipPPOLoss(
             actor_network=policy,
@@ -115,7 +123,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     actor_optim = torch.optim.Adam(policy.parameters(), lr=lr)
     if kwargs["algorithm"]["type"] == "sac":
         critic_optim = torch.optim.Adam(list(critic1.parameters()) + list(critic2.parameters()), lr=lr)
-        alpha = torch.tensor(1.0, requires_grad=True)  # Example parameter
+        alpha = torch.nn.Parameter(torch.tensor(0.0, device=device))
         alpha_optim = torch.optim.Adam([alpha], lr=lr)
     else:
         critic_optim = torch.optim.Adam(critic.parameters(), lr=lr)
@@ -141,12 +149,25 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
                 # Loss computation
                 loss_out = loss_module(subdata.to(device))
 
-                # Update critic
+                # Critic Update
                 critic_optim.zero_grad()
                 loss_out["loss_qvalue"].backward()
                 loss_out["gn_critic1"] = torch.nn.utils.clip_grad_norm_(critic1.parameters(), max_grad_norm)
                 loss_out["gn_critic2"] = torch.nn.utils.clip_grad_norm_(critic2.parameters(), max_grad_norm)
                 critic_optim.step()
+
+                # Actor Update
+                actor_optim.zero_grad()
+                loss_out["loss_actor"] += feasibility_lambda * loss_out["loss_feasibility"]
+                loss_out["loss_actor"].backward()
+                loss_out["gn_actor"] = torch.nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
+                actor_optim.step()
+                #
+                # # Alpha Update
+                # alpha_optim.zero_grad()
+                # loss_out["loss_alpha"] = entropy_lambda * loss_out["loss_alpha"]
+                # loss_out["loss_alpha"].backward()
+                # alpha_optim.step()
 
                 # Soft update target critics
                 for target_param, param in zip(target_critic1.parameters(), critic1.parameters()):
@@ -154,18 +175,19 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
                 for target_param, param in zip(target_critic2.parameters(), critic2.parameters()):
                     target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
-                # Update actor
-                actor_optim.zero_grad()
-                loss_out["loss_actor"] = loss_out["loss_actor"] + feasibility_lambda * loss_out["loss_feasibility"]
-                loss_out["loss_actor"].backward()
-                loss_out["gn_actor"] = torch.nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
-                actor_optim.step()
+                for name, param in critic[0].named_parameters():
+                    if param.grad is None:
+                        print(f"No gradient for {name}")
+                    else:
+                        print(f"{name} grad norm: {param.grad.norm().item()}")
 
-                # Update alpha
-                alpha_optim.zero_grad()
-                loss_out["loss_alpha"] = entropy_lambda * loss_out["loss_alpha"]
-                loss_out["loss_alpha"].backward()
-                alpha_optim.step()
+
+                print(f"\nCritic Loss: {loss_out['loss_qvalue'].item()}, "
+                      f"Actor Loss: {loss_out['loss_actor'].item()}, "
+                      f"Alpha Loss: {loss_out['loss_alpha'].item()}, "
+                      f"Grad Norms - Critic1: {loss_out['gn_critic1']}, "
+                      f"Critic2: {loss_out['gn_critic2']}, Actor: {loss_out['gn_actor']}")
+                breakpoint()
             elif kwargs["algorithm"]["type"] == "ppo":
                 for _ in range(num_epochs):
                     loss_out = loss_module(subdata.to(device))
@@ -187,8 +209,8 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
             "loss_actor": loss_out.get("loss_actor", 0) or loss_out.get("loss_objective", 0),
             "loss_critic": loss_out.get("loss_qvalue", 0) or loss_out.get("loss_critic", 0),
             "loss_feasibility":loss_out.get("loss_feasibility", 0),
-            "mean_total_violation": loss_out.get("violation", 0).sum(dim=(-2, -1)).mean().item()
-                                    or loss_out.get("mean_violation", 0).sum(dim=(-2, -1)).mean().item(),
+            "mean_total_violation": loss_out.get("violation", torch.tensor([0.], device=device).unsqueeze(-1)).sum(dim=(-2, -1)).mean().item()
+                                    or loss_out.get("mean_violation", torch.tensor([0.], device=device).unsqueeze(-1)).sum(dim=(-2, -1)).mean().item(),
             "loss_entropy": loss_out.get("loss_alpha", 0) or loss_out.get("loss_entropy", 0),
             # Supporting metrics
             "step": step,
