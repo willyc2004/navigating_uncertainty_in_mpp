@@ -60,13 +60,11 @@ def initialize_decoder(decoder_type, decoder_args, device):
 def initialize_critic(algorithm_type, encoder, critic_args, device):
     """Initialize the critic based on the algorithm type."""
     if algorithm_type == "sac":
-        # Define two Q-networks for SAC
-        critic1 = CriticNetwork(encoder, customized=True, use_q_value=True, **critic_args).to(device)
-        critic2 = copy.deepcopy(critic1)
-        return TensorDictSequential(
-            TensorDictModule(critic1, in_keys=["observation", "action"], out_keys=["state_action_value"]),
-            TensorDictModule(critic2, in_keys=["observation", "action"], out_keys=["state_action_value"]),
-        )
+        return TensorDictModule(
+            CriticNetwork(encoder, customized=True, use_q_value=True, **critic_args).to(device),
+            in_keys=["observation", "action"],
+            out_keys=["state_action_value"]),
+
     else:
         # Standard critic
         return TensorDictModule(
