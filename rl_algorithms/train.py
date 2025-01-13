@@ -161,11 +161,6 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
                     loss_out["loss_alpha"].backward()
                     alpha_optim.step()
                     alpha_optim.zero_grad()
-
-                print(f"\nCritic Loss: {loss_out['loss_qvalue'].item()}, "
-                      f"Actor Loss: {loss_out['loss_actor'].item()}, "
-                      f"Alpha Loss: {loss_out['loss_alpha'].item()}, "
-                      f"Grad Norms - Critic: {loss_out['gn_critic']}, ")
             elif kwargs["algorithm"]["type"] == "ppo":
                 for _ in range(num_epochs):
                     loss_out = loss_module(subdata.to(device))
