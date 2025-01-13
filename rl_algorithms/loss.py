@@ -84,8 +84,6 @@ class FeasibilitySACLoss(SACLoss):
         priority_key (str): Key to write priorities for prioritized replay. Defaults to "td_error".
         separate_losses (bool): Whether to compute separate gradients for shared parameters. Defaults to False.
         reduction (str): Specifies reduction for the loss: "none", "mean", "sum". Defaults to "mean".
-        feasibility_loss_fn: A function to compute feasibility loss. Optional.
-
     """
 
     @dataclass
@@ -109,7 +107,6 @@ class FeasibilitySACLoss(SACLoss):
         actor_network: ProbabilisticActor,
         qvalue_network: Union[TensorDictModule, List[TensorDictModule]],
         value_network: Optional[TensorDictModule] = None,
-        feasibility_loss_fn: Optional[torch.nn.Module] = None,
         num_qvalue_nets: int = 2,
         loss_function: str = "smooth_l1",
         alpha_init: float = 1.0,
@@ -146,7 +143,6 @@ class FeasibilitySACLoss(SACLoss):
             separate_losses=separate_losses,
             reduction=reduction,
         )
-        self.feasibility_loss_fn = feasibility_loss_fn
 
     def forward(self, tensordict: TensorDictBase) -> TensorDictBase:
         """Computes SAC loss with feasibility constraints."""
@@ -158,10 +154,10 @@ class FeasibilitySACLoss(SACLoss):
 
         # Feasibility loss
         action = metadata_actor["action"]
-        if self.feasibility_loss_fn:
-            feasibility_loss, mean_violation = self.feasibility_loss_fn(tensordict, action)
+        if "lhs_A" in tensordict and "rhs" in tensordict:
+            feasibility_loss, mean_violation = loss_feasibility(tensordict, action)
         else:
-            feasibility_loss, mean_violation = torch.tensor(0.0), torch.tensor(0.0)
+            raise ValueError("Feasibility loss requires 'lhs_A' and 'rhs' in tensordict.")
 
         # Alpha loss
         loss_alpha = self._alpha_loss(metadata_actor["log_prob"])
