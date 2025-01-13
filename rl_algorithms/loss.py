@@ -57,131 +57,59 @@ def loss_feasibility(td, action, aggregate_feasibility="sum"):
 
 
 class FeasibilitySACLoss(SACLoss):
-    """TorchRL implementation of the SAC loss.
+    """TorchRL implementation of the SAC loss with feasibility constraints.
 
-    Presented in "Soft Actor-Critic: Off-Policy Maximum Entropy Deep
-    Reinforcement Learning with a Stochastic Actor" https://arxiv.org/abs/1801.01290
-    and "Soft Actor-Critic Algorithms and Applications" https://arxiv.org/abs/1812.05905
+    Based on "Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning"
+    https://arxiv.org/abs/1801.01290 and "Soft Actor-Critic Algorithms and Applications"
+    https://arxiv.org/abs/1812.05905.
+
+    Adds feasibility constraints to the standard SAC loss.
 
     Args:
-        actor_network (ProbabilisticActor): stochastic actor
-        qvalue_network (TensorDictModule): Q(s, a) parametric model.
-            This module typically outputs a ``"state_action_value"`` entry.
-            If a single instance of `qvalue_network` is provided, it will be duplicated ``num_qvalue_nets``
-            times. If a list of modules is passed, their
-            parameters will be stacked unless they share the same identity (in which case
-            the original parameter will be expanded).
-
-            .. warning:: When a list of parameters if passed, it will __not__ be compared against the policy parameters
-              and all the parameters will be considered as untied.
-
-        value_network (TensorDictModule, optional): V(s) parametric model.
-            This module typically outputs a ``"state_value"`` entry.
-
-            .. note::
-              If not provided, the second version of SAC is assumed, where
-              only the Q-Value network is needed.
-
-    Keyword Args:
-        num_qvalue_nets (integer, optional): number of Q-Value networks used.
-            Defaults to ``2``.
-        loss_function (str, optional): loss function to be used with
-            the value function loss. Default is `"smooth_l1"`.
-        alpha_init (float, optional): initial entropy multiplier.
-            Default is 1.0.
-        min_alpha (float, optional): min value of alpha.
-            Default is None (no minimum value).
-        max_alpha (float, optional): max value of alpha.
-            Default is None (no maximum value).
-        action_spec (TensorSpec, optional): the action tensor spec. If not provided
-            and the target entropy is ``"auto"``, it will be retrieved from
-            the actor.
-        fixed_alpha (bool, optional): if ``True``, alpha will be fixed to its
-            initial value. Otherwise, alpha will be optimized to
-            match the 'target_entropy' value.
-            Default is ``False``.
-        target_entropy (float or str, optional): Target entropy for the
-            stochastic policy. Default is "auto", where target entropy is
-            computed as :obj:`-prod(n_actions)`.
-        delay_actor (bool, optional): Whether to separate the target actor
-            networks from the actor networks used for data collection.
-            Default is ``False``.
-        delay_qvalue (bool, optional): Whether to separate the target Q value
-            networks from the Q value networks used for data collection.
-            Default is ``True``.
-        delay_value (bool, optional): Whether to separate the target value
-            networks from the value networks used for data collection.
-            Default is ``True``.
-        priority_key (str, optional): [Deprecated, use .set_keys(priority_key=priority_key) instead]
-            Tensordict key where to write the
-            priority (for prioritized replay buffer usage). Defaults to ``"td_error"``.
-        separate_losses (bool, optional): if ``True``, shared parameters between
-            policy and critic will only be trained on the policy loss.
-            Defaults to ``False``, i.e., gradients are propagated to shared
-            parameters for both policy and critic losses.
-        reduction (str, optional): Specifies the reduction to apply to the output:
-            ``"none"`` | ``"mean"`` | ``"sum"``. ``"none"``: no reduction will be applied,
-            ``"mean"``: the sum of the output will be divided by the number of
-            elements in the output, ``"sum"``: the output will be summed. Default: ``"mean"``.
+        actor_network (ProbabilisticActor): Stochastic actor network.
+        qvalue_network (TensorDictModule): Q(s, a) parametric model. Typically outputs "state_action_value".
+        value_network (Optional[TensorDictModule]): V(s) parametric model, outputs "state_value".
+        num_qvalue_nets (int): Number of Q-value networks. Defaults to 2.
+        loss_function (str): Loss function for the value network. Defaults to "smooth_l1".
+        alpha_init (float): Initial entropy multiplier. Defaults to 1.0.
+        min_alpha (float): Minimum value of alpha. Defaults to None.
+        max_alpha (float): Maximum value of alpha. Defaults to None.
+        action_spec: Action tensor spec for auto entropy computation. Defaults to None.
+        fixed_alpha (bool): Whether to fix alpha to its initial value. Defaults to False.
+        target_entropy (Union[str, float]): Target entropy for the policy. Defaults to "auto".
+        delay_actor (bool): Whether to delay updates to the actor network. Defaults to False.
+        delay_qvalue (bool): Whether to delay updates to Q-value networks. Defaults to True.
+        delay_value (bool): Whether to delay updates to value networks. Defaults to True.
+        gamma (float): Discount factor for future rewards.
+        priority_key (str): Key to write priorities for prioritized replay. Defaults to "td_error".
+        separate_losses (bool): Whether to compute separate gradients for shared parameters. Defaults to False.
+        reduction (str): Specifies reduction for the loss: "none", "mean", "sum". Defaults to "mean".
+        feasibility_loss_fn: A function to compute feasibility loss. Optional.
 
     """
 
     @dataclass
     class _AcceptedKeys:
-        """Maintains default values for all configurable tensordict keys.
+        """Default tensordict keys for the loss."""
 
-        This class defines which tensordict keys can be set using '.set_keys(key_name=key_value)' and their
-        default values.
-
-        Attributes:
-            action (NestedKey): The input tensordict key where the action is expected.
-                Defaults to ``"advantage"``.
-            value (NestedKey): The input tensordict key where the state value is expected.
-                Will be used for the underlying value estimator. Defaults to ``"state_value"``.
-            state_action_value (NestedKey): The input tensordict key where the
-                state action value is expected.  Defaults to ``"state_action_value"``.
-            log_prob (NestedKey): The input tensordict key where the log probability is expected.
-                Defaults to ``"sample_log_prob"``.
-            priority (NestedKey): The input tensordict key where the target priority is written to.
-                Defaults to ``"td_error"``.
-            reward (NestedKey): The input tensordict key where the reward is expected.
-                Will be used for the underlying value estimator. Defaults to ``"reward"``.
-            done (NestedKey): The key in the input TensorDict that indicates
-                whether a trajectory is done. Will be used for the underlying value estimator.
-                Defaults to ``"done"``.
-            terminated (NestedKey): The key in the input TensorDict that indicates
-                whether a trajectory is terminated. Will be used for the underlying value estimator.
-                Defaults to ``"terminated"``.
-        """
-
-        action: NestedKey = "action"
-        value: NestedKey = "state_value"
-        state_action_value: NestedKey = "state_action_value"
-        log_prob: NestedKey = "sample_log_prob"
-        priority: NestedKey = "td_error"
-        reward: NestedKey = "reward"
-        done: NestedKey = "done"
-        terminated: NestedKey = "terminated"
+        action: str = "action"
+        value: str = "state_value"
+        state_action_value: str = "state_action_value"
+        log_prob: str = "sample_log_prob"
+        priority: str = "td_error"
+        reward: str = "reward"
+        done: str = "done"
+        terminated: str = "terminated"
 
     default_keys = _AcceptedKeys()
     default_value_estimator = ValueEstimators.TD0
 
-    actor_network: TensorDictModule
-    qvalue_network: TensorDictModule
-    value_network: TensorDictModule | None
-    actor_network_params: TensorDictParams
-    qvalue_network_params: TensorDictParams
-    value_network_params: TensorDictParams | None
-    target_actor_network_params: TensorDictParams
-    target_qvalue_network_params: TensorDictParams
-    target_value_network_params: TensorDictParams | None
-
     def __init__(
         self,
         actor_network: ProbabilisticActor,
-        qvalue_network: TensorDictModule | List[TensorDictModule],
+        qvalue_network: Union[TensorDictModule, List[TensorDictModule]],
         value_network: Optional[TensorDictModule] = None,
-        *,
+        feasibility_loss_fn: Optional[torch.nn.Module] = None,
         num_qvalue_nets: int = 2,
         loss_function: str = "smooth_l1",
         alpha_init: float = 1.0,
@@ -195,15 +123,9 @@ class FeasibilitySACLoss(SACLoss):
         delay_value: bool = True,
         gamma: float = None,
         priority_key: str = None,
-        separate_losses: bool = False,
+        separate_losses: bool = True,
         reduction: str = None,
-        in_keys: Optional[List[NestedKey]] = None,
-        out_keys: Optional[List[NestedKey]] = None,
     ) -> None:
-        self._in_keys = in_keys
-        self._out_keys = out_keys
-        if reduction is None:
-            reduction = "mean"
         super().__init__(
             actor_network=actor_network,
             qvalue_network=qvalue_network,
@@ -224,14 +146,49 @@ class FeasibilitySACLoss(SACLoss):
             separate_losses=separate_losses,
             reduction=reduction,
         )
+        self.feasibility_loss_fn = feasibility_loss_fn
 
-    state_dict = _delezify(LossModule.state_dict)
-    load_state_dict = _delezify(LossModule.load_state_dict)
+    def forward(self, tensordict: TensorDictBase) -> TensorDictBase:
+        """Computes SAC loss with feasibility constraints."""
+        # Actor loss
+        loss_actor, metadata_actor = self._actor_loss(tensordict)
+
+        # Q-value loss
+        loss_qvalue, metadata_qvalue = self._qvalue_v2_loss(tensordict)
+
+        # Feasibility loss
+        action = metadata_actor["action"]
+        if self.feasibility_loss_fn:
+            feasibility_loss, mean_violation = self.feasibility_loss_fn(tensordict, action)
+        else:
+            feasibility_loss, mean_violation = torch.tensor(0.0), torch.tensor(0.0)
+
+        # Alpha loss
+        loss_alpha = self._alpha_loss(metadata_actor["log_prob"])
+
+        # Combine losses
+        entropy = -metadata_actor["log_prob"]
+        out = {
+            "loss_actor": loss_actor,
+            "loss_qvalue": loss_qvalue,
+            "loss_alpha": loss_alpha,
+            "alpha": self._alpha,
+            "entropy": entropy.detach().mean(),
+            "loss_feasibility": feasibility_loss,
+            "violation": mean_violation,
+        }
+
+        # Reduce outputs based on reduction mode
+        td_out = TensorDict(out, [])
+        td_out = td_out.named_apply(
+            lambda name, value: value.mean() if name.startswith("loss_") else value,
+            batch_size=[],
+        )
+        return td_out
 
     def _actor_loss(
         self, tensordict: TensorDictBase
     ) -> Tuple[Tensor, Dict[str, Tensor]]:
-        print("\nactor_loss:")
         with set_exploration_type(
             ExplorationType.RANDOM
         ), self.actor_network_params.to_module(self.actor_network):
@@ -254,297 +211,7 @@ class FeasibilitySACLoss(SACLoss):
                 f"Losses shape mismatch: {log_prob.shape} and {min_q_logprob.shape}"
             )
 
-        return self._alpha * log_prob - min_q_logprob, {"log_prob": log_prob, "action": a_reparm}
-
-    @dispatch
-    def forward(self, tensordict: TensorDictBase) -> TensorDictBase:
-        if self._version == 1:
-            loss_qvalue, value_metadata = self._qvalue_v1_loss(tensordict)
-            loss_value, _ = self._value_loss(tensordict)
-        else:
-            loss_qvalue, value_metadata = self._qvalue_v2_loss(tensordict)
-            loss_value = None
-        loss_actor, metadata_actor = self._actor_loss(tensordict)
-        loss_alpha = self._alpha_loss(log_prob=metadata_actor["log_prob"])
-        tensordict.set(self.tensor_keys.priority, value_metadata["td_error"])
-        if (loss_actor.shape != loss_qvalue.shape) or (
-            loss_value is not None and loss_actor.shape != loss_value.shape
-        ):
-            raise RuntimeError(
-                f"Losses shape mismatch: {loss_actor.shape}, {loss_qvalue.shape} and {loss_value.shape}"
-            )
-        entropy = -metadata_actor["log_prob"]
-        out = {
-            "loss_actor": loss_actor,
-            "loss_qvalue": loss_qvalue,
-            "loss_alpha": loss_alpha,
-            "alpha": self._alpha,
-            "entropy": entropy.detach().mean(),
-        }
-        if self._version == 1:
-            out["loss_value"] = loss_value
-        td_out = TensorDict(out, [])
-        td_out = td_out.named_apply(
-            lambda name, value: _reduce(value, reduction=self.reduction)
-            if name.startswith("loss_")
-            else value,
-            batch_size=[],
-        )
-        action = metadata_actor["action"]
-        feasibility_loss, mean_violation = loss_feasibility(tensordict, action)
-        td_out.set("loss_feasibility", feasibility_loss)
-        td_out.set("violation", mean_violation)
-        return td_out
-
-    def _qvalue_v1_loss(
-            self, tensordict: TensorDictBase
-    ) -> Tuple[Tensor, Dict[str, Tensor]]:
-        target_params = self._cached_target_params_actor_value
-        with set_exploration_type(self.deterministic_sampling_mode):
-            target_value = self.value_estimator.value_estimate(
-                tensordict, target_params=target_params
-            ).squeeze(-1)
-
-        # Q-nets must be trained independently: as such, we split the data in 2
-        # if required and train each q-net on one half of the data.
-        shape = tensordict.shape
-        if shape[0] % self.num_qvalue_nets != 0:
-            raise RuntimeError(
-                f"Batch size={tensordict.shape} is incompatible "
-                f"with num_qvqlue_nets={self.num_qvalue_nets}."
-            )
-        tensordict_chunks = tensordict.reshape(
-            self.num_qvalue_nets, -1, *tensordict.shape[1:]
-        )
-        target_chunks = target_value.reshape(
-            self.num_qvalue_nets, -1, *target_value.shape[1:]
-        )
-
-        # if vmap=True, it is assumed that the input tensordict must be cast to the param shape
-        tensordict_chunks = self._vmap_qnetwork00(
-            tensordict_chunks, self.qvalue_network_params
-        )
-        pred_val = tensordict_chunks.get(self.tensor_keys.state_action_value)
-        pred_val = pred_val.squeeze(-1)
-        loss_value = distance_loss(
-            pred_val, target_chunks, loss_function=self.loss_function
-        ).view(*shape)
-        metadata = {"td_error": (pred_val - target_chunks).pow(2).flatten(0, 1)}
-
-        return loss_value, metadata
-
-    def _compute_target_v2(self, tensordict) -> Tensor:
-        r"""Value network for SAC v2.
-
-        SAC v2 is based on a value estimate of the form:
-
-        .. math::
-
-          V = Q(s,a) - \alpha * \log p(a | s)
-
-        This class computes this value given the actor and qvalue network
-
-        """
-        tensordict = tensordict.clone(False)
-        # get actions and log-probs
-        with torch.no_grad():
-            with set_exploration_type(
-                ExplorationType.RANDOM
-            ), self.actor_network_params.to_module(self.actor_network):
-                next_tensordict = tensordict.get("next").clone(False)
-                next_dist = self.actor_network.get_dist(next_tensordict)
-                next_action = next_dist.rsample()
-                next_tensordict.set(self.tensor_keys.action, next_action)
-                next_sample_log_prob = compute_log_prob(
-                    next_dist, next_action, self.tensor_keys.log_prob
-                )
-
-            # get q-values
-            next_tensordict_expand = self._vmap_qnetworkN0(
-                next_tensordict, self.target_qvalue_network_params
-            )
-            state_action_value = next_tensordict_expand.get(
-                self.tensor_keys.state_action_value
-            )
-            if (
-                state_action_value.shape[-len(next_sample_log_prob.shape) :]
-                != next_sample_log_prob.shape
-            ):
-                next_sample_log_prob = next_sample_log_prob.unsqueeze(-1)
-            next_state_value = state_action_value - self._alpha * next_sample_log_prob
-            next_state_value = next_state_value.min(0)[0]
-            tensordict.set(
-                ("next", self.value_estimator.tensor_keys.value), next_state_value
-            )
-            target_value = self.value_estimator.value_estimate(tensordict).squeeze(-1)
-            return target_value
-
-    def _qvalue_v2_loss(
-        self, tensordict: TensorDictBase
-    ) -> Tuple[Tensor, Dict[str, Tensor]]:
-        # we pass the alpha value to the tensordict. Since it's a scalar, we must erase the batch-size first.
-        print("\nqvalue_v2_loss (no_grad):")
-        target_value = self._compute_target_v2(tensordict)
-        print("target_value.requires_grad", target_value.requires_grad)
-
-        print("\nprediction:")
-        tensordict_expand = self._vmap_qnetworkN0(
-            tensordict.select(*self.qvalue_network.in_keys, strict=False),
-            self.qvalue_network_params,
-        )
-        pred_val = tensordict_expand.get(self.tensor_keys.state_action_value).squeeze(
-            -1
-        )
-        print("pred_val.requires_grad", pred_val.requires_grad,)
-        td_error = abs(pred_val - target_value)
-        loss_qval = distance_loss(
-            pred_val,
-            target_value.expand_as(pred_val),
-            loss_function=self.loss_function,
-        ).sum(0)
-        print("\nloss_qval.requires_grad", loss_qval.requires_grad)
-        metadata = {"td_error": td_error.detach().max(0)[0]}
-        return loss_qval, metadata
-
-    def _value_loss(
-        self, tensordict: TensorDictBase
-    ) -> Tuple[Tensor, Dict[str, Tensor]]:
-        # value loss
-        td_copy = tensordict.select(*self.value_network.in_keys, strict=False).detach()
-        with self.value_network_params.to_module(self.value_network):
-            self.value_network(td_copy)
-        pred_val = td_copy.get(self.tensor_keys.value).squeeze(-1)
-        with self.target_actor_network_params.to_module(self.actor_network):
-            action_dist = self.actor_network.get_dist(td_copy)  # resample an action
-        action = action_dist.rsample()
-
-        td_copy.set(self.tensor_keys.action, action, inplace=False)
-
-        td_copy = self._vmap_qnetworkN0(
-            td_copy,
-            self.target_qvalue_network_params,
-        )
-
-        min_qval = (
-            td_copy.get(self.tensor_keys.state_action_value).squeeze(-1).min(0)[0]
-        )
-
-        log_p = compute_log_prob(action_dist, action, self.tensor_keys.log_prob)
-
-        if log_p.shape != min_qval.shape:
-            raise RuntimeError(
-                f"Losses shape mismatch: {min_qval.shape} and {log_p.shape}"
-            )
-        target_val = min_qval - self._alpha * log_p
-
-        loss_value = distance_loss(
-            pred_val, target_val, loss_function=self.loss_function
-        )
-        return loss_value, {}
-
-    def _alpha_loss(self, log_prob: Tensor) -> Tensor:
-        if self.target_entropy is not None:
-            # we can compute this loss even if log_alpha is not a parameter
-            alpha_loss = -self.log_alpha * (log_prob + self.target_entropy)
-        else:
-            # placeholder
-            alpha_loss = torch.zeros_like(log_prob)
-        return alpha_loss
-
-    @property
-    def _alpha(self):
-        if self.min_log_alpha is not None:
-            self.log_alpha.data.clamp_(self.min_log_alpha, self.max_log_alpha)
-        with torch.no_grad():
-            alpha = self.log_alpha.exp()
-        return alpha
-
-
-class CustomSACLoss(SACLoss):
-    def __init__(self, actor, critics, target_critics, value_network, alpha_init=0.1, gamma=0.99, target_entropy=0.1):
-        super().__init__(actor_network=actor, qvalue_network=critics, value_network=value_network,)
-        self.target_critics = target_critics
-        self.log_alpha = torch.nn.Parameter(torch.tensor(alpha_init).log())
-        self.gamma = gamma
-
-    def _qvalue_loss(self, tensordict):
-        # Compute target Q value
-        with torch.no_grad():
-            next_dist = self.actor_network.get_dist(tensordict["next"])
-            next_action = next_dist.rsample()
-            next_log_prob = next_dist.log_prob(next_action).unsqueeze(-1)
-
-            tensordict["next"].set("action", next_action)
-            target_q_value0 = self.target_critics[0](tensordict["next"])
-            target_q_value1 = self.target_critics[1](tensordict["next"])
-            target_q_min = torch.min(target_q_value0["state_action_value"], target_q_value1["state_action_value"])
-            target_q = target_q_min - self.alpha * next_log_prob
-
-            reward = tensordict["next"].get("reward")
-            done = tensordict.get("done").float()
-            target = reward + self.gamma * (1 - done) * target_q
-
-        # Critic loss
-        q_value0 = self.qvalue_network[0](tensordict)
-        q_value1 = self.qvalue_network[1](tensordict)
-        qvalue0_loss = distance_loss(q_value0["state_action_value"], target, loss_function="smooth_l1")
-        qvalue1_loss = distance_loss(q_value1["state_action_value"], target, loss_function="smooth_l1")
-        qvalue_loss = (qvalue0_loss + qvalue1_loss).mean()
-        return qvalue_loss, {}
-
-    def _actor_loss(self, tensordict):
-        # Sample action and compute log probabilities
-        dist = self.actor_network.get_dist(tensordict)
-        action = dist.rsample()
-        log_prob = dist.log_prob(action).unsqueeze(-1)
-
-        # Critic evaluation
-        tensordict.set("action", action)
-        with torch.no_grad():
-            q_value0 = self.qvalue_network[0](tensordict)
-            q_value1 = self.qvalue_network[1](tensordict)
-            q_min = torch.min(q_value0["state_action_value"], q_value1["state_action_value"])
-        # Actor loss
-        actor_loss = (self.alpha * log_prob - q_min).mean()
-        return actor_loss, {"log_prob": log_prob, "action": action}
-
-    def _alpha_loss(self, tensordict):
-        # Recompute log_prob
-        dist = self.actor_network.get_dist(tensordict)
-        action = dist.rsample()
-        log_prob = dist.log_prob(action).unsqueeze(-1)
-        return -(self.log_alpha * (log_prob + self.target_entropy).detach()).mean()
-
-    @property
-    def alpha(self):
-        return self.log_alpha.exp()
-
-    def forward(self, tensordict):
-        loss_actor, metadata_actor = self._actor_loss(tensordict)
-        loss_qvalue, _ = self._qvalue_loss(tensordict)
-        loss_qvalue = self._alpha_loss(tensordict)
-        action = metadata_actor["action"]
-        feasibility_loss, mean_violation = loss_feasibility(tensordict, action)
-        entropy = -metadata_actor["log_prob"]
-
-        # Output
-        out = {
-            "loss_actor": loss_actor,
-            "loss_qvalue": loss_qvalue,
-            "loss_alpha": loss_qvalue,
-            "alpha": self._alpha,
-            "entropy": entropy.detach().mean(),
-            "loss_feasibility": feasibility_loss,
-            "violation": mean_violation,
-        }
-        td_out = TensorDict(out, [])
-        return td_out
-
-        td_out.set("loss_feasibility", feasibility_loss)
-        td_out.set("violation", mean_violation)
-
-        return {"loss_actor": actor_loss, "loss_qvalue": qvalue_loss, "alpha_loss": alpha_loss}
-
+        return self._alpha * log_prob - min_q_logprob, {"log_prob": log_prob.detach(), "action": a_reparm}
 
 class FeasibilityClipPPOLoss(PPOLoss):
     """Clipped PPO loss.
@@ -735,7 +402,7 @@ class FeasibilityClipPPOLoss(PPOLoss):
         loc = dist.loc if hasattr(dist, 'loc') else dist.base_dist.loc
         feasibility_loss, mean_violation = loss_feasibility(tensordict, loc)
         td_out.set("loss_feasibility", feasibility_loss)
-        td_out.set("mean_violation", mean_violation)
+        td_out.set("violation", mean_violation)
 
         td_out.set("ESS", _reduce(ess, self.reduction) / batch)
         td_out = td_out.named_apply(
