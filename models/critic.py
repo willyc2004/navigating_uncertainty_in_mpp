@@ -80,16 +80,15 @@ class CriticNetwork(nn.Module):
             Value of the input state
         """
         # Encode the input
-        hidden, _ = self.encoder(obs)  # [batch_size, N, embed_dim] -> [batch_size, N]
-        hidden = self.obs_embedding(hidden, obs)
-        if action is not None:
-            hidden = self.state_action_layer(torch.cat([hidden, action], dim=-1))
+        h, _ = self.encoder(obs)  # [batch_size, N, embed_dim] -> [batch_size, N]
+        h = self.obs_embedding(h, obs)
+        h = self.state_action_layer(torch.cat([h, action], dim=-1)) if action is not None else h
 
         # Compute the value
         if not self.customized:  # for most constructive tasks
-            output = self.value_head(hidden).sum(dim=1, keepdims=True)  # [batch_size, N] -> [batch_size, 1]
+            output = self.value_head(h).sum(dim=1, keepdims=True)  # [batch_size, N] -> [batch_size, 1]
         else:  # customized encoder and value head with hidden input
-            output = self.value_head(hidden) # [batch_size, N] -> [batch_size, N]
+            output = self.value_head(h) # [batch_size, N] -> [batch_size, N]
         output = output / self.temperature
         return output
 
