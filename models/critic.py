@@ -82,7 +82,11 @@ class CriticNetwork(nn.Module):
         # Encode the input
         h, _ = self.encoder(obs)  # [batch_size, N, embed_dim] -> [batch_size, N]
         h = self.obs_embedding(h, obs)
-        h = self.state_action_layer(torch.cat([h, action], dim=-1)) if action is not None else h
+
+        # State-action value
+        if action is not None and hasattr(self, "state_action_layer"):
+            h = torch.cat([h, action.clone().detach()], dim=-1)
+            h = self.state_action_layer(h)
 
         # Compute the value
         if not self.customized:  # for most constructive tasks
