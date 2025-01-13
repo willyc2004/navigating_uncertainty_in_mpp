@@ -35,7 +35,6 @@ class CriticNetwork(nn.Module):
         self.context_embedding = context_embedding  # Store context_embedding
         self.dynamic_embedding = dynamic_embedding  # Store dynamic_embedding
         self.obs_embedding = obs_embedding
-        self.combination_layer = nn.Linear(2*embed_dim, embed_dim)
         self.temperature = critic_temperature
         self.customized = customized
 
