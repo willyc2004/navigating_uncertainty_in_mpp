@@ -63,8 +63,7 @@ def initialize_critic(algorithm_type, encoder, critic_args, device):
         return TensorDictModule(
             CriticNetwork(encoder, customized=True, use_q_value=True, **critic_args).to(device),
             in_keys=["observation", "action"],
-            out_keys=["state_action_value"]),
-
+            out_keys=["state_action_value"])
     else:
         # Standard critic
         return TensorDictModule(
