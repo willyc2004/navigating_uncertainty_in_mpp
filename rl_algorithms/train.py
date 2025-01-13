@@ -24,7 +24,7 @@ from torchrl.data.replay_buffers.storages import LazyTensorStorage
 
 # Custom code
 from rl_algorithms.utils import make_env
-from rl_algorithms.loss import FeasibilityClipPPOLoss, FeasibilitySACLoss, CustomSACLoss
+from rl_algorithms.loss import FeasibilityClipPPOLoss, FeasibilitySACLoss
 
 # Functions
 def convert_to_dict(obj):
@@ -66,22 +66,13 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     # Optimizer, loss module, data collector, and scheduler
     advantage_module = GAE(gamma=gamma, lmbda=gae_lambda, value_network=critic, average_gae=True)
     if kwargs["algorithm"]["type"] == "sac":
-        critic1, critic2 = critic
-        target_critic1 = copy.deepcopy(critic1).to(device)
-        target_critic2 = copy.deepcopy(critic2).to(device)
         loss_module = FeasibilitySACLoss(
             actor_network=policy,
             qvalue_network=critic,  # List of two Q-networks
-            fixed_alpha=True,
+            fixed_alpha=False,
             min_alpha=1e-2, #[1e-2, 1e-3]
             max_alpha=1.0, #[1.0, 10]
         )
-        # loss_module = CustomSACLoss(
-        #     actor=policy,
-        #     critics=[critic1, critic2],  # List of two Q-networks
-        #     target_critics=[target_critic1, target_critic2],  # List of two target Q-networks
-        #     value_network=None,
-        # )
     elif kwargs["algorithm"]["type"] == "ppo":
         loss_module = FeasibilityClipPPOLoss(
             actor_network=policy,
@@ -121,12 +112,10 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
 
     # Optimizer and scheduler
     actor_optim = torch.optim.Adam(policy.parameters(), lr=lr)
-    if kwargs["algorithm"]["type"] == "sac":
-        critic_optim = torch.optim.Adam(list(critic1.parameters()) + list(critic2.parameters()), lr=lr)
-        alpha = torch.nn.Parameter(torch.tensor(0.0, device=device))
-        alpha_optim = torch.optim.Adam([alpha], lr=lr)
-    else:
-        critic_optim = torch.optim.Adam(critic.parameters(), lr=lr)
+    critic_optim = torch.optim.Adam(loss_module.qvalue_network_params.parameters(), lr=lr)
+    if not loss_module.fixed_alpha:
+        alpha_optim = torch.optim.Adam([loss_module.log_alpha], lr=lr)
+
     train_updates = train_data_size // (batch_size * n_step)
     pbar = tqdm.tqdm(range(train_updates))
     actor_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(actor_optim, train_data_size)
@@ -135,7 +124,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     # Validation
     val_rewards = []
     policy.train()
-    # torch.autograd.set_detect_anomaly(True)
+    torch.autograd.set_detect_anomaly(True)
     # Training loop
     for step, td in enumerate(collector):
         if kwargs["algorithm"]["type"] == "ppo_feas":
@@ -150,44 +139,32 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
                 loss_out = loss_module(subdata.to(device))
 
                 # Critic Update
-                critic_optim.zero_grad()
                 loss_out["loss_qvalue"].backward()
-                loss_out["gn_critic1"] = torch.nn.utils.clip_grad_norm_(critic1.parameters(), max_grad_norm)
-                loss_out["gn_critic2"] = torch.nn.utils.clip_grad_norm_(critic2.parameters(), max_grad_norm)
+                qvalue_params = loss_module.qvalue_network_params.flatten_keys().values()
+                loss_out["gn_critic"] = torch.nn.utils.clip_grad_norm_(qvalue_params, max_grad_norm)
                 critic_optim.step()
+                # Soft update target critics
+                with torch.no_grad():
+                    soft_update(loss_module.target_qvalue_network_params, loss_module.qvalue_network_params, tau)
+                critic_optim.zero_grad()
 
                 # Actor Update
-                actor_optim.zero_grad()
                 loss_out["loss_actor"] += feasibility_lambda * loss_out["loss_feasibility"]
                 loss_out["loss_actor"].backward()
                 loss_out["gn_actor"] = torch.nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
                 actor_optim.step()
-                #
-                # # Alpha Update
-                # alpha_optim.zero_grad()
-                # loss_out["loss_alpha"] = entropy_lambda * loss_out["loss_alpha"]
-                # loss_out["loss_alpha"].backward()
-                # alpha_optim.step()
+                actor_optim.zero_grad()
 
-                # Soft update target critics
-                for target_param, param in zip(target_critic1.parameters(), critic1.parameters()):
-                    target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
-                for target_param, param in zip(target_critic2.parameters(), critic2.parameters()):
-                    target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
-
-                for name, param in critic[0].named_parameters():
-                    if param.grad is None:
-                        print(f"No gradient for {name}")
-                    else:
-                        print(f"{name} grad norm: {param.grad.norm().item()}")
-
+                # Alpha Update
+                if not loss_module.fixed_alpha:
+                    loss_out["loss_alpha"].backward()
+                    alpha_optim.step()
+                    alpha_optim.zero_grad()
 
                 print(f"\nCritic Loss: {loss_out['loss_qvalue'].item()}, "
                       f"Actor Loss: {loss_out['loss_actor'].item()}, "
                       f"Alpha Loss: {loss_out['loss_alpha'].item()}, "
-                      f"Grad Norms - Critic1: {loss_out['gn_critic1']}, "
-                      f"Critic2: {loss_out['gn_critic2']}, Actor: {loss_out['gn_actor']}")
-                breakpoint()
+                      f"Grad Norms - Critic: {loss_out['gn_critic']}, ")
             elif kwargs["algorithm"]["type"] == "ppo":
                 for _ in range(num_epochs):
                     loss_out = loss_module(subdata.to(device))
@@ -209,8 +186,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
             "loss_actor": loss_out.get("loss_actor", 0) or loss_out.get("loss_objective", 0),
             "loss_critic": loss_out.get("loss_qvalue", 0) or loss_out.get("loss_critic", 0),
             "loss_feasibility":loss_out.get("loss_feasibility", 0),
-            "mean_total_violation": loss_out.get("violation", torch.tensor([0.], device=device).unsqueeze(-1)).sum(dim=(-2, -1)).mean().item()
-                                    or loss_out.get("mean_violation", torch.tensor([0.], device=device).unsqueeze(-1)).sum(dim=(-2, -1)).mean().item(),
+            "violation": loss_out.get("violation", 0),
             "loss_entropy": loss_out.get("loss_alpha", 0) or loss_out.get("loss_entropy", 0),
             # Supporting metrics
             "step": step,
@@ -218,6 +194,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
             "clip_fraction": loss_out.get("clip_fraction", 0),
             **train_performance,
         }
+        log["mean_total_violation"] = log["violation"].sum(dim=(-2, -1)).mean().item() if log["violation"].dim() > 1 else 0
         pbar.update(1)
         # Log metrics
         pbar.set_description(
@@ -276,10 +253,10 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
             "target_critic1": os.path.join(save_path, "target_critic1.pth"),
             "target_critic2": os.path.join(save_path, "target_critic2.pth"),
         }
-        torch.save(critic1.state_dict(), critic_paths["critic1"])
-        torch.save(critic2.state_dict(), critic_paths["critic2"])
-        torch.save(target_critic1.state_dict(), critic_paths["target_critic1"])
-        torch.save(target_critic2.state_dict(), critic_paths["target_critic2"])
+        torch.save(loss_module.qvalue_network_params[0].state_dict(), critic_paths["critic1"])
+        torch.save(loss_module.qvalue_network_params[1].state_dict(), critic_paths["critic2"])
+        torch.save(loss_module.target_qvalue_network_params[0].state_dict(), critic_paths["target_critic1"])
+        torch.save(loss_module.target_qvalue_network_params[1].state_dict(), critic_paths["target_critic2"])
 
         # Log to wandb
         for path in critic_paths.values():
@@ -362,3 +339,9 @@ def early_stopping(val_rewards, patience=5):
             decrease_count = 0  # Reset if the reward improves or stays the same
 
     return False
+
+# Soft update
+def soft_update(target_params, source_params, tau):
+    """Soft update the target parameters using the source parameters."""
+    for target, source in zip(target_params.flatten_keys().values(), source_params.flatten_keys().values()):
+        target.data.copy_(tau * source.data + (1.0 - tau) * target.data)
