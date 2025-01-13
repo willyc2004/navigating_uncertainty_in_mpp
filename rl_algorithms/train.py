@@ -149,7 +149,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
                 critic_optim.zero_grad()
 
                 # Actor Update
-                loss_out["loss_actor"] += feasibility_lambda * loss_out["loss_feasibility"]
+                loss_out["loss_actor"] = loss_out["loss_actor"] + feasibility_lambda * loss_out["loss_feasibility"]
                 loss_out["loss_actor"].backward()
                 loss_out["gn_actor"] = torch.nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
                 actor_optim.step()
@@ -232,8 +232,8 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
         critic_scheduler.step()
 
 
-    # todo: make clean function
     # Generate a timestamp
+    # todo: make clean function
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # Save the model checkpoint with timestamp
