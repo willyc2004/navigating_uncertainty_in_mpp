@@ -68,10 +68,11 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     if kwargs["algorithm"]["type"] == "sac":
         loss_module = FeasibilitySACLoss(
             actor_network=policy,
-            qvalue_network=critic,  # List of two Q-networks
+            qvalue_network=critic,
+            separate_losses=True,
             fixed_alpha=False,
-            min_alpha=1e-2, #[1e-2, 1e-3]
-            max_alpha=1.0, #[1.0, 10]
+            # min_alpha=1e-2, #[1e-2, 1e-3]
+            # max_alpha=1.0, #[1.0, 10]
         )
     elif kwargs["algorithm"]["type"] == "ppo":
         loss_module = FeasibilityClipPPOLoss(
@@ -124,7 +125,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     # Validation
     val_rewards = []
     policy.train()
-    torch.autograd.set_detect_anomaly(True)
+    # torch.autograd.set_detect_anomaly(True)
     # Training loop
     for step, td in enumerate(collector):
         if kwargs["algorithm"]["type"] == "ppo_feas":
@@ -149,7 +150,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
                 critic_optim.zero_grad()
 
                 # Actor Update
-                loss_out["loss_actor"] = loss_out["loss_actor"] + feasibility_lambda * loss_out["loss_feasibility"]
+                loss_out["loss_actor"] = loss_out["loss_actor"].clone() + feasibility_lambda * loss_out["loss_feasibility"]
                 loss_out["loss_actor"].backward()
                 loss_out["gn_actor"] = torch.nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
                 actor_optim.step()
@@ -344,4 +345,4 @@ def early_stopping(val_rewards, patience=5):
 def soft_update(target_params, source_params, tau):
     """Soft update the target parameters using the source parameters."""
     for target, source in zip(target_params.flatten_keys().values(), source_params.flatten_keys().values()):
-        target.data.copy_(tau * source.data + (1.0 - tau) * target.data)
+        target.copy_(tau * source + (1.0 - tau) * target)
