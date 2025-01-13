@@ -187,6 +187,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
             # Supporting metrics
             "step": step,
             "gn_actor": loss_out["gn_actor"].item(),
+            "gn_critic": loss_out.get("gn_critic", 0),
             "clip_fraction": loss_out.get("clip_fraction", 0),
             **train_performance,
         }
@@ -217,10 +218,17 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
             validation_performance = validate_policy(train_env, policy, n_step=n_step, )
             log.update(validation_performance)
             val_rewards.append(validation_performance["validation"]["traj_return"])
-            if early_stopping(val_rewards, validation_patience):
+            if early_stopping_val(val_rewards, validation_patience):
                 print(f"Early stopping at epoch {step} due to {validation_patience} consecutive decreases in validation reward.")
                 break
             policy.train()
+
+        # Early stopping due to divergence
+        # check total_loss with ppo, loss_actor with sac
+        check_loss = log["loss_actor"] if kwargs["algorithm"]["type"] == "sac" else log["total_loss"]
+        if early_stopping_divergence(check_loss):
+            print(f"Early stopping at epoch {step} due to loss divergence.")
+            break
 
         # Update wandb and scheduler
         wandb.log(log)
@@ -312,7 +320,7 @@ def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episode
     return {"validation": val_metrics}
 
 # Early stopping
-def early_stopping(val_rewards, patience=5):
+def early_stopping_val(val_rewards, patience=5):
     """
     Check for early stopping based on consecutive decreases in validation rewards.
 
@@ -334,6 +342,26 @@ def early_stopping(val_rewards, patience=5):
         else:
             decrease_count = 0  # Reset if the reward improves or stays the same
 
+    return False
+
+def early_stopping_divergence(loss, threshold=1e6):
+    """
+    Check for early stopping based on a threshold for the loss value.
+
+    Args:
+        loss (float): The loss value to check.
+        threshold (float): The threshold value for the loss.
+
+    Returns:
+        bool: True if early stopping condition is met, otherwise False.
+    """
+    # Check if nan or inf in the loss
+    if torch.isnan(loss) or torch.isinf(loss):
+        return True
+
+    # Check if the loss exceeds the threshold
+    if loss > threshold:
+        return True
     return False
 
 # Soft update
