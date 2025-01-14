@@ -138,9 +138,6 @@ class MPP_Generator(Generator):
 
         # Sample demand
         demand = th.clamp(dist.sample(), min=1)
-        print("Demand:", demand.mean())
-        print("Demand:", demand.std())
-        breakpoint()
 
         # Return demand matrix
         return TensorDict({"observation":
