@@ -39,6 +39,7 @@ class MPP_Generator(Generator):
         self.iid_demand = kwargs.get("iid_demand", True)
         self.cv_demand = kwargs.get("cv_demand", 0.5)
         self.demand_uncertainty = kwargs.get("demand_uncertainty", False)
+        self.generalization = kwargs.get("generalization", False)
 
         # Get cv vector
         self.cv = th.empty((self.K,), device=self.device, dtype=th.float16,)
@@ -99,6 +100,22 @@ class MPP_Generator(Generator):
         """Create std_x from coefficient of variation: cv < 0.1 is low, 0.3<x<0.5 is moderate, >0.5 is high"""
         return e_x * cv
 
+    def _generalization_uniform_distribution(self, mu, sigma):
+        """Provided the mu and sigma of a Gaussian distribution, we can create an equivalent uniform distribution.
+        Let's equate mu and sigma^2 to a,b parameters of the uniform distribution:
+        - mu = (a + b) / 2
+        - sigma^2 = (b - a)^2 / 12
+
+        Using some algebra, we can obtain the following:
+        - a = mu - sqrt(12 sigma**2)/2
+        - b = mu + sqrt(12 sigma**2)/2
+
+        Now, we get uniform distribution bounds [a,b] for generalization."""
+        a = mu - th.sqrt(12 * sigma ** 2)/2
+        b = mu + th.sqrt(12 * sigma ** 2)/2
+        dist = th.distributions.Uniform(a, b)
+        return dist
+
     def _generate(self, batch_size, td:Optional=None,) -> TensorDict:
         """Generate demand matrix for voyage with GBM process"""
         # Get initial demand if not provided
@@ -116,8 +133,14 @@ class MPP_Generator(Generator):
             std_x = self._create_std_x(e_x_init_demand, self.cv_demand)
             e_x, std_x, dist = self._iid_normal_distribution(e_x_init_demand, std_x,)
 
+        if self.generalization:
+            dist = self._generalization_uniform_distribution(e_x, std_x)
+
         # Sample demand
         demand = th.clamp(dist.sample(), min=1)
+        print("Demand:", demand.mean())
+        print("Demand:", demand.std())
+        breakpoint()
 
         # Return demand matrix
         return TensorDict({"observation":
