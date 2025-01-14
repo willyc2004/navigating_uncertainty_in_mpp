@@ -88,7 +88,7 @@ class MPPObservationEmbedding(nn.Module):
             td["agg_pod_location"] / self.env.P,
         ], dim=-1)
 
-    def forward(self, td: Tensor, latent_state: Optional[Tensor] = None):
+    def forward(self,  latent_state: Tensor, td: TensorDict):
         """Embed the context for the MPP"""
         # Get relevant init embedding
         if td["timestep"].dim() == 1:

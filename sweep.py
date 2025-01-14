@@ -23,7 +23,7 @@ if __name__ == "__main__":
             sweep_config = wandb.config
 
             # Model hyperparameters
-            config['model']['feedforward_hidden'] = sweep_config.feedforward_hidden
+            config['model']['hidden_dim'] = sweep_config.hidden_dim
             config['model']['num_encoder_layers'] = sweep_config.num_encoder_layers
             config['model']['num_decoder_layers'] = sweep_config.num_decoder_layers
             config['model']['num_heads'] = sweep_config.num_heads

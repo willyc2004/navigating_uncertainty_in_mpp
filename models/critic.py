@@ -35,7 +35,6 @@ class CriticNetwork(nn.Module):
         self.context_embedding = context_embedding  # Store context_embedding
         self.dynamic_embedding = dynamic_embedding  # Store dynamic_embedding
         self.obs_embedding = obs_embedding
-        self.combination_layer = nn.Linear(2*embed_dim, embed_dim)
         self.temperature = critic_temperature
         self.customized = customized
 
@@ -71,7 +70,7 @@ class CriticNetwork(nn.Module):
 
         self.value_head = value_head
 
-    def forward(self, obs: Union[Tensor, TensorDict], action:Optional=None, hidden=None) -> Tensor:
+    def forward(self, obs: Union[Tensor, TensorDict], action:Optional=None,) -> Tensor:
         """Forward pass of the critic network: encode the imput in embedding space and return the value
 
         Args:
@@ -81,17 +80,19 @@ class CriticNetwork(nn.Module):
             Value of the input state
         """
         # Encode the input
-        hidden, _ = self.encoder(obs)  # [batch_size, N, embed_dim] -> [batch_size, N]
-        hidden = self.obs_embedding(obs, hidden)
+        h, _ = self.encoder(obs)  # [batch_size, N, embed_dim] -> [batch_size, N]
+        h = self.obs_embedding(h, obs)
 
-        if action is not None:
-            hidden = self.state_action_layer(torch.cat([hidden, action], dim=-1))
+        # State-action value
+        if action is not None and hasattr(self, "state_action_layer"):
+            h = torch.cat([h, action.clone().detach()], dim=-1)
+            h = self.state_action_layer(h)
 
         # Compute the value
         if not self.customized:  # for most constructive tasks
-            output = self.value_head(hidden).sum(dim=1, keepdims=True)  # [batch_size, N] -> [batch_size, 1]
+            output = self.value_head(h).sum(dim=1, keepdims=True)  # [batch_size, N] -> [batch_size, 1]
         else:  # customized encoder and value head with hidden input
-            output = self.value_head(hidden) # [batch_size, N] -> [batch_size, N]
+            output = self.value_head(h) # [batch_size, N] -> [batch_size, N]
         output = output / self.temperature
         return output
 

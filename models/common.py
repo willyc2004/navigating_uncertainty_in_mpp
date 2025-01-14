@@ -38,7 +38,7 @@ class ResidualBlock(nn.Module):
         self.dropout = nn.Dropout(dropout_rate) if dropout_rate else nn.Identity()
 
     def forward(self, x):
-        residual = x  # Save residual connection
+        residual = x.clone()  # Save residual connection
         x = self.norm(x)  # Apply normalization
         x = self.linear(x)  # Linear transformation
         x = self.activation(x)  # Activation function

@@ -44,7 +44,7 @@ class AttentionDecoderWithCache(nn.Module):
                  **kwargs):
         super(AttentionDecoderWithCache, self).__init__()
         self.context_embedding = context_embedding
-        self.dynamic_embedding = dynamic_embedding
+        self.dynamic_embedding = dynamic_embedding if dynamic_embedding is not None else StaticEmbedding()
         self.is_dynamic_embedding = not isinstance(self.dynamic_embedding, StaticEmbedding)
         self.action_size = action_size
         # Optionally, use graph context
@@ -207,7 +207,7 @@ class MLPDecoderWithCache(nn.Module):
 
     def forward(self, obs, hidden:Optional=None) -> Dict[str, Tensor]:
         # Use the observation embedding to process the input
-        hidden = self.obs_embedding(obs, hidden)
+        hidden = self.obs_embedding(hidden, obs)
         # Compute mask and logits
         hidden = self.policy_mlp(hidden)
         mean = self.mean_head(hidden)
