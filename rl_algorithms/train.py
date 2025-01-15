@@ -221,6 +221,8 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
             if early_stopping_val(val_rewards, validation_patience):
                 print(f"Early stopping at epoch {step} due to {validation_patience} consecutive decreases in validation reward.")
                 break
+            # Save models (create a new directory for each validation)
+            save_models(policy, loss_module, critic, kwargs["algorithm"]["type"], kwargs, save_dir="saved_models/validation")
             policy.train()
 
         # Early stopping due to divergence
@@ -235,49 +237,8 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
         actor_scheduler.step()
         critic_scheduler.step()
 
-
-    # Generate a timestamp
-    # todo: make clean function
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    # Save the model checkpoint with timestamp
-    save_path = f"saved_models/{timestamp}/"
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-
-    # Save the policy model
-    policy_save_path = os.path.join(save_path, "policy.pth")
-    torch.save(policy.state_dict(), policy_save_path)
-    wandb.save(policy_save_path)
-
-    # Save the critic model
-    if kwargs["algorithm"]["type"] == "sac":
-        critic_paths = {
-            "critic1": os.path.join(save_path, "critic1.pth"),
-            "critic2": os.path.join(save_path, "critic2.pth"),
-            "target_critic1": os.path.join(save_path, "target_critic1.pth"),
-            "target_critic2": os.path.join(save_path, "target_critic2.pth"),
-        }
-        torch.save(loss_module.qvalue_network_params[0].state_dict(), critic_paths["critic1"])
-        torch.save(loss_module.qvalue_network_params[1].state_dict(), critic_paths["critic2"])
-        torch.save(loss_module.target_qvalue_network_params[0].state_dict(), critic_paths["target_critic1"])
-        torch.save(loss_module.target_qvalue_network_params[1].state_dict(), critic_paths["target_critic2"])
-
-        # Log to wandb
-        for path in critic_paths.values():
-            wandb.save(path)
-    else:
-        critic_save_path = os.path.join(save_path, "critic.pth")
-        torch.save(critic.state_dict(), critic_save_path)
-        wandb.save(critic_save_path)
-
-    # Save the configuration to a YAML file
-    config_save_path = os.path.join(save_path, "config.yaml")
-    cleaned_config = convert_to_dict(kwargs) # Convert DotMap to dictionary
-    with open(config_save_path, "w") as yaml_file:
-        yaml.dump(cleaned_config, yaml_file, default_flow_style=False)
-    wandb.save(config_save_path)
-
-    # Close environments
+    # Save models and close environment
+    save_models(policy, loss_module, critic, kwargs["algorithm"]["type"], kwargs)
     train_env.close()
 
 # Get performance metrics
@@ -369,3 +330,53 @@ def soft_update(target_params, source_params, tau):
     """Soft update the target parameters using the source parameters."""
     for target, source in zip(target_params.flatten_keys().values(), source_params.flatten_keys().values()):
         target.copy_(tau * source + (1.0 - tau) * target)
+
+def save_models(policy, loss_module, critic, algorithm_type, kwargs_train, save_dir="saved_models"):
+    """
+    Save the policy and critic models with a timestamped directory structure.
+
+    Args:
+        policy (torch.nn.Module): The policy model to save.
+        loss_module: Loss module containing Q-value networks and target Q-value networks (for SAC).
+        critic (torch.nn.Module): The critic model to save (for non-SAC algorithms).
+        algorithm_type (str): The type of algorithm (e.g., "sac").
+        save_dir (str): Base directory for saving models.
+    """
+    # Generate a timestamped directory
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    save_path = os.path.join(save_dir, timestamp)
+    os.makedirs(save_path, exist_ok=True)
+
+    # Save the policy model
+    policy_save_path = os.path.join(save_path, "policy.pth")
+    torch.save(policy.state_dict(), policy_save_path)
+    wandb.save(policy_save_path)
+
+    # Save the critic model(s)
+    if algorithm_type == "sac":
+        critic_paths = {
+            "critic1": os.path.join(save_path, "critic1.pth"),
+            "critic2": os.path.join(save_path, "critic2.pth"),
+            "target_critic1": os.path.join(save_path, "target_critic1.pth"),
+            "target_critic2": os.path.join(save_path, "target_critic2.pth"),
+        }
+
+        torch.save(loss_module.qvalue_network_params[0].state_dict(), critic_paths["critic1"])
+        torch.save(loss_module.qvalue_network_params[1].state_dict(), critic_paths["critic2"])
+        torch.save(loss_module.target_qvalue_network_params[0].state_dict(), critic_paths["target_critic1"])
+        torch.save(loss_module.target_qvalue_network_params[1].state_dict(), critic_paths["target_critic2"])
+
+        # Log critic models to wandb
+        for path in critic_paths.values():
+            wandb.save(path)
+    else:
+        critic_save_path = os.path.join(save_path, "critic.pth")
+        torch.save(critic.state_dict(), critic_save_path)
+        wandb.save(critic_save_path)
+
+    # Save the configuration to a YAML file
+    config_save_path = os.path.join(save_path, "config.yaml")
+    cleaned_config = convert_to_dict(kwargs_train)  # Convert DotMap to dictionary
+    with open(config_save_path, "w") as yaml_file:
+        yaml.dump(cleaned_config, yaml_file, default_flow_style=False)
+    wandb.save(config_save_path)
