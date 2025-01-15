@@ -82,32 +82,35 @@ def initialize_projection_layer(projection_type, projection_kwargs, action_dim, 
     else:
         return None
 
-# Main function
-def main(config: Optional[DotMap] = None):
-    ## Torch and cuda initialization
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    torch.cuda.empty_cache()
-    torch._dynamo.config.cache_size_limit = 64  # or some higher value
-    torch.set_num_threads(1)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
 
-    ## Environment initialization
-    env = make_env(config.env)
-    env.set_seed(config.env.seed)
-    # env = ParallelEnv(4, make_env)     # todo: fix parallel env
-    check_env_specs(env)  # this must pass for ParallelEnv to work
+def initialize_policy_and_critic(config, env, device):
+    """
+    Initializes the policy and critic models based on the given configuration and environment.
 
-    ## Model initialization
+    Args:
+        config: Configuration object containing model, training, and algorithm settings.
+        env: Environment object containing action specifications and other parameters.
+        device: The device (CPU/GPU) to initialize the models on.
+
+    Returns:
+        policy: The initialized policy model.
+        critic: The initialized critic model.
+    """
+    # Validate input
+    assert hasattr(config, 'model'), "Config object must have a 'model' attribute."
+    assert hasattr(env, 'action_spec'), "Environment must have an 'action_spec' attribute."
+
     # Embedding dimensions
     embed_dim = config.model.embed_dim
     action_dim = env.action_spec.shape[0]
-    sequence_dim = env.K * env.T if env.action_spec.shape[0] == env.B*env.D else env.P-1
+    sequence_dim = env.K * env.T if env.action_spec.shape[0] == env.B * env.D else env.P - 1
+
     # Embedding initialization
     init_embed = MPPInitEmbedding(action_dim, embed_dim, sequence_dim, env)
     context_embed = MPPContextEmbedding(action_dim, embed_dim, sequence_dim, env, config.model.demand_aggregation)
-    dynamic_embed = MPPDynamicEmbedding(embed_dim, sequence_dim, env,)
+    dynamic_embed = MPPDynamicEmbedding(embed_dim, sequence_dim, env)
     obs_embed = MPPObservationEmbedding(action_dim, embed_dim, sequence_dim, env, config.model.demand_aggregation)
+
     # Model arguments
     decoder_args = {
         "embed_dim": embed_dim,
@@ -131,6 +134,7 @@ def main(config: Optional[DotMap] = None):
         "obs_embedding": obs_embed,
         **config.model,
     }
+
     # Init models: encoder, decoder, and critic
     encoder = initialize_encoder(config.model.encoder_type, encoder_args, device)
     decoder = initialize_decoder(config.model.decoder_type, decoder_args, device)
@@ -147,8 +151,8 @@ def main(config: Optional[DotMap] = None):
     # Init actor (policy)
     actor = TensorDictModule(
         Autoencoder(encoder, decoder, env).to(device),
-        in_keys=["observation",],  # Input tensor key in TensorDict
-        out_keys=["loc","scale"]  # Output tensor key in TensorDict
+        in_keys=["observation"],  # Input tensor key in TensorDict
+        out_keys=["loc", "scale"]  # Output tensor key in TensorDict
     )
     policy = ProjectionProbabilisticActor(
         module=actor,
@@ -158,13 +162,32 @@ def main(config: Optional[DotMap] = None):
         return_log_prob=True,
         projection_layer=projection_layer,
         projection_type=config.training.projection_type,
-        # action_rescale_min=env.action_spec.low[0],
-        # action_rescale_max=env.action_spec.high[0],
     )
+
+    return policy, critic
+
+
+# Main function
+def main(config: Optional[DotMap] = None):
+    ## Torch and cuda initialization
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    torch.cuda.empty_cache()
+    torch._dynamo.config.cache_size_limit = 64  # or some higher value
+    torch.set_num_threads(1)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    ## Environment initialization
+    env = make_env(config.env)
+    env.set_seed(config.env.seed)
+    # env = ParallelEnv(4, make_env)     # todo: fix parallel env
+    check_env_specs(env)  # this must pass for ParallelEnv to work
 
     ## Main loop
     # Train the model
     if config.model.phase == "train":
+        # Initialize models and run training
+        policy, critic = initialize_policy_and_critic(config, env, device)
         run_training(policy, critic, **config)
     # Test the model
     elif config.model.phase == "test":
@@ -173,9 +196,17 @@ def main(config: Optional[DotMap] = None):
         config_load_path = f"saved_models/{timestamp}/config.yaml"
         loaded_config = load_config(config_load_path)
 
+        # Initialize models
+        policy, critic = initialize_policy_and_critic(loaded_config, env, device)
+
         # Reload policy model
         policy_load_path = f"saved_models/{timestamp}/policy.pth"
         policy.load_state_dict(torch.load(policy_load_path, map_location=device))
+        for name, param in policy.named_parameters():
+            if torch.isnan(param).any():
+                print(f"NaN detected in {name}")
+        breakpoint()
+
 
         # Evaluate the model
         metrics, summary_stats = evaluate_model(policy, loaded_config, device=device, **config.testing)
