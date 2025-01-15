@@ -1,7 +1,7 @@
 import torch
 
 # Load the .pth file
-file_path = "20250114_060653/policy.pth"  # Replace with the actual path
+file_path = "20250114_060653_/policy.pth"  # Replace with the actual path
 state_dict = torch.load(file_path)
 
 # Check for NaNs in parameters
