@@ -37,7 +37,6 @@ def convert_to_dict(obj):
         return [convert_to_dict(item) for item in obj]
     return obj  # Return primitive data types as-is
 
-# Training
 def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     """Train the policy using the specified algorithm."""
     # Algorithm hyperparameters
@@ -241,7 +240,6 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     save_models(policy, loss_module, critic, kwargs["algorithm"]["type"], kwargs)
     train_env.close()
 
-# Get performance metrics
 def get_performance_metrics(subdata, td, env):
     """Compute performance metrics for the policy."""
     return {# Return
@@ -271,7 +269,6 @@ def get_performance_metrics(subdata, td, env):
             "mean_std[x]_demand": subdata["observation", "std_demand"][:, 0, :].std(dim=-1).mean(),
         }
 
-# Validation
 def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episodes: int = 10, n_step: int = 100,):
     """Validate the policy using the environment."""
     # Perform a rollout to evaluate the policy
@@ -280,7 +277,6 @@ def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episode
     val_metrics = get_performance_metrics(trajectory, trajectory, env)
     return {"validation": val_metrics}
 
-# Early stopping
 def early_stopping_val(val_rewards, patience=5):
     """
     Check for early stopping based on consecutive decreases in validation rewards.
@@ -325,7 +321,6 @@ def early_stopping_divergence(loss, threshold=1e6):
         return True
     return False
 
-# Soft update
 def soft_update(target_params, source_params, tau):
     """Soft update the target parameters using the source parameters."""
     for target, source in zip(target_params.flatten_keys().values(), source_params.flatten_keys().values()):
