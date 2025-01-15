@@ -119,12 +119,16 @@ class AttentionDecoderWithCache(nn.Module):
         attn_output = self.attn_norm(attn_output + glimpse_q)
         ffn_output = self.feed_forward(attn_output)
 
-        # Pointer Attention block to weigh importance of sequence elements
-        # Compute pointer logits (scores) over the sequence
-        # The pointer logits are used to select an index (action) from the input sequence
+        # Pointer block to weigh importance of sequence elements
+        # The pointer logits (scores) are used to soft select indices over the sequence
         ffn_output = self.ffn_norm(ffn_output + attn_output)
         pointer_logits = torch.matmul(ffn_output, glimpse_k.transpose(-2, -1))  # [batch_size, seq_len, seq_len]
-        # Compute the context vector (weighted sum of values based on attention probabilities)
+        # Apply the causal mask to pointer logits
+        if self.causal_mask is not None:
+            masked_causal_mask = self.causal_mask.unsqueeze(0)  # Add batch dimension
+            pointer_logits = pointer_logits.masked_fill(masked_causal_mask == 0, float('-inf'))
+
+        # Compute the context vector (weighted sum of values based on probabilities)
         pointer_probs = F.softmax(pointer_logits, dim=-1)
         pointer_output = torch.matmul(pointer_probs, glimpse_v)  # [batch_size, seq_len, hidden_dim]
 
