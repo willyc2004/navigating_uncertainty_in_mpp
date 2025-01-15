@@ -96,8 +96,9 @@ class AttentionDecoderWithCache(nn.Module):
 
     def _compute_kvl(self, cached: PrecomputedCache, td: TensorDict):
         # Compute dynamic embeddings and add to kv embeddings
+        node_embeds_cache = cached.init_embeddings
         glimpse_k_stat, glimpse_v_stat, logit_k_stat = (cached.glimpse_key, cached.glimpse_val, cached.logit_key,)
-        glimpse_k_dyn, glimpse_v_dyn, logit_k_dyn = self.dynamic_embedding(td)
+        glimpse_k_dyn, glimpse_v_dyn, logit_k_dyn = self.dynamic_embedding(node_embeds_cache, td)
         glimpse_k = glimpse_k_stat + glimpse_k_dyn
         glimpse_v = glimpse_v_stat + glimpse_v_dyn
         logit_k = logit_k_stat + logit_k_dyn
