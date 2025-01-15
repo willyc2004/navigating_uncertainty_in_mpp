@@ -87,6 +87,9 @@ class AttentionDecoderWithCache(nn.Module):
         self.temperature = temperature
         self.scale_max = scale_max
 
+        # Causal mask to allow anticipating future steps
+        self.causal_mask = torch.triu(torch.ones(total_steps, total_steps, device='cuda'), diagonal=0)
+
     def _compute_q(self, cached: PrecomputedCache, td: TensorDict) -> Tensor:
         """Compute query of static and context embedding for the attention mechanism."""
         node_embeds_cache = cached.init_embeddings
@@ -109,7 +112,8 @@ class AttentionDecoderWithCache(nn.Module):
         glimpse_q = self._compute_q(cached, td)
         glimpse_q = self.q_norm(glimpse_q)
         glimpse_k, glimpse_v, _ = self._compute_kvl(cached, td)
-        attn_output, _ = self.attention(glimpse_q, glimpse_k, glimpse_v)
+        # Apply attention mechanism on causal mask to anticipate future steps
+        attn_output, _ = self.attention(glimpse_q, glimpse_k, glimpse_v, mask=self.causal_mask)
 
         # Feedforward Network with Residual Connection block
         attn_output = self.attn_norm(attn_output + glimpse_q)
