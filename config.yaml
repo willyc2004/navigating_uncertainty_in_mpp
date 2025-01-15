@@ -80,7 +80,7 @@ algorithm:
 # AM PPO parameters
 training:
   lr: 0.00032077516375897934
-  projection_type: "None" #"linear_violation", "direct_scaling", "None"
+  projection_type: "direct_scaling" #"linear_violation", "direct_scaling", "None"
   #todo: not implemented logprob adaptations - convex_program, worst_case_violation, linear_violation, linear_program
   projection_kwargs:
     iters: 5
