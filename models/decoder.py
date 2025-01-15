@@ -21,9 +21,9 @@ class PrecomputedCache:
 
 class AttentionDecoderWithCache(nn.Module):
     def __init__(self,
-                 action_size: int,
+                 action_dim: int,
                  embed_dim: int,
-                 total_steps: int,
+                 seq_dim: int,
                  num_heads: int = 8,
                  dropout_rate: float = 0.1,
                  num_hidden_layers: int = 3,  # Number of hidden layers
@@ -46,7 +46,8 @@ class AttentionDecoderWithCache(nn.Module):
         self.context_embedding = context_embedding
         self.dynamic_embedding = dynamic_embedding if dynamic_embedding is not None else StaticEmbedding()
         self.is_dynamic_embedding = not isinstance(self.dynamic_embedding, StaticEmbedding)
-        self.action_size = action_size
+        self.action_dim = action_dim
+        self.seq_dim = seq_dim
         # Optionally, use graph context
         self.use_graph_context = use_graph_context
 
@@ -80,15 +81,15 @@ class AttentionDecoderWithCache(nn.Module):
 
         # Projection Layers
         self.output_norm = add_normalization_layer(normalization, embed_dim * 2)
-        self.mean_head = nn.Linear(embed_dim * 2, action_size) # Mean head
-        self.std_head = nn.Linear(embed_dim * 2, action_size) # Standard deviation head
+        self.mean_head = nn.Linear(embed_dim * 2, action_dim) # Mean head
+        self.std_head = nn.Linear(embed_dim * 2, action_dim) # Standard deviation head
 
         # Temperature for the policy
         self.temperature = temperature
         self.scale_max = scale_max
 
         # Causal mask to allow anticipating future steps
-        self.causal_mask = torch.triu(torch.ones(total_steps, total_steps, device='cuda'), diagonal=0)
+        self.causal_mask = torch.triu(torch.ones(seq_dim, seq_dim, device='cuda'), diagonal=0)
 
     def _compute_q(self, cached: PrecomputedCache, td: TensorDict) -> Tensor:
         """Compute query of static and context embedding for the attention mechanism."""
@@ -125,8 +126,8 @@ class AttentionDecoderWithCache(nn.Module):
         pointer_logits = torch.matmul(ffn_output, glimpse_k.transpose(-2, -1))  # [batch_size, seq_len, seq_len]
         # Apply the causal mask to pointer logits
         if self.causal_mask is not None:
-            masked_causal_mask = self.causal_mask.unsqueeze(0)  # Add batch dimension
-            pointer_logits = pointer_logits.masked_fill(masked_causal_mask == 0, float('-inf'))
+            causal_mask_t = self.causal_mask[td["timestep"][0],].view(1,-1, self.seq_dim)  # Add batch dimension
+            pointer_logits = pointer_logits.masked_fill(causal_mask_t == 0, float('-inf'))
 
         # Compute the context vector (weighted sum of values based on probabilities)
         pointer_probs = F.softmax(pointer_logits, dim=-1)
@@ -166,9 +167,9 @@ class AttentionDecoderWithCache(nn.Module):
 
 class MLPDecoderWithCache(nn.Module):
     def __init__(self,
-                 action_size: int,
+                 action_dim: int,
                  embed_dim: int,
-                 total_steps: int,
+                 seq_dim: int,
                  num_heads: int = 8,
                  dropout_rate: float = 0.1,
                  num_hidden_layers: int = 3,  # Number of hidden layers
@@ -186,7 +187,7 @@ class MLPDecoderWithCache(nn.Module):
                  sdpa_fn: Callable = None,
                  **kwargs):
         super(MLPDecoderWithCache, self).__init__()
-        self.action_size = action_size
+        self.action_dim = action_dim
         self.obs_embedding = obs_embedding
 
         # Create policy MLP
@@ -206,8 +207,8 @@ class MLPDecoderWithCache(nn.Module):
         # Output layer
         layers.append(nn.Linear(hidden_dim, hidden_dim))
         self.policy_mlp = nn.Sequential(*layers)
-        self.mean_head = nn.Linear(hidden_dim, action_size)
-        self.std_head = nn.Linear(hidden_dim, action_size)
+        self.mean_head = nn.Linear(hidden_dim, action_dim)
+        self.std_head = nn.Linear(hidden_dim, action_dim)
 
         # Temperature for the policy
         self.temperature = temperature
