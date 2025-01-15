@@ -114,8 +114,8 @@ def initialize_policy_and_critic(config, env, device):
     # Model arguments
     decoder_args = {
         "embed_dim": embed_dim,
-        "action_size": action_dim,
-        "total_steps": sequence_dim,
+        "action_dim": action_dim,
+        "seq_dim": sequence_dim,
         "init_embedding": init_embed,
         "context_embedding": context_embed,
         "dynamic_embedding": dynamic_embed,
