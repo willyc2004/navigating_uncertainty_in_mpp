@@ -105,30 +105,29 @@ class AttentionDecoderWithCache(nn.Module):
         return glimpse_k, glimpse_v, logit_k
 
     def forward(self, td: TensorDict, cached: PrecomputedCache, num_starts: int = 0) -> Tuple[Tensor,Tensor]:
-        # Multi-head Attention block
         # Compute query, key, and value for the attention mechanism
-        glimpse_k, glimpse_v, logit_k = self._compute_kvl(cached, td)
         glimpse_q = self._compute_q(cached, td)
         glimpse_q = self.q_norm(glimpse_q)
+        glimpse_k, glimpse_v, _ = self._compute_kvl(cached, td)
         attn_output, _ = self.attention(glimpse_q, glimpse_k, glimpse_v)
 
         # Feedforward Network with Residual Connection block
         attn_output = self.attn_norm(attn_output + glimpse_q)
         ffn_output = self.feed_forward(attn_output)
 
-        # Pointer Attention block
+        # Pointer Attention block to weigh importance of sequence elements
         # Compute pointer logits (scores) over the sequence
         # The pointer logits are used to select an index (action) from the input sequence
         ffn_output = self.ffn_norm(ffn_output + attn_output)
         pointer_logits = torch.matmul(ffn_output, glimpse_k.transpose(-2, -1))  # [batch_size, seq_len, seq_len]
-        pointer_probs = F.softmax(pointer_logits, dim=-1)
         # Compute the context vector (weighted sum of values based on attention probabilities)
+        pointer_probs = F.softmax(pointer_logits, dim=-1)
         pointer_output = torch.matmul(pointer_probs, glimpse_v)  # [batch_size, seq_len, hidden_dim]
-        # Combine pointer_output with ffn_output to feed into the output projection
-        combined_output = torch.cat([ffn_output, pointer_output], dim=-1)
 
-        # Output block with softplus activation
+        # Output layer to project pointer_output with ffn_output
+        combined_output = torch.cat([ffn_output, pointer_output], dim=-1)
         combined_output = self.output_norm(combined_output)
+        # Use mean and std heads for the policy
         mean = self.mean_head(combined_output)
         std = F.softplus(self.std_head(combined_output))
 
