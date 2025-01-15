@@ -146,10 +146,6 @@ class MPPDynamicEmbedding(nn.Module):
 
     def forward(self, latent_state: Optional[Tensor], td: Tensor):
         """Embed the dynamic demand for the MPP"""
-        # Get relevant future embedding
-        mask = torch.arange(self.seq_dim, device=latent_state.device).view(1, -1, 1) >= td["timestep"][0]
-        future_init_embedding = latent_state * mask
-
         # Get relevant demand embeddings
         max_demand = td["realized_demand"].max()
         if td["observed_demand"].dim() == 2:
@@ -158,7 +154,7 @@ class MPPDynamicEmbedding(nn.Module):
             observed_demand = td["observed_demand"][...,0,:].unsqueeze(-1) / max_demand
 
         # Project key, value, and logit to anticipate future steps
-        hidden = torch.cat([observed_demand, future_init_embedding], dim=-1)
+        hidden = torch.cat([observed_demand, latent_state], dim=-1)
         glimpse_k_dyn, glimpse_v_dyn, logit_k_dyn = self.project_dynamic(hidden).chunk(3, dim=-1)
         return glimpse_k_dyn, glimpse_v_dyn, logit_k_dyn
 
