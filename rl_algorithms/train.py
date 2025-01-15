@@ -70,8 +70,8 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
             qvalue_network=critic,
             separate_losses=True,
             fixed_alpha=False,
-            # min_alpha=1e-2, #[1e-2, 1e-3]
-            # max_alpha=1.0, #[1.0, 10]
+            min_alpha=1e-2, #[1e-2, 1e-3]
+            max_alpha=1.0, #[1.0, 10]
         )
     elif kwargs["algorithm"]["type"] == "ppo":
         loss_module = FeasibilityClipPPOLoss(
