@@ -58,9 +58,7 @@ class MPPInitEmbedding(nn.Module):
         combined_emb = self.fc(combined_input)
 
         # Positional encoding
-        # todo: add positional encoding
-        # initial_embedding = self.positional_encoding(combined_emb)
-        initial_embedding = combined_emb
+        initial_embedding = self.positional_encoding(combined_emb)
         return initial_embedding
 
 class MPPObservationEmbedding(nn.Module):
