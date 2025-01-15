@@ -51,11 +51,11 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     # Extract evaluation hyperparameters
     env_kwargs = config.env
     n_step = config.algorithm.n_step
+    batch_size = config.get("batch_size", 2)
     num_episodes = kwargs.get("num_episodes", 10)
 
-    # Create the test environment
-    # todo; error with batch_size [1], policy does add batch dimension
-    test_env = make_env(env_kwargs=env_kwargs, batch_size=[2], device=device)  # Single batch for evaluation
+    # Create the test environment # todo: error with batch_size [1]
+    test_env = make_env(env_kwargs=env_kwargs, batch_size=[batch_size], device=device)  # Single batch for evaluation
     test_env.eval()  # Set environment to evaluation mode
     policy.eval()  # Set policy to evaluation mode
 
