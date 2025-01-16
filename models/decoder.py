@@ -137,7 +137,7 @@ class AttentionDecoderWithCache(nn.Module):
         combined_output = torch.cat([ffn_output, pointer_output], dim=-1)
         combined_output = self.output_norm(combined_output)
         # Use mean and std heads for the policy
-        mean = self.mean_head(combined_output)
+        mean = F.softplus(self.mean_head(combined_output))
         std = F.softplus(self.std_head(combined_output))
 
         # Apply temperature scaling and max scaling
