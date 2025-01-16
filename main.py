@@ -202,16 +202,17 @@ def main(config: Optional[DotMap] = None):
         # Reload policy model
         policy_load_path = f"saved_models/{timestamp}/policy.pth"
         policy.load_state_dict(torch.load(policy_load_path, map_location=device))
-        for name, param in policy.named_parameters():
-            if torch.isnan(param).any():
-                print(f"NaN detected in {name}")
-        breakpoint()
-
+        check_nans_model(policy)
 
         # Evaluate the model
         metrics, summary_stats = evaluate_model(policy, loaded_config, device=device, **config.testing)
         # todo: add visualization of the metrics/summary_stats
         print(summary_stats)
+
+def check_nans_model(model):
+    for name, param in model.named_parameters():
+        if torch.isnan(param).any():
+            print(f"NaN detected in {name}")
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
