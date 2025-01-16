@@ -44,24 +44,6 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         return dist.base_dist.log_prob(action) # Shape: [Batch, Features]
 
     @staticmethod
-    def conditional_softmax(sample, upper_bound):
-        if sample.dim() - upper_bound.dim() == 1:
-            upper_bound = upper_bound.unsqueeze(-1)
-        if sample.dim() - upper_bound.dim() == 2:
-            upper_bound = upper_bound.view(-1, 1, 1)
-        elif sample.dim() - upper_bound.dim() < 0 or sample.dim() - upper_bound.dim() > 1:
-            raise ValueError(f"Sample dim {sample.dim()} and upper_bound dim {upper_bound.dim()} not compatible.")
-
-        # If the sum exceeds the upper_bound, apply softmax scaling
-        condition = sample.sum(dim=-1, keepdim=True) > upper_bound
-        scaled_sample = torch.where(
-            condition,
-            F.softmax(sample, dim=-1) * upper_bound,
-            sample
-        )
-        return scaled_sample
-
-    @staticmethod
     def conditional_direct_scaling(sample, ub, epsilon=1e-8):
         sum_sample = sample.sum(dim=-1, keepdim=True)
         upper_bound = ub.unsqueeze(-1)
@@ -134,8 +116,6 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
                 else out["observation", "realized_demand"][..., out["observation", "timestep"][0, 0], :]
             out["action"] = self.conditional_direct_scaling(out["action"], ub=ub)
             jacobian = self.jacobian_direct_scaling(out["action"], ub)
-        # elif self.projection_type == "softmax":
-        #     out["action"] = self.conditional_softmax(out["action"], upper_bound=ub).clone()
         elif self.projection_type == "linear_violation":
                 out["action"] = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
                 jacobian = self.jacobian_violation(out["action"], out["lhs_A"],  out["rhs"], self.projection_layer.alpha)
