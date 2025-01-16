@@ -316,8 +316,8 @@ def early_stopping_divergence(loss, threshold=1e6):
     if torch.isnan(loss) or torch.isinf(loss):
         return True
 
-    # Check if the loss exceeds the threshold
-    if loss > threshold:
+    # Check if the loss exceeds the threshold or
+    if loss > threshold or loss < -threshold:
         return True
     return False
 
