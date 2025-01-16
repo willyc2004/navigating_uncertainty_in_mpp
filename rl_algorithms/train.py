@@ -69,11 +69,16 @@ class EarlyStopping:
 
     def divergence_check(self, loss):
         """Check for early stopping based on a threshold for the loss value."""
-        if torch.isnan(loss) or torch.isinf(loss):
+        if torch.isnan(loss):
+            print(f"Early stopping due to nan in loss.")
+            return True
+        elif torch.isinf(loss):
+            print(f"Early stopping due to inf in loss.")
             return True
         elif torch.abs(loss) > self.divergence_threshold:
             self.div_counter += 1
             if self.div_counter >= self.divergence_patience:
+                print(f"Early stopping at epoch due to loss divergence.")
                 return True  # Stop training
         else:
             self.div_counter = 0  # Reset if loss is stable
@@ -285,7 +290,6 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
         # Early stopping due to divergence
         check_loss = log["loss_actor"] if kwargs["algorithm"]["type"] == "sac" else log["total_loss"]
         if early_stopping.divergence_check(check_loss):
-            print(f"Early stopping at epoch {step} due to loss divergence.")
             break
 
         # Update wandb and scheduler
