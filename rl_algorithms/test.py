@@ -50,8 +50,8 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     """
     # Extract evaluation hyperparameters
     env_kwargs = config.env
-    n_step = config.algorithm.n_step
-    batch_size = config.get("batch_size", 2)
+    n_step = config.algorithm.get("n_step", 72)
+    batch_size = config.model.get("batch_size", 2)
     num_episodes = kwargs.get("num_episodes", 10)
 
     # Create the test environment # todo: error with batch_size [1]
@@ -95,8 +95,8 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
             end_time = time.perf_counter()
 
             # Extract episode-level metrics
-            metrics["total_profit"][episode] = trajectory["revenue"].sum() - trajectory["cost"].sum()
-            metrics["total_violations"][episode] = trajectory["violation"].sum()
+            metrics["total_profit"][episode] = trajectory["profit"].mean(dim=0).sum()
+            metrics["total_violations"][episode] = trajectory["violation"].mean(dim=0).sum()
             metrics["inference_times"][episode] = end_time - start_time
 
     # Summarize episode-level metrics (mean and std)
