@@ -30,10 +30,13 @@ from rl_algorithms.loss import FeasibilityClipPPOLoss, FeasibilitySACLoss
 class EarlyStopping:
     def __init__(self, divergence_threshold=1e6, divergence_patience=10, validation_patience=3):
         """Early stopping based on a divergence threshold and a patience parameter."""
+        # Divergence threshold and patience
         self.divergence_threshold = divergence_threshold
         self.divergence_patience = divergence_patience
-        self.validation_patience = validation_patience
         self.div_counter = 0
+
+        # Validation patience
+        self.validation_patience = validation_patience
         self.val_counter = 0
         self.val_rewards_history = []
 
