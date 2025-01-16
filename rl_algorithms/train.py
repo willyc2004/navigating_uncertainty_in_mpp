@@ -164,7 +164,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
                 for _ in range(num_epochs):
                     loss_out = loss_module(subdata.to(device))
                     loss_out["total_loss"] = (loss_out["loss_objective"] + loss_out["loss_critic"]
-                                              + loss_out["loss_entropy"] + loss_out["loss_feasibility"])
+                                              + loss_out["loss_entropy"] + feasibility_lambda * loss_out["loss_feasibility"])
 
                     # Optimization: backward, grad clipping and optimization step
                     loss_out["total_loss"].backward()
