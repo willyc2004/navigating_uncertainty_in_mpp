@@ -11,4 +11,4 @@
 hostname
 
 # Run the shell script script
-bash shell_sweep_torchrl.sh "$@"
+bash shell_sweep_torchrl.sh "$@" > output_files/print_gpu.out
