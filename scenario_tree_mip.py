@@ -26,7 +26,7 @@ def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, det
     # Create the environment on cpu
     env_kwargs = config.env
     env_kwargs.seed = seed
-    env = make_env(env_kwargs, batch_size=[max_paths], device='cuda')
+    env = make_env(env_kwargs, batch_size=[max_paths], device='cpu')
 
     # Problem parameters
     P = env.P
