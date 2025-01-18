@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=torchrl_sweep.py             # Job name
-#SBATCH --output=output_files/cpu_job.%j.out    # Name of output file (%j expands to jobId)
-#SBATCH --error=output_files/cpu_job.%j.err     # Separate error log
+#SBATCH --output=output_files/gpu_job.%j.out    # Name of output file (%j expands to jobId)
+#SBATCH --error=output_files/gpu_job.%j.err     # Separate error log
 #SBATCH --cpus-per-task=32                      # Use fewer CPUs to fit into `mix` nodes
-#SBATCH --time=7-00:00:00                       # Run time (d-hh:mm:ss)
-#SBATCH --partition=acltr                       # Select the cores_any partition
+#SBATCH --time=1:00:00                       # Run time (d-hh:mm:ss)
+#SBATCH --partition=scavenge                       # Select the cores_any partition
 #SBATCH --mail-type=FAIL,END                    # Send an email when the job finishes or fails
 
 # Print out the hostname of the node the job is running on
