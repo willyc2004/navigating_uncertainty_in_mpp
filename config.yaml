@@ -25,7 +25,7 @@ env:
   iid_demand: True
   cv_demand: 0.5
   demand_uncertainty: True
-  generalization: False
+  generalization: True
 
 # Model settings
 model:
@@ -67,7 +67,7 @@ algorithm:
   kl_threshold: None #0.01 - 0.1
   kl_penalty_lambda: None # 1.0
   gamma: 0.99
-  gae_lambda: 0.99
+  gae_lambda: 0.95
   vf_lambda: 0.5
   entropy_lambda: 0.01
   feasibility_lambda: 0.14387397215952227
@@ -79,7 +79,7 @@ algorithm:
 
 # AM PPO parameters
 training:
-  lr: 0.00032077516375897934
+  lr: 0.00012077516375897934
   projection_type: "direct_scaling" #"linear_violation", "direct_scaling", "None"
   #todo: not implemented logprob adaptations - convex_program, worst_case_violation, linear_violation, linear_program
   projection_kwargs:
@@ -93,5 +93,5 @@ training:
   test_data_size: 5000
 
 testing:
-  timestamp: "20241224_154138"
+  timestamp: "20250116_110903"
   num_episodes: 30
