@@ -1,14 +1,43 @@
 #!/bin/bash
-#SBATCH --job-name=torchrl_sweep.py             # Job name
-#SBATCH --output=output_files/gpu_job.%j.out    # Name of output file (%j expands to jobId)
-#SBATCH --error=output_files/gpu_job.%j.err     # Separate error log
-#SBATCH --cpus-per-task=32                      # Use fewer CPUs to fit into `mix` nodes
-#SBATCH --time=1:00:00                       # Run time (d-hh:mm:ss)
-#SBATCH --partition=scavenge                       # Select the cores_any partition
-#SBATCH --mail-type=FAIL,END                    # Send an email when the job finishes or fails
+#SBATCH --job-name=torchrl_sweep               # Job name
+#SBATCH --output=output_files/gpu_job.%j.out   # Slurm job output
+#SBATCH --error=output_files/gpu_job.%j.err    # Slurm job error log
+#SBATCH --cpus-per-task=32                     # CPUs per task
+#SBATCH --time=1:00:00                         # Job run time (d-hh:mm:ss)
+#SBATCH --partition=scavenge                   # Partition to run on
+#SBATCH --mail-type=FAIL,END                   # Email notification
 
-# Print out the hostname of the node the job is running on
+# Print the hostname of the allocated node
 hostname
 
-# Run the shell script script
-bash shell_sweep_torchrl.sh "$@" > output_files/print_gpu.out
+# Define the path to the Python script you want to run
+SCRIPT_PATH="sweep.py"
+
+# Define the initial log file for output
+LOG_FILE="output_files/output.log"
+
+# Ensure the output directory exists
+mkdir -p output_files
+
+# Run the Python script in the background with nohup, logging output to the specified file
+echo "Starting the script in the background..."
+nohup python3 "$SCRIPT_PATH" "$@" > "$LOG_FILE" 2>&1 &
+
+# Capture the process ID of the last background command
+PID=$!
+
+# Check if the PID is a valid number
+if [[ "$PID" =~ ^[0-9]+$ ]]; then
+    # Rename the log file to include the process ID for uniqueness
+    mv "$LOG_FILE" "output_files/output$PID.log"
+    LOG_FILE="output_files/output$PID.log"
+
+    # Check if the process started successfully
+    if ps -p $PID > /dev/null; then
+        echo "Script is running in the background with PID $PID. Check $LOG_FILE for output."
+    else
+        echo "Failed to start the script."
+    fi
+else
+    echo "Failed to capture a valid PID. The script may not have started correctly."
+fi
