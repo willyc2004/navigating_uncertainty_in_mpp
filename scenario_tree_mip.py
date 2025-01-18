@@ -26,7 +26,7 @@ def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, det
     # Create the environment on cpu
     env_kwargs = config.env
     env_kwargs.seed = seed
-    env = make_env(env_kwargs, batch_size=[max_paths], device='cpu')
+    env = make_env(env_kwargs, batch_size=[max_paths], device='cuda')
 
     # Problem parameters
     P = env.P
@@ -430,7 +430,7 @@ if __name__ == "__main__":
         config = adapt_env_kwargs(config)
 
     # Run main for different seeds and number of scenarios
-    perfect_information = False
+    perfect_information = True
     deterministic = False
     debug = False
 
