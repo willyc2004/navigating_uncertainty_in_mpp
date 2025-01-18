@@ -16,20 +16,6 @@ def adapt_env_kwargs(config):
     config.env.capacity = [50] if config.env.TEU == 1000 else [500]
     return config
 
-def compute_loss_feasibility(td, action, feasibility_coef, aggregate_feasibility="sum"):
-    # todo: redudant - also in loss_module of PPO_feas
-    """Compute feasibility loss based on the action, lhs_A, and rhs tensors."""
-    lhs_A = td.get("lhs_A")
-    rhs = td.get("rhs")
-    violation = compute_violation(action, lhs_A, rhs)
-
-    # Get aggregation dimensions
-    if aggregate_feasibility == "sum":
-        sum_dims = [-x for x in range(1, violation.dim())]
-        return feasibility_coef * violation.sum(dim=sum_dims).mean(), violation
-    elif aggregate_feasibility == "mean":
-        return feasibility_coef * violation.mean(), violation
-
 def recursive_check_for_nans(td, parent_key=""):
     """Recursive check for NaNs and Infs in e.g. TensorDicts and raise an error if found."""
     for key, value in td.items():

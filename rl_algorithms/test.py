@@ -5,6 +5,17 @@ from rl_algorithms.utils import make_env
 from rl_algorithms.train import get_performance_metrics
 
 # Functions
+def get_z_score_torch(confidence_level):
+    """
+    Compute the z-score for a given confidence level using PyTorch.
+    Args:
+        confidence_level (float): Confidence level (e.g., 0.95 for 95% confidence).
+    Returns:
+        float: The z-score corresponding to the confidence level.
+    """
+    alpha = 1 - confidence_level
+    return torch.distributions.Normal(0, 1).icdf(torch.tensor(1 - alpha / 2)).item()
+
 def compute_summary_stats(metrics, confidence_level=0.95):
     """
     Compute mean, median, std, min, and max for each metric in the dictionary.
@@ -14,8 +25,7 @@ def compute_summary_stats(metrics, confidence_level=0.95):
         dict: Summary statistics for each metric.
     """
     summary_stats = {}
-    z = 1.96 if confidence_level == 0.95 else None  # Z-value for 95% CI (you can extend this logic for other levels)
-
+    z = get_z_score_torch(confidence_level)
     for key, values in metrics.items():
         n = values.numel()  # Number of elements in the tensor
         mean = values.mean().item()
@@ -50,8 +60,8 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     """
     # Extract evaluation hyperparameters
     env_kwargs = config.env
-    n_step = config.algorithm.n_step
-    batch_size = config.get("batch_size", 2)
+    n_step = config.algorithm.get("n_step", 72)
+    batch_size = config.model.get("batch_size", 2)
     num_episodes = kwargs.get("num_episodes", 10)
 
     # Create the test environment # todo: error with batch_size [1]
@@ -95,8 +105,8 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
             end_time = time.perf_counter()
 
             # Extract episode-level metrics
-            metrics["total_profit"][episode] = trajectory["revenue"].sum() - trajectory["cost"].sum()
-            metrics["total_violations"][episode] = trajectory["violation"].sum()
+            metrics["total_profit"][episode] = trajectory["profit"].mean(dim=0).sum()
+            metrics["total_violations"][episode] = trajectory["violation"].mean(dim=0).sum()
             metrics["inference_times"][episode] = end_time - start_time
 
     # Summarize episode-level metrics (mean and std)

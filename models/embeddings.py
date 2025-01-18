@@ -58,9 +58,7 @@ class MPPInitEmbedding(nn.Module):
         combined_emb = self.fc(combined_input)
 
         # Positional encoding
-        # todo: add positional encoding
-        # initial_embedding = self.positional_encoding(combined_emb)
-        initial_embedding = combined_emb
+        initial_embedding = self.positional_encoding(combined_emb)
         return initial_embedding
 
 class MPPObservationEmbedding(nn.Module):
@@ -126,13 +124,13 @@ class MPPContextEmbedding(nn.Module):
             td["agg_pod_location"] / self.env.P,
         ], dim=-1)
 
-    def forward(self, init_embed: Tensor, td: TensorDict):
+    def forward(self, latent_state: Tensor, td: TensorDict):
         """Embed the context for the MPP"""
         # Get relevant init embedding
         if td["timestep"].dim() == 1:
-            select_init_embedding = gather_by_index(init_embed, td["timestep"][0])
+            select_init_embedding = gather_by_index(latent_state, td["timestep"][0])
         else:
-            select_init_embedding = init_embed
+            select_init_embedding = latent_state
         # Project state, concat embeddings, and project concat to output
         obs = self.normalize_obs(td)
         context_embedding = torch.cat([obs, select_init_embedding], dim=-1)
@@ -144,26 +142,9 @@ class MPPDynamicEmbedding(nn.Module):
         super(MPPDynamicEmbedding, self).__init__()
         self.env = env
         self.seq_dim = seq_dim
-        self.observed_demand = nn.Linear(1, embed_dim)
-        self.project_dynamic = nn.Linear(embed_dim, 3 * embed_dim)
+        self.project_dynamic = nn.Linear(embed_dim + 1, 3 * embed_dim)
 
-        # todo: give options for different demand aggregation methods; e.g. sum, self-attention
-        # self.demand_aggregation = demand_aggregation
-        # if self.demand_aggregation == "sum":
-        #     self.expected_demand = nn.Linear(1, embed_dim)
-        #     self.std_demand = nn.Linear(1, embed_dim)
-        # elif self.demand_aggregation == "full":
-        #     self.observed_demand = nn.Linear(seq_dim, embed_dim)
-        #     self.expected_demand = nn.Linear(seq_dim, embed_dim)
-        #     self.std_demand = nn.Linear(seq_dim, embed_dim)
-        # elif self.demand_aggregation == "self_attn":
-        #     self.observed_demand = SelfAttentionStateMapping(embed_dim=embed_dim,)
-        #     self.expected_demand = SelfAttentionStateMapping(embed_dim=embed_dim,)
-        #     self.std_demand = SelfAttentionStateMapping(embed_dim=embed_dim,)
-        # else:
-        #     raise ValueError(f"Invalid demand aggregation: {demand_aggregation}")
-
-    def forward(self, td: Tensor, latent_state: Optional[Tensor] = None):
+    def forward(self, latent_state: Optional[Tensor], td: Tensor):
         """Embed the dynamic demand for the MPP"""
         # Get relevant demand embeddings
         max_demand = td["realized_demand"].max()
@@ -171,7 +152,9 @@ class MPPDynamicEmbedding(nn.Module):
             observed_demand = td["observed_demand"].unsqueeze(-1) / max_demand
         else:
             observed_demand = td["observed_demand"][...,0,:].unsqueeze(-1) / max_demand
-        hidden = self.observed_demand(observed_demand)
+
+        # Project key, value, and logit to anticipate future steps
+        hidden = torch.cat([observed_demand, latent_state], dim=-1)
         glimpse_k_dyn, glimpse_v_dyn, logit_k_dyn = self.project_dynamic(hidden).chunk(3, dim=-1)
         return glimpse_k_dyn, glimpse_v_dyn, logit_k_dyn
 

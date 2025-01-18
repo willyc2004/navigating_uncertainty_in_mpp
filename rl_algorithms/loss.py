@@ -40,8 +40,6 @@ from torchrl.objectives.sac import SACLoss, _delezify, compute_log_prob
 
 # Custom
 from environment.utils import compute_violation
-from rl_algorithms.utils import compute_loss_feasibility, recursive_check_for_nans, check_for_nans
-
 
 def loss_feasibility(td, action, aggregate_feasibility="sum"):
     lhs_A = td.get("lhs_A")

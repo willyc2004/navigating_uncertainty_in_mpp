@@ -26,6 +26,64 @@ from torchrl.data.replay_buffers.storages import LazyTensorStorage
 from rl_algorithms.utils import make_env
 from rl_algorithms.loss import FeasibilityClipPPOLoss, FeasibilitySACLoss
 
+# Classes
+class EarlyStopping:
+    def __init__(self, divergence_threshold=1e6, divergence_patience=10, validation_patience=3):
+        """Early stopping based on a divergence threshold and a patience parameter."""
+        # Divergence threshold and patience
+        self.divergence_threshold = divergence_threshold
+        self.divergence_patience = divergence_patience
+        self.div_counter = 0
+
+        # Validation patience
+        self.validation_patience = validation_patience
+        self.val_counter = 0
+        self.val_rewards_history = []
+
+    def update_rewards(self, reward):
+        """
+        Add a new validation reward to the history.
+        Args:
+            reward (float): The latest validation reward.
+        """
+        self.val_rewards_history.append(reward)
+
+    def validation_check(self):
+        """
+        Check for early stopping based on consecutive decreases in validation rewards.
+        Returns:
+            bool: True if stopping criteria are met, False otherwise.
+        """
+        # Only start checking if we have enough history
+        if len(self.val_rewards_history) < 2:
+            return False
+
+        # Check the last two rewards
+        if self.val_rewards_history[-1] < self.val_rewards_history[-2]:
+            self.val_counter += 1
+        else:
+            self.val_counter = 0
+
+        # Stop if consecutive decreases exceed patience
+        return self.val_counter >= self.validation_patience
+
+    def divergence_check(self, loss):
+        """Check for early stopping based on a threshold for the loss value."""
+        if torch.isnan(loss):
+            print(f"Early stopping due to nan in loss.")
+            return True
+        elif torch.isinf(loss):
+            print(f"Early stopping due to inf in loss.")
+            return True
+        elif torch.abs(loss) > self.divergence_threshold:
+            self.div_counter += 1
+            if self.div_counter >= self.divergence_patience:
+                print(f"Early stopping at epoch due to loss divergence.")
+                return True  # Stop training
+        else:
+            self.div_counter = 0  # Reset if loss is stable
+        return False
+
 # Functions
 def convert_to_dict(obj):
     """Recursively convert DotMap or other custom objects to standard Python dictionaries."""
@@ -70,8 +128,8 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
             qvalue_network=critic,
             separate_losses=True,
             fixed_alpha=False,
-            # min_alpha=1e-2, #[1e-2, 1e-3]
-            # max_alpha=1.0, #[1.0, 10]
+            min_alpha=1e-2, #[1e-2, 1e-3]
+            max_alpha=1.0, #[1.0, 10]
         )
     elif kwargs["algorithm"]["type"] == "ppo":
         loss_module = FeasibilityClipPPOLoss(
@@ -112,17 +170,22 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
 
     # Optimizer and scheduler
     actor_optim = torch.optim.Adam(policy.parameters(), lr=lr)
-    critic_optim = torch.optim.Adam(loss_module.qvalue_network_params.parameters(), lr=lr)
-    if not loss_module.fixed_alpha:
-        alpha_optim = torch.optim.Adam([loss_module.log_alpha], lr=lr)
-
+    if kwargs["algorithm"]["type"] == "sac":
+        critic_optim = torch.optim.Adam(loss_module.qvalue_network_params.parameters(), lr=lr)
+        if not loss_module.fixed_alpha:
+            alpha_optim = torch.optim.Adam([loss_module.log_alpha], lr=lr)
+    elif kwargs["algorithm"]["type"] == "ppo":
+        critic_optim = torch.optim.Adam(critic.parameters(), lr=lr)
+    else:
+        raise ValueError(f"Algorithm {kwargs['algorithm']['type']} not recognized.")
     train_updates = train_data_size // (batch_size * n_step)
     pbar = tqdm.tqdm(range(train_updates))
     actor_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(actor_optim, train_data_size)
     critic_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(critic_optim, train_data_size)
 
-    # Validation
-    val_rewards = []
+    # Early stopping criteria
+    early_stopping = EarlyStopping()
+
     policy.train()
     # torch.autograd.set_detect_anomaly(True)
     # Training loop
@@ -164,7 +227,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
                 for _ in range(num_epochs):
                     loss_out = loss_module(subdata.to(device))
                     loss_out["total_loss"] = (loss_out["loss_objective"] + loss_out["loss_critic"]
-                                              + loss_out["loss_entropy"] + loss_out["loss_feasibility"])
+                                              + loss_out["loss_entropy"] + feasibility_lambda * loss_out["loss_feasibility"])
 
                     # Optimization: backward, grad clipping and optimization step
                     loss_out["total_loss"].backward()
@@ -216,8 +279,8 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
             # todo: check if projection is used/needed here
             validation_performance = validate_policy(train_env, policy, n_step=n_step, )
             log.update(validation_performance)
-            val_rewards.append(validation_performance["validation"]["traj_return"])
-            if early_stopping_val(val_rewards, validation_patience):
+            early_stopping.update_rewards(validation_performance["validation"]["traj_return"])
+            if early_stopping.validation_check():
                 print(f"Early stopping at epoch {step} due to {validation_patience} consecutive decreases in validation reward.")
                 break
             # Save models (create a new directory for each validation)
@@ -225,10 +288,8 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
             policy.train()
 
         # Early stopping due to divergence
-        # check total_loss with ppo, loss_actor with sac
         check_loss = log["loss_actor"] if kwargs["algorithm"]["type"] == "sac" else log["total_loss"]
-        if early_stopping_divergence(check_loss):
-            print(f"Early stopping at epoch {step} due to loss divergence.")
+        if early_stopping.divergence_check(check_loss):
             break
 
         # Update wandb and scheduler
@@ -276,50 +337,6 @@ def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episode
         trajectory = env.rollout(policy=policy_module, max_steps=n_step, auto_reset=True)
     val_metrics = get_performance_metrics(trajectory, trajectory, env)
     return {"validation": val_metrics}
-
-def early_stopping_val(val_rewards, patience=5):
-    """
-    Check for early stopping based on consecutive decreases in validation rewards.
-
-    Args:
-        val_rewards (list): A list of validation rewards.
-        patience (int): Number of consecutive decreases allowed before triggering early stopping.
-
-    Returns:
-        bool: True if early stopping condition is met, otherwise False.
-    """
-    # Track the number of consecutive decreases
-    decrease_count = 0
-
-    for i in range(1, len(val_rewards)):
-        if val_rewards[i] < val_rewards[i - 1]:
-            decrease_count += 1
-            if decrease_count >= patience:
-                return True
-        else:
-            decrease_count = 0  # Reset if the reward improves or stays the same
-
-    return False
-
-def early_stopping_divergence(loss, threshold=1e6):
-    """
-    Check for early stopping based on a threshold for the loss value.
-
-    Args:
-        loss (float): The loss value to check.
-        threshold (float): The threshold value for the loss.
-
-    Returns:
-        bool: True if early stopping condition is met, otherwise False.
-    """
-    # Check if nan or inf in the loss
-    if torch.isnan(loss) or torch.isinf(loss):
-        return True
-
-    # Check if the loss exceeds the threshold
-    if loss > threshold:
-        return True
-    return False
 
 def soft_update(target_params, source_params, tau):
     """Soft update the target parameters using the source parameters."""
