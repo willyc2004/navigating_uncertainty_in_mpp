@@ -436,7 +436,8 @@ if __name__ == "__main__":
     generalization = config.env.generalization
 
     num_episodes = config.testing.num_episodes
-    for scen in [4,8,12,16,20,24,28]: # 32
+    num_scenarios = [4,8,12,16,20,24,28] if not generalization else [28]
+    for scen in num_scenarios: # 32
         results = []
         vars = []
         for x in range(num_episodes):
