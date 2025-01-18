@@ -49,7 +49,8 @@ class MasterPlanningEnv(EnvBase):
             self.seed = torch.empty((), dtype=torch.int64).random_().item()
         self.set_seed(self.seed)
         self.demand_uncertainty = kwargs.get("demand_uncertainty", False)
-        self.generator = MPP_Generator(**kwargs)
+        self.generator = MPP_Generator(device=device,**kwargs)
+        print(self.device, self.generator.device)
         if td_gen == None:
             self.td_gen = self.generator(batch_size=batch_size,)
         # Data type and shapes
@@ -339,6 +340,7 @@ class MasterPlanningEnv(EnvBase):
         action_mask = th.ones((*batch_size, self.B*self.D), dtype=th.bool, device=device)
         # Vessel
         utilization = th.zeros((*batch_size, self.B, self.D, self.T, self.K), device=device, dtype=self.float_type)
+        print(self.capacity.device, utilization.device, self.teus.device, self.zero.device)
         residual_capacity = th.clamp(self.capacity - utilization.sum(dim=-2) @ self.teus, min=self.zero)
         target_long_crane = compute_target_long_crane(realized_demand.to(self.float_type), self.moves_idx[t[0]],
                                                         self.capacity, self.B, self.CI_target).view(*batch_size, 1)

@@ -9,10 +9,10 @@ import matplotlib.pyplot as plt
 # Classes
 class MPP_Generator(Generator):
     """Class for generating demand for stowage plans"""
-    def __init__(self, **kwargs):
+    def __init__(self, device="cuda", **kwargs):
         super().__init__(**kwargs)
         # Input simulation
-        self.device = th.device("cuda" if th.cuda.is_available() else "cpu")
+        self.device = th.device(device)
         self.seed = kwargs.get("seed")
         self.rng = th.Generator(device=self.device).manual_seed(self.seed)
 
