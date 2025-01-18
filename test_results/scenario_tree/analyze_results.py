@@ -2,9 +2,10 @@ import json
 import numpy as np
 
 # Load JSON file
-s = 4
-perfect_information = False
-with open(f'results_scenario_tree_s{s}_pi{perfect_information}.json', 'r') as file:
+s = 28
+perfect_information = True
+folder = 'generalization'
+with open(f'{folder}/results_scenario_tree_s{s}_pi{perfect_information}.json', 'r') as file:
     data = json.load(file)
 
 obj = []

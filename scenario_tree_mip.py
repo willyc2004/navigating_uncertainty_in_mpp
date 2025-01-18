@@ -433,6 +433,7 @@ if __name__ == "__main__":
     perfect_information = True
     deterministic = False
     debug = False
+    generalization = config.env.generalization
 
     num_episodes = config.testing.num_episodes
     for scen in [4,8,12,16,20,24,28]: # 32
@@ -450,7 +451,7 @@ if __name__ == "__main__":
                 json.dump(results, json_file, indent=4)
         else:
             # Save results to a JSON file
-            with open(f"./test_results/scenario_tree/results_scenario_tree_s{scen}_pi{perfect_information}.json", "w") as json_file:
+            with open(f"./test_results/scenario_tree/results_scenario_tree_s{scen}_pi{perfect_information}_gen{generalization}.json", "w") as json_file:
                 json.dump(results, json_file, indent=4)
-            with open(f"./test_results/scenario_tree/variables_scenario_tree_s{scen}_pi{perfect_information}.json", "w") as json_file:
+            with open(f"./test_results/scenario_tree/variables_scenario_tree_s{scen}_pi{perfect_information}_gen{generalization}.json", "w") as json_file:
                 json.dump(results, json_file, indent=4)
