@@ -8,17 +8,14 @@
 #SBATCH --partition=acltr                      # Partition to run on
 #SBATCH --mail-type=FAIL,END                   # Email notification
 
+# Ensure the output directory exists
+mkdir -p output_files
+
 # Print the hostname of the allocated node
 hostname
 
 # Define the path to the Python script you want to run
 SCRIPT_PATH="sweep.py"
 
-# Define the initial log file for output
-LOG_FILE="output_files/gpu_output.log"
-
-# Ensure the output directory exists
-mkdir -p output_files
-
 # Run the Python script with log_file
-python3 "$SCRIPT_PATH" "$@" > "$LOG_FILE" 2>&1 &
+python3 "$SCRIPT_PATH" "$@"
