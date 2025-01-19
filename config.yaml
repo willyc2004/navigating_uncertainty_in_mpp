@@ -25,7 +25,7 @@ env:
   iid_demand: True
   cv_demand: 0.5
   demand_uncertainty: True
-  generalization: False
+  generalization: True
 
 # Model settings
 model:

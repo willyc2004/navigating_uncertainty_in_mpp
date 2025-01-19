@@ -430,7 +430,7 @@ if __name__ == "__main__":
         config = adapt_env_kwargs(config)
 
     # Run main for different seeds and number of scenarios
-    perfect_information = True
+    perfect_information = False
     deterministic = False
     debug = False
     generalization = config.env.generalization
