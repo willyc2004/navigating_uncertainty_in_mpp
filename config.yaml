@@ -80,14 +80,14 @@ algorithm:
 # AM PPO parameters
 training:
   lr: 0.00012077516375897934
-  projection_type: "direct_scaling" #"linear_violation", "direct_scaling", "None"
+  projection_type: "linear_violation" #"linear_violation", "direct_scaling", "None"
   #todo: not implemented logprob adaptations - convex_program, worst_case_violation, linear_violation, linear_program
   projection_kwargs:
     iters: 5
     project_per_port: False
   optimizer: "Adam"   #AdamW, Adam
   validation_freq: 0.2
-  validation_patience: 3
+  validation_patience: 2
   train_data_size: 72_000_000  #5_000_000 # 3_000_000
   val_data_size: 5000
   test_data_size: 5000
