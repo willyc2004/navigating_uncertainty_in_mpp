@@ -126,10 +126,11 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         out["log_prob"] = self.jacobian_adaptation(out["log_prob"], jacobian=jacobian)
 
         # Apply action clipping and log_prob adjustment based on https://arxiv.org/pdf/1802.07564v2.pdf
-        if "clip_min" in out and "clip_max" in out:
-            out["action"] = out["action"].clamp(min=out["clip_min"], max=out["clip_max"])
-            clipped_gaussian = ClippedGaussian(out["loc"], out["scale"], out["clip_min"], out["clip_max"])
-            out["log_prob"] = clipped_gaussian.log_prob(out["action"])
+        if self.projection_type == "direct_scaling":
+            if "clip_min" in out and "clip_max" in out:
+                out["action"] = out["action"].clamp(min=out["clip_min"], max=out["clip_max"])
+                clipped_gaussian = ClippedGaussian(out["loc"], out["scale"], out["clip_min"], out["clip_max"])
+                out["log_prob"] = clipped_gaussian.log_prob(out["action"])
 
         # Get sample log probabilities for loss computations
         out["sample_log_prob"] = out["log_prob"].sum(dim=-1)
