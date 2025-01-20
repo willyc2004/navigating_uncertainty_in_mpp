@@ -56,9 +56,8 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         return scaled_sample
 
     def jacobian_adaptation(self, logprob, jacobian, epsilon=1e-8) -> Tensor:
-        """Perform logprob adaptation for invertible and differentiable projection functions with non-singular Jacobians.
+        """Perform logprob adaptation for invertible and differentiable (bijective) functions with non-singular Jacobians.
         - log pi'(x|s) = log pi(x|s) - log|det(J_g(x))|
-        - log pi'_norm(x|s) = log(exp(pi'(x|s)) / sum(exp(pi'(x|s))))
         """
         # If no Jacobian is provided, return the original log probabilities
         if jacobian is None:
@@ -66,13 +65,9 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
 
         # log pi'(x|s) = log pi(x|s) - log|det(J_g(x))|
         sign, log_abs_det = torch.linalg.slogdet(jacobian) # Compute the sign and log absolute determinant of the Jacobian
-        logprob_unnorm = logprob - log_abs_det.unsqueeze(-1) # Note log_abs_det is a scalar applied to all batch elements
+        logprob_ = logprob - log_abs_det.unsqueeze(-1) # Note log_abs_det is a scalar applied to all batch elements
         # This is appropriate for our projection functions, as the actions are transformed globally rather than per element
-
-        # log pi'_norm(x|s) = log(exp(pi'(x|s)) / sum(exp(pi'(x|s))))
-        prob_norm = torch.nn.functional.softmax(logprob_unnorm, dim=-1) # Use softmax to re-normalize the probabilities
-        logprob_norm = torch.log(prob_norm + epsilon) # Obtain log probabilities with epsilon for numerical stability
-        return logprob_norm # Apply reduction for loss computations. Shape: [Batch]
+        return logprob_ # Apply reduction for loss computations. Shape: [Batch]
 
     def jacobian_direct_scaling(self, x, y, epsilon=1e-8):
         """Compute the Jacobian of the direct scaling projection:
