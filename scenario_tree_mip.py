@@ -16,7 +16,7 @@ sys.path.append(path_to_main)
 from main import adapt_env_kwargs, make_env
 from environment.utils import get_pol_pod_pair
 
-def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, deterministic=False):
+def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, deterministic=False, warm_start=None):
     # Scenario tree parameters
     M = 10 ** 3 # Big M
     stages = config.env.ports - 1  # Number of load ports (P-1)
@@ -134,7 +134,40 @@ def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, det
         on_board = [(i, j) for i in range(ports) for j in range(ports) if i <= pol and j > pol]  # List of cargo groups to load
         return np.array(on_board), port_moves, load
 
-    def build_tree(stages, demand):
+    def generate_mip_start(warm_start_values, stages, num_nodes_per_stage, B, D, K, P):
+        """
+        Generate a MIP start dictionary for warm-starting the solver.
+
+        Args:
+            warm_start_values (dict): Dictionary of warm start values for decision variables.
+                                      Keys should be (stage, node_id, bay, deck, cargo_class, pol, pod).
+            stages (int): Number of stages in the scenario tree.
+            num_nodes_per_stage (list): List of the number of nodes per stage.
+            B (int): Number of bays.
+            D (int): Number of decks.
+            K (int): Number of cargo classes.
+            P (int): Number of ports.
+
+        Returns:
+            dict: MIP start dictionary for CPLEX.
+        """
+        mip_start = {}  # Dictionary to hold MIP start values
+
+        for stage in range(stages):
+            for node_id in range(num_nodes_per_stage[stage]):
+                for bay in range(B):
+                    for deck in range(D):
+                        for cargo_class in range(K):
+                            for pol in range(stage + 1):
+                                for pod in range(pol + 1, P):
+                                    # Check if a warm start value is available for this variable
+                                    key = (stage, node_id, bay, deck, cargo_class, pol, pod)
+                                    if key in warm_start_values:
+                                        mip_start[key] = warm_start_values[key]
+
+        return mip_start
+
+    def build_tree(stages, demand, mip_start=None):
         """Function to build the scenario tree; with decisions and constraints for each node"""
         for stage in range(stages):
             for node_id in range(num_nodes_per_stage[stage]):
@@ -282,11 +315,20 @@ def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, det
                 )
                 mdl.add_constraint(CI[stage, node_id] <= CI_target[stage, node_id])
 
+        # Add mip start
+        if mip_start:
+            mdl.add_mip_start({x[key]: value for key, value in mip_start.items()}, write_level=1)
+
     # Precompute nodelist and demand
     node_list = precompute_node_list(stages, scenarios_per_stage)
     demand, real_demand = precompute_demand(node_list)
+    # Generate MIP warm start
+    # todo: add warm_start tensor
+    if warm_start is not None:
+        warm_start = generate_mip_start(warm_start, stages, num_nodes_per_stage, B, D, K, P)
+
     # Build the scenario tree
-    build_tree(stages, demand)
+    build_tree(stages, demand, warm_start)
 
     # Define the objective function
     # Reshape revenues to match the shape of x
@@ -431,12 +473,18 @@ if __name__ == "__main__":
 
     # Run main for different seeds and number of scenarios
     perfect_information = False
-    deterministic = False
+    deterministic = True
     debug = False
     generalization = config.env.generalization
 
     num_episodes = config.testing.num_episodes
-    num_scenarios = [4,8,12,16,20,24,28] if not generalization else [28]
+
+    if not deterministic:
+        num_scenarios = [4,8,12,16,20,24,28] if not generalization else [28]
+    else:
+        num_scenarios = [1]
+    # todo: add warm-start
+
     for scen in num_scenarios: # 32
         results = []
         vars = []
