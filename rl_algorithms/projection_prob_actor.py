@@ -37,7 +37,17 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
             self.rescale_action = lambda x: x * (action_rescale_max - action_rescale_min) + action_rescale_min
         # Initialize projection layer
         self.projection_layer = projection_layer
-        self.projection_type = projection_type
+        self.projection_type = projection_type.lower()
+
+        # Initialize clipped Gaussian
+        shape = spec.shape
+        device = spec.device
+        dtype = spec.dtype
+        initial_loc = torch.zeros(shape, device=device, dtype=dtype)
+        initial_scale = torch.ones(shape, device=device, dtype=dtype)
+        clip_min = spec.space.low
+        clip_max = spec.space.high
+        self.clipped_gaussian = ClippedGaussian(initial_loc, initial_scale, clip_min, clip_max)
 
     def get_logprobs(self, action, dist):
         """Compute the log probabilities of the actions given the distribution."""
@@ -82,7 +92,7 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
             "policy_clipping": self.policy_clipping_projection,
             "weighted_scaling_policy_clipping": self.weighted_scaling_policy_clipping_projection,
         }
-        projection_fn = projection_methods.get(self.projection_type.lower(), self.identity_fn)
+        projection_fn = projection_methods.get(self.projection_type, self.identity_fn)
         return projection_fn(out)
 
     def jacobian_weighted_scaling(self, out, epsilon=1e-8):
@@ -178,8 +188,11 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
 
         # Apply log_prob adjustment of clipping based on https://arxiv.org/pdf/1802.07564v2.pdf
         if self.projection_type in ["policy_clipping", "weighted_scaling_policy_clipping"]:
-            clipped_gaussian = ClippedGaussian(out["loc"], out["scale"], out["clip_min"], out["clip_max"])
-            out["log_prob"] = clipped_gaussian.log_prob(out["action"])
+            self.clipped_gaussian.mean = out["loc"]
+            self.clipped_gaussian.var = out["scale"]
+            self.clipped_gaussian.low = out["clip_min"]
+            self.clipped_gaussian.high = out["clip_max"]
+            out["log_prob"] = self.clipped_gaussian.log_prob(out["action"])
 
         # Get sample log probabilities for loss computations
         out["sample_log_prob"] = out["log_prob"].sum(dim=-1)

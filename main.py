@@ -158,6 +158,7 @@ def initialize_policy_and_critic(config, env, device):
         return_log_prob=True,
         projection_layer=projection_layer,
         projection_type=config.training.projection_type,
+        spec=env.action_spec
     )
 
     return policy, critic
