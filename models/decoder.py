@@ -146,7 +146,6 @@ class AttentionDecoderWithCache(nn.Module):
             std = std/self.temperature
         if self.scale_max is not None:
             std = std.clamp(max=self.scale_max)
-        # todo: add mask
         return mean.squeeze(), std.squeeze()
 
     def pre_decoder_hook(self, td: TensorDict, env, embeddings: Tensor, num_starts: int = 0):
@@ -228,5 +227,4 @@ class MLPDecoderWithCache(nn.Module):
 
         if self.scale_max is not None:
             std = std.clamp(max=self.scale_max)
-        # todo: add mask
         return mean, std
