@@ -43,8 +43,9 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         """Compute the log probabilities of the actions given the distribution."""
         return dist.base_dist.log_prob(action) # Shape: [Batch, Features]
 
+    # Projections
     @staticmethod
-    def conditional_direct_scaling(sample, ub, epsilon=1e-8):
+    def weighted_scaling(sample, ub, epsilon=1e-8):
         sum_sample = sample.sum(dim=-1, keepdim=True)
         upper_bound = ub.unsqueeze(-1)
         scaling_factor = upper_bound / (sum_sample + epsilon)  # Avoid division by zero
@@ -54,6 +55,87 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
             sample
         )
         return scaled_sample
+
+    def weighted_scaling_projection(self, out):
+        out["action"] = self.weighted_scaling(out["action"], ub=out["ub"])
+        return out["action"]
+
+    def policy_clipping_projection(self, out):
+        if "clip_min" not in out or "clip_max" not in out:
+            raise ValueError("Policy clipping not supported due to absence of clip_min or clip_max in out")
+
+        out["action"] = out["action"].clamp(min=out["clip_min"], max=out["clip_max"])
+        return out["action"]
+
+    def weighted_scaling_policy_clipping_projection(self, out):
+        out["action"] = self.weighted_scaling_projection(out)
+        out["action"] = self.policy_clipping_projection(out)
+        return out["action"]
+
+    def handle_action_projection(self, out):
+        """Handle with policy projection"""
+        projection_methods = {
+            "weighted_scaling": self.weighted_scaling_projection,
+            "linear_violation": self.projection_layer,
+            "policy_clipping": self.policy_clipping_projection,
+            "weighted_scaling_policy_clipping": self.weighted_scaling_policy_clipping_projection,
+        }
+        return projection_methods[self.projection_type](out)
+
+    def jacobian_weighted_scaling(self, out, epsilon=1e-8):
+        """Compute the Jacobian of the direct scaling projection:
+            J_g(x) = y / sum(x)^2 * (diag(sum(x)) - x * 1^T)"""
+        # Input
+        x = out["action"]
+        y = out["ub"]
+
+        # Shapes
+        batch, n = x.shape
+
+        # Compute
+        sum_x = x.sum(dim=-1, keepdim=True)
+        scaling_factor = y.unsqueeze(-1) / (sum_x)**2 # Shape: (batch_size, n)
+        kronecker_delta = torch.eye(n).unsqueeze(0).expand(batch, n, n).to(x.device)  # Shape: (batch_size, n, n)
+        x_product = x.unsqueeze(-1) * torch.ones(x.size(-1), device=x.device)  # Shape: (batch_size, n, n)
+        jacobian = scaling_factor.unsqueeze(-1) * (kronecker_delta * sum_x.unsqueeze(-1)) - x_product # Shape: (batch_size, n, n)
+        return jacobian
+
+    def jacobian_violation(self, out):
+        """Compute the Jacobian of the violation projection:
+            J_g(x) = I + alpha * A^T D A, where D = diag((Ax-b) > 0)"""
+        # Input
+        x = out["action"]
+        A = out["lhs_A"]
+        b = out["rhs"]
+        alpha = self.projection_layer.alpha
+
+        # Shapes
+        if A.dim() == 2:
+            batch, n = A.shape
+        elif A.dim() == 3:
+            batch, _, n = A.shape
+        elif A.dim() == 4:
+            batch, _, _, n = A.shape
+        else:
+            raise ValueError(f"Invalid dimension of A: {A.dim()}")
+
+        # Compute
+        I = torch.eye(n, device=x.device).expand(batch, n, n)  # Identity matrix for each batch
+        violation = compute_violation(x, A, b)
+        D = torch.diag_embed(violation > 0).float()
+        jacobian = I + alpha * torch.bmm(A.transpose(1, 2), D).bmm(A)
+        return jacobian
+
+    def handle_jacobian_adjustment(self, out):
+        """Handle with Jacobian adjustment of projection methods;
+        We only have Jacobian for weighted scaling and linear violation."""
+        jacobian_methods = {
+            "weighted_scaling": self.jacobian_weighted_scaling,
+            "linear_violation": self.jacobian_violation,
+            "policy_clipping": None,  # Different logprobs computation
+            "weighted_scaling_policy_clipping": self.jacobian_weighted_scaling,
+        }
+        return jacobian_methods[self.projection_type](out)
 
     def jacobian_adaptation(self, logprob, jacobian, epsilon=1e-8) -> Tensor:
         """Perform logprob adaptation for invertible and differentiable (bijective) functions with non-singular Jacobians.
@@ -69,63 +151,30 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         # This is appropriate for our projection functions, as the actions are transformed globally rather than per element
         return logprob_ # Apply reduction for loss computations. Shape: [Batch]
 
-    def jacobian_direct_scaling(self, x, y, epsilon=1e-8):
-        """Compute the Jacobian of the direct scaling projection:
-            J_g(x) = y / sum(x)^2 * (diag(sum(x)) - x * 1^T)"""
-        batch, n = x.shape
-        sum_x = x.sum(dim=-1, keepdim=True)
-        scaling_factor = y.unsqueeze(-1) / (sum_x)**2 # Shape: (batch_size, n)
-        kronecker_delta = torch.eye(n).unsqueeze(0).expand(batch, n, n).to(x.device)  # Shape: (batch_size, n, n)
-        x_product = x.unsqueeze(-1) * torch.ones(x.size(-1), device=x.device)  # Shape: (batch_size, n, n)
-        jacobian = scaling_factor.unsqueeze(-1) * (kronecker_delta * sum_x.unsqueeze(-1)) - x_product # Shape: (batch_size, n, n)
-        return jacobian
-
-    def jacobian_violation(self, x, A, b, alpha,):
-        """Compute the Jacobian of the violation projection:
-            J_g(x) = I + alpha * A^T D A, where D = diag((Ax-b) > 0)"""
-        if A.dim() == 2:
-            batch, n = A.shape
-        elif A.dim() == 3:
-            batch, _, n = A.shape
-        elif A.dim() == 4:
-            batch, _, _, n = A.shape
-        else:
-            raise ValueError(f"Invalid dimension of A: {A.dim()}")
-        I = torch.eye(n, device=x.device).expand(batch, n, n)  # Identity matrix for each batch
-        violation = compute_violation(x, A, b)
-        D = torch.diag_embed(violation > 0).float()
-        jacobian = I + alpha * torch.bmm(A.transpose(1, 2), D).bmm(A)
-        return jacobian
-
     def forward(self, *args, **kwargs):
         out = super().forward(*args, **kwargs)
         # Get distribution and full log probabilities
         dist = self.get_dist(out)
         out["log_prob"] = self.get_logprobs(out["action"], dist)
-        # if self.rescale_action is not None:
-        #     out["action"] = self.rescale_action((out["loc"] + self.upscale) / 2) # Rescale from [-x, x] to (min, max)
 
-        # Apply projection and logprob adjustment with Jacobian
-        if self.projection_type == "direct_scaling":
-            ub = out["observation", "realized_demand"][..., out["observation", "timestep"][0]] if out["observation", "realized_demand"].dim() == 2 \
-                else out["observation", "realized_demand"][..., out["observation", "timestep"][0, 0], :]
-            out["action"] = self.conditional_direct_scaling(out["action"], ub=ub)
-            jacobian = self.jacobian_direct_scaling(out["action"], ub)
-        elif self.projection_type == "linear_violation":
-                out["action"] = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
-                jacobian = self.jacobian_violation(out["action"], out["lhs_A"],  out["rhs"], self.projection_layer.alpha)
-        elif self.projection_type in ["convex_program", "worst_case_violation", "linear_program"]:
-            raise ValueError(f"Jacobian adaptation of log probs for projection type \'{self.projection_type}\' not supported.")
-        else:
-            jacobian = None
+        # Raise error for projection layers without log prob adaptation implementations
+        if self.projection_type in ["convex_program", "worst_case_violation", "linear_program"]:
+            raise ValueError(f"Log prob adaptation for projection type \'{self.projection_type}\' not supported.")
+
+        # Pre-compute upper bound for weighted_scaling
+        out["ub"] = out["observation", "realized_demand"][..., out["observation", "timestep"][0]] \
+            if out["observation", "realized_demand"].dim() == 2 \
+            else out["observation", "realized_demand"][..., out["observation", "timestep"][0, 0], :]
+
+        # Projection and log probs adjustment
+        out["action"] = self.handle_action_projection(out)
+        jacobian = self.handle_jacobian_adjustment(out)
         out["log_prob"] = self.jacobian_adaptation(out["log_prob"], jacobian=jacobian)
 
-        # Apply action clipping and log_prob adjustment based on https://arxiv.org/pdf/1802.07564v2.pdf
-        if self.projection_type == "direct_scaling":
-            if "clip_min" in out and "clip_max" in out:
-                out["action"] = out["action"].clamp(min=out["clip_min"], max=out["clip_max"])
-                clipped_gaussian = ClippedGaussian(out["loc"], out["scale"], out["clip_min"], out["clip_max"])
-                out["log_prob"] = clipped_gaussian.log_prob(out["action"])
+        # Apply log_prob adjustment of clipping based on https://arxiv.org/pdf/1802.07564v2.pdf
+        if self.projection_type in ["policy_clipping", "weighted_scaling_policy_clipping"]:
+            clipped_gaussian = ClippedGaussian(out["loc"], out["scale"], out["clip_min"], out["clip_max"])
+            out["log_prob"] = clipped_gaussian.log_prob(out["action"])
 
         # Get sample log probabilities for loss computations
         out["sample_log_prob"] = out["log_prob"].sum(dim=-1)
