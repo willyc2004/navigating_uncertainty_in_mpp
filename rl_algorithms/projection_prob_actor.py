@@ -194,6 +194,8 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
             self.clipped_gaussian.high = out["clip_max"]
             out["log_prob"] = self.clipped_gaussian.log_prob(out["action"])
 
+        # todo: infeasible action masking (where masked out values get log prob -inf)
+
         # Get sample log probabilities for loss computations
         out["sample_log_prob"] = out["log_prob"].sum(dim=-1)
         return out
