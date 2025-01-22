@@ -37,8 +37,6 @@ def stepwise_lp(action, A, b, verbose=True,):
     # Decision variables
     s = model.continuous_var_list(n, name="s", lb=0)  # s >= 0
     x = model.continuous_var_list(n, name="x", lb=0)  # x >= 0
-    slack = model.continuous_var_list(m, name="slack", lb=0)  # slack >= 0
-    slack_param = 10
 
     # Constraints
     model.add_constraints(A[j, :] @ x <= b[j] for j in range(m))  # A x <= b (optional: + slack[j] )
@@ -52,7 +50,6 @@ def stepwise_lp(action, A, b, verbose=True,):
 
     # Solve the model
     solution = model.solve(log_output=verbose)
-
 
     # Check if the solution exists
     if solution:
@@ -69,7 +66,7 @@ def stepwise_lp(action, A, b, verbose=True,):
     else:
         raise Exception("No solution found.")
 
-
+# todo: work on polwise_lp or remove
 def polwise_lp(util, demand, env, verbose=True,):
     """POL-wise LP to find feasible action"""
     # Create environment and MIP model
