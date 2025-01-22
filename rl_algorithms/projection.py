@@ -158,7 +158,6 @@ class ProjectionFactory:
         'convex_program': ConvexProgramLayer,
         'linear_program': LinearProgramLayer,
         'linear_violation':LinearViolationAdaption,
-        "linear_violation_sample": LinearViolationAdaption,
     }
 
     @staticmethod
