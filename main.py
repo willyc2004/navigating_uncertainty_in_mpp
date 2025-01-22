@@ -75,13 +75,9 @@ def initialize_critic(algorithm_type, encoder, critic_args, device):
 def initialize_projection_layer(projection_type, projection_kwargs, action_dim, n_constraints):
     """Initialize the projection layer based on the projection type."""
     projection_type = (projection_type or "").lower()  # Normalize to lowercase and handle None
-    if projection_type in ["linear_violation", "linear_program", "convex_program"]:
-        projection_kwargs["n_action"] = action_dim
-        projection_kwargs["n_constraints"] = n_constraints
-        return ProjectionFactory.create_class(projection_type, projection_kwargs)
-    else:
-        return None
-
+    projection_kwargs["n_action"] = action_dim
+    projection_kwargs["n_constraints"] = n_constraints
+    return ProjectionFactory.create_class(projection_type, projection_kwargs)
 
 def initialize_policy_and_critic(config, env, device):
     """
