@@ -3,17 +3,10 @@ from tensordict import TensorDict
 from torch import Tensor
 import torch.nn as nn
 
-# todo: remove connection to rl4co
-from rl4co.envs import RL4COEnvBase
-from rl4co.models.common.constructive import AutoregressiveEncoder
-from rl4co.models.nn.env_embeddings import env_init_embedding
-# todo: remove super AttentionModelEncoder
-from rl4co.models.zoo.am.encoder import AttentionModelEncoder
-
 # Custom
 from models.common import CustomMLP
 
-class MLPEncoder(AutoregressiveEncoder):
+class MLPEncoder(nn.Module):
     """MLP Encoder.
     First embed the input and then process it with a feedforward network.
 
@@ -34,26 +27,18 @@ class MLPEncoder(AutoregressiveEncoder):
         self,
         embed_dim: int = 128,
         init_embedding: nn.Module = None,
-        env_name: str = "tsp",
+        env_name: str = "mpp",
         num_heads: int = 8,
         num_layers: int = 3,
-        normalization: str = "batch",
+        normalization: str = "layer",
         feedforward_hidden: int = 512,
         net: nn.Module = None,
         sdpa_fn = None,
         moe_kwargs: dict = None,
     ):
         super(MLPEncoder, self).__init__()
-
-        if isinstance(env_name, RL4COEnvBase):
-            env_name = env_name.name
         self.env_name = env_name
-
-        self.init_embedding = (
-            env_init_embedding(self.env_name, {"embed_dim": embed_dim})
-            if init_embedding is None
-            else init_embedding
-        )
+        self.init_embedding = init_embedding
         normalization = "Batch" if normalization == "batch" else normalization
         normalization = "Layer" if normalization == "layer" else normalization
 
@@ -93,7 +78,7 @@ class MLPEncoder(AutoregressiveEncoder):
         # Return latent representation and initial embedding
         return h.view(*batch_size, -1, h.size(-1)), init_h.view(*batch_size, -1, init_h.size(-1))
 
-class AttentionEncoder(AttentionModelEncoder):
+class AttentionEncoder(nn.Module):
     """Graph Attention Encoder as in Kool et al. (2019).
     First embed the input and then process it with a Graph Attention Network.
 
@@ -114,28 +99,19 @@ class AttentionEncoder(AttentionModelEncoder):
         self,
         embed_dim: int = 128,
         init_embedding: nn.Module = None,
-        env_name: str = "tsp",
+        env_name: str = "mpp",
         num_heads: int = 8,
         num_layers: int = 3,
-        normalization: str = "batch",
+        normalization: str = "layer",
         feedforward_hidden: int = 512,
         net: nn.Module = None,
         sdpa_fn = None,
         moe_kwargs: dict = None,
         **kwargs,
     ):
-        super(AttentionEncoder, self).__init__(
-            embed_dim,
-            init_embedding,
-            env_name,
-            num_heads,
-            num_layers,
-            normalization,
-            feedforward_hidden,
-            net,
-            sdpa_fn,
-            moe_kwargs,
-        )
+        super(AttentionEncoder, self).__init__()
+        self.env_name = env_name
+        self.init_embedding = init_embedding
         self.net = (
             GraphAttentionNetwork(
                 num_heads,
