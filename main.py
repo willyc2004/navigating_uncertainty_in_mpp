@@ -178,10 +178,10 @@ def main(config: Optional[DotMap] = None):
     torch.backends.cudnn.benchmark = False
 
     ## Environment initialization
+    # todo: add parallel environment runs; # env = ParallelEnv(4, make_env)
     env = make_env(config.env)
     env.set_seed(config.env.seed)
-    # env = ParallelEnv(4, make_env)     # todo: fix parallel env
-    check_env_specs(env)  # this must pass for ParallelEnv to work
+    check_env_specs(env)
 
     ## Main loop
     # Train the model
