@@ -276,7 +276,6 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
         # Validation step
         if (step + 1) % int(train_updates * validation_freq) == 0:
             policy.eval()
-            # todo: check if projection is used/needed here
             validation_performance = validate_policy(train_env, policy, n_step=n_step, )
             log.update(validation_performance)
             early_stopping.update_rewards(validation_performance["validation"]["traj_return"])
