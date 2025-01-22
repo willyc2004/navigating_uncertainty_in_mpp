@@ -27,28 +27,27 @@ class LinearViolationAdaption(th.nn.Module):
 
         Good settings (project per t): alpha=0.005, delta=0.01, tolerance=0.01
         """
-        # Determine the shape based on dimensionality of b
-        # todo: clean-up code!
+        # Raise error is dimensions are invalid
+        if b.dim() not in [2, 3] or A.dim() not in [3, 4]:
+            raise ValueError("Invalid dimensions: 'b' must have dim 2 or 3 and 'A' must have dim 3 or 4.")
+
+        # Shapes
+        batch_size = b.shape[0]
+        m = b.shape[-1]
+        n_step = 1 if b.dim() == 2 else b.shape[-2] if b.dim() == 3 else None
+
+        # Tensors shapes
         x_ = x.clone()
-        if b.dim() == 2 and A.dim() == 3:
-            batch_size, m = b.shape
-            n_step = 1
-            A = A.unsqueeze(1)  # Expand to [batch_size, 1, m, F] for consistency
-            b = b.unsqueeze(1)  # Expand to [batch_size, 1, m] for consistency
-            x_ = x_.unsqueeze(1)  # Expand to [batch_size, 1, F] for consistency
-        elif b.dim() == 3 and A.dim() == 4:
-            batch_size, n_step, m = b.shape
-        elif b.dim() == 2 and A.dim() == 4:
-            batch_size, m = b.shape
-            n_step = 1
-            b = b.unsqueeze(1)  # Expand to [batch_size, 1, m] for consistency
-        else:
-            raise ValueError("Invalid shape of 'b'. Expected dimensions 2 or 3.")
+        b = b.unsqueeze(1) if b.dim() == 2 else b
+        A = A.unsqueeze(1) if A.dim() == 3 else A
+        x_ = x_.unsqueeze(1) if x_.dim() == 2 else x_
+        # Initialize tensors
         violation_old = th.zeros(batch_size, n_step, m, dtype=x.dtype, device=x.device)
         active_mask = th.ones(batch_size, n_step, dtype=th.bool, device=x.device)  # Start with all batches active
+
+        # Start loop with early exit in case of nans
         if th.isnan(x_).any():
             return x_
-
         count = 0
         while th.any(active_mask):
             # Compute current violation for each batch and step
@@ -80,10 +79,7 @@ class LinearViolationAdaption(th.nn.Module):
             if count > self.max_iter:
                 break
         # Return the adjusted x_, reshaped to remove n_step dimension if it was initially 2D
-        if n_step == 1:
-            return x_.squeeze(1)
-        else:
-            return x_
+        return x_.squeeze(1) if n_step == 1 else x_
 
 class ConvexProgramLayer(th.nn.Module):
     """Convex programming layer to enforce strict feasibility by ensuring constraints are satisfied."""
