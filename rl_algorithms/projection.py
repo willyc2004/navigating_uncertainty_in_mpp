@@ -7,7 +7,7 @@ class EmptyLayer(th.nn.Module):
     def __init__(self, **kwargs):
         super(EmptyLayer, self).__init__()
 
-    def forward(self, x, A, b, **kwargs):
+    def forward(self, x, **kwargs):
         return x
 
 class ConvexProgramLayer(th.nn.Module):
