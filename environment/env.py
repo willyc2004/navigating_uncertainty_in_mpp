@@ -246,7 +246,7 @@ class MasterPlanningEnv(EnvBase):
             lc_costs += lc_cost_
 
 
-        # # Update action mask
+        # # Update action mask # todo: add action mask
         # # action_mask[t] = 0
         # mask_condition = (t[0] % self.K == 0)
         # min_pod = compute_min_pod(pod_locations, self.P, self.float_type)
