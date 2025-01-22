@@ -57,30 +57,33 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         return scaled_sample
 
     def weighted_scaling_projection(self, out):
-        out["action"] = self.weighted_scaling(out["action"], ub=out["ub"])
-        return out["action"]
+        return self.weighted_scaling(out["action"], ub=out["ub"])
 
     def policy_clipping_projection(self, out):
         if "clip_min" not in out or "clip_max" not in out:
             raise ValueError("Policy clipping not supported due to absence of clip_min or clip_max in out")
-
-        out["action"] = out["action"].clamp(min=out["clip_min"], max=out["clip_max"])
-        return out["action"]
+        return out["action"].clamp(min=out["clip_min"], max=out["clip_max"])
 
     def weighted_scaling_policy_clipping_projection(self, out):
         out["action"] = self.weighted_scaling_projection(out)
-        out["action"] = self.policy_clipping_projection(out)
+        return self.policy_clipping_projection(out)
+
+    def violation_projection(self, out):
+        return self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
+
+    def identity_fn(self, out):
         return out["action"]
 
     def handle_action_projection(self, out):
         """Handle with policy projection"""
         projection_methods = {
             "weighted_scaling": self.weighted_scaling_projection,
-            "linear_violation": self.projection_layer,
+            "linear_violation": self.violation_projection,
             "policy_clipping": self.policy_clipping_projection,
             "weighted_scaling_policy_clipping": self.weighted_scaling_policy_clipping_projection,
         }
-        return projection_methods[self.projection_type](out)
+        projection_fn = projection_methods.get(self.projection_type.lower(), self.identity_fn)
+        return projection_fn(out)
 
     def jacobian_weighted_scaling(self, out, epsilon=1e-8):
         """Compute the Jacobian of the direct scaling projection:
@@ -132,10 +135,12 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         jacobian_methods = {
             "weighted_scaling": self.jacobian_weighted_scaling,
             "linear_violation": self.jacobian_violation,
-            "policy_clipping": None,  # Different logprobs computation
             "weighted_scaling_policy_clipping": self.jacobian_weighted_scaling,
         }
-        return jacobian_methods[self.projection_type](out)
+        jacobian_fn = jacobian_methods.get(self.projection_type, None)
+        if jacobian_fn is None:
+            return None
+        return jacobian_fn(out)
 
     def jacobian_adaptation(self, logprob, jacobian, epsilon=1e-8) -> Tensor:
         """Perform logprob adaptation for invertible and differentiable (bijective) functions with non-singular Jacobians.
