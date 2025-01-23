@@ -56,7 +56,7 @@ model:
 
 # PPO parameters
 algorithm:
-  type: "ppo" # ppo, ddpg, sac
+  type: "sac" # ppo, ddpg, sac
   clip_range: 0.2
   ppo_epochs: 5 # 2, 3, 5, 7, 10
   mini_batch_size: 0.5
@@ -80,9 +80,10 @@ algorithm:
 # AM PPO parameters
 training:
   lr: 0.00012077516375897934
-  projection_type: "None" #"linear_violation", "weighted_scaling_policy_clipping", "None"
+  projection_type: "linear_violation" #"linear_violation", "weighted_scaling_policy_clipping", "None"
   #todo: not implemented logprob adaptations - convex_program, worst_case_violation, linear_violation, linear_program
   projection_kwargs:
+    alpha: 0.001
     iters: 5
     project_per_port: False
   optimizer: "Adam"   #AdamW, Adam

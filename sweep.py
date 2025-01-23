@@ -40,6 +40,7 @@ if __name__ == "__main__":
 
             # # AM-PPO hyperparameters
             config['training']['lr'] = sweep_config.lr
+            config['training']['projection_kwargs']['alpha'] = sweep_config.alpha
 
             # Call your main() function
             model = main(config)

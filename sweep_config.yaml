@@ -33,3 +33,6 @@ parameters:
   dropout_rate:
     min: 0.0
     max: 0.2
+  alpha:
+    min: 0.000001
+    max: 0.005
