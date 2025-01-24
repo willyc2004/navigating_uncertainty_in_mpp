@@ -194,8 +194,15 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
             self.clipped_gaussian.high = out["clip_max"]
             out["log_prob"] = self.clipped_gaussian.log_prob(out["action"])
 
+        # Apply log_prob clamp for numerical stability
+        out["log_prob"] = torch.clamp(out["log_prob"], min=-10.0, max=0.0)
         # todo: infeasible action masking (where masked out values get log prob -inf)
 
         # Get sample log probabilities for loss computations
         out["sample_log_prob"] = out["log_prob"].sum(dim=-1)
         return out
+
+def nan_detection(out: Tensor, name: str):
+    if torch.isnan(out).any():
+        print(f"NAN detected in {name}")
+        print(out)
