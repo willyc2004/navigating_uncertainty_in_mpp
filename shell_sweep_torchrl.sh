@@ -6,7 +6,32 @@
 SCRIPT_PATH="sweep.py"
 
 # Define the initial log file for output
+mkdir -p output_files
 LOG_FILE="output_files/output.log"
+
+# Initialize GPU variable
+GPU_NUMBER=""
+
+# Parse arguments to check for --gpu
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --gpu)
+            GPU_NUMBER="$2"
+            shift 2
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+# If a GPU number was provided, export it
+if [ -n "$GPU_NUMBER" ]; then
+    export CUDA_VISIBLE_DEVICES=$GPU_NUMBER
+    echo "Using GPU $GPU_NUMBER (CUDA_VISIBLE_DEVICES=$GPU_NUMBER)."
+else
+    echo "No GPU number provided. Default GPU configuration will be used."
+fi
 
 # Run the Python script in the background with nohup, logging output to the specified file
 echo "Starting the script in the background..."
