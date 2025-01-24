@@ -188,16 +188,21 @@ def main(config: Optional[DotMap] = None):
         run_training(policy, critic, **config)
     # Test the model
     elif config.model.phase == "test":
-        # Extract trained hyperparameters
+        # Get path to the trained model
         timestamp = config.testing.timestamp
-        config_load_path = f"saved_models/{timestamp}/config.yaml"
+        algorithm = config.algorithm.type
+        projection = config.training.projection_type
+        path = f"saved_models/{algorithm}/{projection}/{timestamp}"
+
+        # Extract trained hyperparameters
+        config_load_path = f"{path}/config.yaml"
         loaded_config = load_config(config_load_path)
 
         # Initialize models
         policy, critic = initialize_policy_and_critic(loaded_config, env, device)
 
         # Reload policy model
-        policy_load_path = f"saved_models/{timestamp}/policy.pth"
+        policy_load_path = f"{path}/policy.pth"
         policy.load_state_dict(torch.load(policy_load_path, map_location=device))
         check_nans_model(policy)
 
