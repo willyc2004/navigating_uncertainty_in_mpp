@@ -16,8 +16,8 @@ class LinearViolationAdaption(th.nn.Module):
     def __init__(self, **kwargs):
         super(LinearViolationAdaption, self).__init__()
         self.alpha = kwargs.get('alpha', 0.005)
-        self.delta = kwargs.get('delta', 0.01)
-        self.tolerance = kwargs.get('tolerance', 0.01)
+        self.delta = kwargs.get('delta', 0.1)
+        self.tolerance = kwargs.get('tolerance', 0.1)
         self.max_iter = kwargs.get('max_iter', 100)
 
     def forward(self, x, A, b, **kwargs):
