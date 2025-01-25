@@ -51,12 +51,12 @@ def precompute_demand(node_list, max_paths, stages, env):
     for (stage, node_id) in node_list:
         demand_scenarios[stage, node_id] = demand_[stage, node_id + 1, :, :]
 
+    # todo: Allow for deterministic - just take scenarios 0
     # Real demand
     real_demand = {}
     for stage in range(stages):
         real_demand[stage, max_paths, 0] = demand_[stage, 0, :, :]
 
-    # Allow for perfect information
     if deterministic:
         for (stage, node_id) in node_list:
             demand_scenarios[stage, node_id] = real_demand[stage, max_paths, 0]
@@ -151,7 +151,6 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784,
     all_port_moves = []
     all_load_moves = []
     transport_indices = [(i, j) for i in range(P) for j in range(P) if i < j]
-
 
     def generate_mip_start(warm_start_values, stages, num_nodes_per_stage, B, D, K, P):
         """
@@ -488,20 +487,21 @@ if __name__ == "__main__":
     num_episodes = config.testing.num_episodes
 
     if not deterministic:
-        num_scenarios = [4,8] #,12,16,20,24,28] if not generalization else [28]
+        num_scenarios = [4,8, 12,16,20,24,28] if not generalization else [28]
     else:
         num_scenarios = [1]
 
     # Precompute largest scenario tree
     stages = config.env.ports - 1  # Number of load ports (P-1)
     max_scenarios_per_stage = max(num_scenarios)  # Number of scenarios per stage
-    max_paths = max_scenarios_per_stage ** (stages-1)
+    max_paths = max_scenarios_per_stage ** (stages-1) + 1
     node_list = precompute_node_list(stages, max_scenarios_per_stage)
 
     # todo: add warm-start
     for x in range(num_episodes):  # Iterate over episodes
         # Create the environment on cpu
         seed = config.env.seed + x + 1
+        config.env.seed = seed
         set_unique_seed(seed)
         env = make_env(config.env, batch_size=[max_paths], device='cpu')
         # Precompute for each episode
@@ -510,7 +510,7 @@ if __name__ == "__main__":
             # Filter sub-tree for the number of scenarios
             demand = get_scenario_tree_indices(demand, 8)
             # Run the main logic and get results and variables
-            result, var = main(env, demand, stages, max_paths, scen, seed, perfect_information, deterministic)
+            result, var = main(env, demand, scen, stages, max_paths, seed, perfect_information, deterministic)
 
             # Save results for this episode and scenario
             if debug:
