@@ -44,10 +44,7 @@ class MasterPlanningEnv(EnvBase):
         
         ## Init env
         # Seed and generator
-        self.seed = kwargs.get("seed")
-        if self.seed is None:
-            self.seed = torch.empty((), dtype=torch.int64).random_().item()
-        self.set_seed(self.seed)
+        self._set_seed(kwargs.get("seed"))
         self.demand_uncertainty = kwargs.get("demand_uncertainty", False)
         self.generator = MPP_Generator(device=device,**kwargs)
         if td_gen == None:
@@ -393,10 +390,22 @@ class MasterPlanningEnv(EnvBase):
         }, batch_size=batch_size, device=device,)
         return out
 
-    def _set_seed(self, seed: Optional[int]):
-        rng = torch.Generator(device=self.device)
-        rng.manual_seed(seed)
-        self.rng = rng
+    def _set_seed(self, seed: Optional[int] = None) -> int:
+        """
+        Sets the seed for the environment and updates the RNG.
+
+        Args:
+            seed (Optional[int]): The seed to use. If None, a random seed is generated.
+
+        Returns:
+            int: The seed used to initialize the RNG.
+        """
+        self.rng = torch.Generator(device=self.device)
+        if seed is None:
+            seed = self.rng.seed()
+        self.rng.manual_seed(seed)
+        self.seed = seed
+        return seed
 
     # Extraction functions
     def _extract_from_td(self, td, batch_size) -> Tuple:
