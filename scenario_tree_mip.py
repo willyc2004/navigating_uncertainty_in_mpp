@@ -17,17 +17,103 @@ from main import adapt_env_kwargs, make_env
 from environment.utils import get_pol_pod_pair
 from rl_algorithms.utils import set_unique_seed
 
-def main(config, scenarios_per_stage=28, seed=42, perfect_information=False, deterministic=False, warm_start=None):
+
+# Precompute functions
+def precompute_node_list(stages, scenarios_per_stage):
+    """Precompute the list of nodes and their coordinates in the scenario tree"""
+    node_list = []  # List to store the coordinates of all nodes
+    # Loop over each stage, starting from stage 1 (root is stage 1)
+    for stage in range(stages):
+        nodes_in_current_stage = scenarios_per_stage ** (stage)  # Number of nodes at this stage
+
+        # For each node in the current stage
+        for node_id in range(nodes_in_current_stage):
+            node_list.append((stage, node_id))
+
+    return node_list
+
+def precompute_demand(node_list, max_paths, stages, env):
+    """Precompute the demand scenarios for each node in the scenario tree"""
+    td = env.reset()
+    pregen_demand = td["observation", "realized_demand"].detach().cpu().numpy().reshape(-1, env.T, env.K)
+
+    # Preallocate demand array for transport demands
+    demand_ = np.zeros((max_paths, env.K, env.P, env.P))
+    # Precompute transport demands for all paths
+    for transport in range(env.T):
+        pol, pod = get_pol_pod_pair(th.tensor(transport), env.P)
+        demand_[:, :, pol, pod] = pregen_demand[:, transport, :]
+
+    demand_ = demand_.transpose(2, 0, 1, 3)
+
+    # Populate demand scenarios
+    demand_scenarios = {}
+    for (stage, node_id) in node_list:
+        demand_scenarios[stage, node_id] = demand_[stage, node_id + 1, :, :]
+
+    # Real demand
+    real_demand = {}
+    for stage in range(stages):
+        real_demand[stage, max_paths, 0] = demand_[stage, 0, :, :]
+
+    # Allow for perfect information
+    if deterministic:
+        for (stage, node_id) in node_list:
+            demand_scenarios[stage, node_id] = real_demand[stage, max_paths, 0]
+
+    return demand_scenarios, real_demand
+
+def get_scenario_tree_indices(scenario_tree, num_scenarios):
+    """
+    Extracts data from a scenario tree structure, keeping all stages but limiting nodes
+    according to the number of scenarios.
+
+    Args:
+        scenario_tree (dict): Dictionary representing the tree with keys [stage, nodes].
+        num_scenarios (int): Number of scenarios to extract at each stage.
+
+    Returns:
+        dict: Filtered scenario tree with limited nodes at each stage.
+    """
+    filtered_tree = {}
+
+    for (stage, node), value in scenario_tree.items():
+        # Calculate the maximum number of nodes for this stage
+        max_nodes = num_scenarios ** stage
+        # Include only nodes within the allowed range
+        if node < max_nodes:
+            filtered_tree[(stage, node)] = value
+    return filtered_tree
+
+# Support functions
+def get_demand_history(stage, demand, num_nodes_per_stage):
+    """Get the demand history up to the given stage for the given scenario"""
+    if stage > 0:
+        demand_history = []
+        for s in range(stage):
+            for node_id in range(num_nodes_per_stage[s]):
+                # Concatenate predicted demand history for the current scenario up to the given stage
+                demand_history.append(demand[s, node_id,].flatten())
+        return np.array(demand_history)
+    else:
+        # If there's no history (stage 0), return an empty array or some other initialization
+        return np.array([])  # Or use np.zeros((shape,))
+
+def onboard_groups(ports:int, pol:int, transport_indices:list) -> np.array:
+    load_index = np.array([transport_indices.index((pol, i)) for i in range(ports) if i > pol])  # List of cargo groups to load
+    load = np.array([transport_indices[idx] for idx in load_index]).reshape((-1,2))
+    discharge_index = np.array([transport_indices.index((i, pol)) for i in range(ports) if i < pol])  # List of cargo groups to discharge
+    discharge = np.array([transport_indices[idx] for idx in discharge_index]).reshape((-1,2))
+    port_moves = np.vstack([load, discharge]).astype(int)
+    on_board = [(i, j) for i in range(ports) for j in range(ports) if i <= pol and j > pol]  # List of cargo groups to load
+    return np.array(on_board), port_moves, load
+
+# Main function
+def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784,
+         seed=42, perfect_information=False, deterministic=False, warm_start=None):
     # Scenario tree parameters
     M = 10 ** 3 # Big M
-    stages = config.env.ports - 1  # Number of load ports (P-1)
-    max_paths = scenarios_per_stage ** (stages-1) + 1
     num_nodes_per_stage = [1*scenarios_per_stage**stage for stage in range(stages)]
-
-    # Create the environment on cpu
-    env_kwargs = config.env
-    env_kwargs.seed = seed
-    env = make_env(env_kwargs, batch_size=[max_paths], device='cpu')
 
     # Problem parameters
     P = env.P
@@ -45,65 +131,6 @@ def main(config, scenarios_per_stage=28, seed=42, perfect_information=False, det
     capacity = env.capacity.detach().cpu().numpy()
     longitudinal_position = env.longitudinal_position.detach().cpu().numpy()
     vertical_position = env.vertical_position.detach().cpu().numpy()
-
-    # Precompute functions
-    def precompute_node_list(stages, scenarios_per_stage):
-        """Precompute the list of nodes and their coordinates in the scenario tree"""
-        node_list = []  # List to store the coordinates of all nodes
-        # Loop over each stage, starting from stage 1 (root is stage 1)
-        for stage in range(stages):
-            nodes_in_current_stage = scenarios_per_stage ** (stage)  # Number of nodes at this stage
-
-            # For each node in the current stage
-            for node_id in range(nodes_in_current_stage):
-                node_list.append((stage, node_id))
-
-        return node_list
-
-    def precompute_demand(node_list):
-        """Precompute the demand scenarios for each node in the scenario tree"""
-        td = env.reset()
-        pregen_demand = td["observation", "realized_demand"].detach().cpu().numpy().reshape(-1, T, K)
-
-        # Preallocate demand array for transport demands
-        demand_ = np.zeros((max_paths, K, P, P))
-        # Precompute transport demands for all paths
-        for transport in range(T):
-            pol, pod = get_pol_pod_pair(th.tensor(transport), P)
-            demand_[:, :, pol, pod] = pregen_demand[:, transport, :]
-
-        demand_ = demand_.transpose(2, 0, 1, 3)
-
-        # Populate demand scenarios
-        demand_scenarios = {}
-        for (stage, node_id) in node_list:
-            demand_scenarios[stage, node_id] = demand_[stage, node_id, :, :]
-
-        # Real demand
-        real_demand = {}
-        for stage in range(stages):
-            real_demand[stage, max_paths, 0] = demand_[stage, -1, :, :]
-
-        # Allow for perfect information
-        if deterministic:
-            for (stage, node_id) in node_list:
-                demand_scenarios[stage, node_id] = real_demand[stage, max_paths, 0]
-
-        return demand_scenarios, real_demand
-
-    def get_demand_history(stage, demand):
-        """Get the demand history up to the given stage for the given scenario"""
-        if stage > 0:
-            demand_history = []
-            for s in range(stage):
-                for node_id in range(num_nodes_per_stage[s]):
-                    # Concatenate predicted demand history for the current scenario up to the given stage
-                    demand_history.append(demand[s, node_id,].flatten())
-            return np.array(demand_history)
-        else:
-            # If there's no history (stage 0), return an empty array or some other initialization
-            return np.array([])  # Or use np.zeros((shape,))
-
 
     # Create a CPLEX model
     mdl = Model(name="multistage_mpp")
@@ -125,15 +152,6 @@ def main(config, scenarios_per_stage=28, seed=42, perfect_information=False, det
     all_load_moves = []
     transport_indices = [(i, j) for i in range(P) for j in range(P) if i < j]
 
-    # Function to compute relevant sets for each stage
-    def onboard_groups(ports:int, pol:int, transport_indices:list) -> np.array:
-        load_index = np.array([transport_indices.index((pol, i)) for i in range(ports) if i > pol])  # List of cargo groups to load
-        load = np.array([transport_indices[idx] for idx in load_index]).reshape((-1,2))
-        discharge_index = np.array([transport_indices.index((i, pol)) for i in range(ports) if i < pol])  # List of cargo groups to discharge
-        discharge = np.array([transport_indices[idx] for idx in discharge_index]).reshape((-1,2))
-        port_moves = np.vstack([load, discharge]).astype(int)
-        on_board = [(i, j) for i in range(ports) for j in range(ports) if i <= pol and j > pol]  # List of cargo groups to load
-        return np.array(on_board), port_moves, load
 
     def generate_mip_start(warm_start_values, stages, num_nodes_per_stage, B, D, K, P):
         """
@@ -223,9 +241,9 @@ def main(config, scenarios_per_stage=28, seed=42, perfect_information=False, det
                         )
 
                         if not perfect_information:
-                            demand_history1 = get_demand_history(stage, demand)
+                            demand_history1 = get_demand_history(stage, demand, num_nodes_per_stage)
                             for node_id2 in range(node_id + 1, num_nodes_per_stage[stage]):
-                                demand_history2 = get_demand_history(stage, demand)
+                                demand_history2 = get_demand_history(stage, demand, num_nodes_per_stage)
                                 if np.allclose(demand_history1, demand_history2, atol=1e-5):  # Use a tolerance if floats
                                     for k in range(K):
                                         for (i, j) in load_moves:
@@ -320,11 +338,6 @@ def main(config, scenarios_per_stage=28, seed=42, perfect_information=False, det
         if mip_start:
             mdl.add_mip_start({x[key]: value for key, value in mip_start.items()}, write_level=1)
 
-    # Precompute nodelist and demand
-    node_list = precompute_node_list(stages, scenarios_per_stage)
-    demand, real_demand = precompute_demand(node_list)
-    print(real_demand)
-    breakpoint()
     # Generate MIP warm start
     # todo: add warm_start tensor
     if warm_start is not None:
@@ -468,34 +481,67 @@ if __name__ == "__main__":
         config = adapt_env_kwargs(config)
 
     # Run main for different seeds and number of scenarios
-    perfect_information = True
+    perfect_information = False
     deterministic = False
     debug = False
     generalization = config.env.generalization
-
     num_episodes = config.testing.num_episodes
 
     if not deterministic:
-        num_scenarios = [4,8,12,16,20,24,28] if not generalization else [28]
+        num_scenarios = [4,8] #,12,16,20,24,28] if not generalization else [28]
     else:
         num_scenarios = [1]
-    # todo: add warm-start
-    for scen in num_scenarios: # 32
-        results = []
-        vars = []
-        for x in range(num_episodes):
-            seed = config.env.seed + x + 1
-            set_unique_seed(seed)
-            result, var = main(config, scen, seed, perfect_information, deterministic)
-            results.append(result)
-            vars.append(var)
 
-        if debug:
-            with open(f"./test_results/scenario_tree/results_scenario_tree_debug.json", "w") as json_file:
-                json.dump(results, json_file, indent=4)
-        else:
-            # Save results to a JSON file
-            with open(f"./test_results/scenario_tree/results_scenario_tree_s{scen}_pi{perfect_information}_gen{generalization}.json", "w") as json_file:
-                json.dump(results, json_file, indent=4)
-            with open(f"./test_results/scenario_tree/variables_scenario_tree_s{scen}_pi{perfect_information}_gen{generalization}.json", "w") as json_file:
-                json.dump(results, json_file, indent=4)
+    # Precompute largest scenario tree
+    stages = config.env.ports - 1  # Number of load ports (P-1)
+    max_scenarios_per_stage = max(num_scenarios)  # Number of scenarios per stage
+    max_paths = max_scenarios_per_stage ** (stages-1)
+    node_list = precompute_node_list(stages, max_scenarios_per_stage)
+
+    # todo: add warm-start
+    for x in range(num_episodes):  # Iterate over episodes
+        # Create the environment on cpu
+        seed = config.env.seed + x + 1
+        set_unique_seed(seed)
+        env = make_env(config.env, batch_size=[max_paths], device='cpu')
+        # Precompute for each episode
+        demand, real_demand = precompute_demand(node_list, max_paths, stages, env)
+        for scen in num_scenarios:  # Iterate over scenarios
+            # Filter sub-tree for the number of scenarios
+            demand = get_scenario_tree_indices(demand, 8)
+            # Run the main logic and get results and variables
+            result, var = main(env, demand, stages, max_paths, scen, seed, perfect_information, deterministic)
+
+            # Save results for this episode and scenario
+            if debug:
+                # Save debug results
+                with open(f"./test_results/scenario_tree/results_scenario_tree_e{x}_s{scen}_debug.json","w") as json_file:
+                    json.dump(result, json_file, indent=4)
+            else:
+                # Save regular results
+                with open(f"./test_results/scenario_tree/results_scenario_tree_e{x}_s{scen}_pi{perfect_information}"
+                        f"_gen{generalization}.json", "w") as json_file:
+                    json.dump(result, json_file, indent=4)
+                with open(f"./test_results/scenario_tree/variables_scenario_tree_e{x}_s{scen}_pi{perfect_information}"
+                        f"_gen{generalization}.json", "w") as json_file:
+                    json.dump(var, json_file, indent=4)
+
+    # for scen in num_scenarios: # 32
+    #     results = []
+    #     vars = []
+    #     for x in range(num_episodes):
+    #         seed = config.env.seed + x + 1
+    #         set_unique_seed(seed)
+    #         result, var = main(config, demand , scen, seed, perfect_information, deterministic)
+    #         results.append(result)
+    #         vars.append(var)
+    #
+    #     if debug:
+    #         with open(f"./test_results/scenario_tree/results_scenario_tree_debug.json", "w") as json_file:
+    #             json.dump(results, json_file, indent=4)
+    #     else:
+    #         # Save results to a JSON file
+    #         with open(f"./test_results/scenario_tree/results_scenario_tree_s{scen}_pi{perfect_information}_gen{generalization}.json", "w") as json_file:
+    #             json.dump(results, json_file, indent=4)
+    #         with open(f"./test_results/scenario_tree/variables_scenario_tree_s{scen}_pi{perfect_information}_gen{generalization}.json", "w") as json_file:
+    #             json.dump(results, json_file, indent=4)
