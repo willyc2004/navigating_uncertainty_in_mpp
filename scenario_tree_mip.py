@@ -36,6 +36,8 @@ def precompute_demand(node_list, max_paths, stages, env):
     """Precompute the demand scenarios for each node in the scenario tree"""
     td = env.reset()
     pregen_demand = td["observation", "realized_demand"].detach().cpu().numpy().reshape(-1, env.T, env.K)
+    # print("pregen_demand", pregen_demand.mean(axis=0).sum(axis=-1))
+    # print("pregen_demand", pregen_demand[0])
 
     # Preallocate demand array for transport demands
     demand_ = np.zeros((max_paths, env.K, env.P, env.P))
@@ -43,13 +45,17 @@ def precompute_demand(node_list, max_paths, stages, env):
     for transport in range(env.T):
         pol, pod = get_pol_pod_pair(th.tensor(transport), env.P)
         demand_[:, :, pol, pod] = pregen_demand[:, transport, :]
+        # print("demand_", demand_[0])
+    # print("demand_", demand_[0])
+    # print("-----------------")
 
     demand_ = demand_.transpose(2, 0, 1, 3)
 
     # Populate demand scenarios
+    # todo: so here something changes in the demand; demand_ is correct, but demand_scenarios is different
     demand_scenarios = {}
     for (stage, node_id) in node_list:
-        demand_scenarios[stage, node_id] = demand_[stage, node_id + 1, :, :]
+        demand_scenarios[stage, node_id] = demand_[stage, node_id, :, :]
 
     # todo: Allow for deterministic - just take scenarios 0
     # Real demand
@@ -487,13 +493,14 @@ if __name__ == "__main__":
     num_episodes = config.testing.num_episodes
 
     if not deterministic:
-        num_scenarios = [4,8, 12,16,20,24,28] if not generalization else [28]
+        num_scenarios = [4,8,12,16,20,24,28] if not generalization else [28]
     else:
         num_scenarios = [1]
 
     # Precompute largest scenario tree
     stages = config.env.ports - 1  # Number of load ports (P-1)
-    max_scenarios_per_stage = max(num_scenarios)  # Number of scenarios per stage
+    max_scenarios_per_stage = max(num_scenarios) if max(num_scenarios) >= 28 else 28
+    # Number of scenarios per stage
     max_paths = max_scenarios_per_stage ** (stages-1) + 1
     node_list = precompute_node_list(stages, max_scenarios_per_stage)
 
@@ -505,12 +512,14 @@ if __name__ == "__main__":
         set_unique_seed(seed)
         env = make_env(config.env, batch_size=[max_paths], device='cpu')
         # Precompute for each episode
-        demand, real_demand = precompute_demand(node_list, max_paths, stages, env)
+        demand_tree, real_demand = precompute_demand(node_list, max_paths, stages, env)
+
         for scen in num_scenarios:  # Iterate over scenarios
             # Filter sub-tree for the number of scenarios
-            demand = get_scenario_tree_indices(demand, 8)
+            demand_sub_tree = get_scenario_tree_indices(demand_tree, scen)
+
             # Run the main logic and get results and variables
-            result, var = main(env, demand, scen, stages, max_paths, seed, perfect_information, deterministic)
+            result, var = main(env, demand_sub_tree, scen, stages, max_paths, seed, perfect_information, deterministic)
 
             # Save results for this episode and scenario
             if debug:
