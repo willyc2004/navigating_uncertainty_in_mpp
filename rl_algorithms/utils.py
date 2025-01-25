@@ -1,6 +1,8 @@
 from typing import Optional, Dict
 from dotmap import DotMap
 from tensordict import TensorDict
+import numpy as np
+import random
 import torch
 from environment.env import MasterPlanningEnv
 from environment.utils import compute_violation
@@ -32,3 +34,10 @@ def check_for_nans(tensor, name):
         raise ValueError(f"NaN detected in {name}")
     if torch.isinf(tensor).any():
         raise ValueError(f"Inf detected in {name}")
+
+def set_unique_seed(batch_index, base_seed=42):
+    """Set a unique seed per batch."""
+    seed = base_seed + batch_index
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)

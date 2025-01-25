@@ -15,8 +15,9 @@ path_to_main = os.path.abspath(os.path.join(os.path.dirname(__file__), ''))
 sys.path.append(path_to_main)
 from main import adapt_env_kwargs, make_env
 from environment.utils import get_pol_pod_pair
+from rl_algorithms.utils import set_unique_seed
 
-def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, deterministic=False, warm_start=None):
+def main(config, scenarios_per_stage=28, seed=42, perfect_information=False, deterministic=False, warm_start=None):
     # Scenario tree parameters
     M = 10 ** 3 # Big M
     stages = config.env.ports - 1  # Number of load ports (P-1)
@@ -322,6 +323,8 @@ def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, det
     # Precompute nodelist and demand
     node_list = precompute_node_list(stages, scenarios_per_stage)
     demand, real_demand = precompute_demand(node_list)
+    print(real_demand)
+    breakpoint()
     # Generate MIP warm start
     # todo: add warm_start tensor
     if warm_start is not None:
@@ -457,13 +460,6 @@ def main(config, scenarios_per_stage=32, seed=42, perfect_information=False, det
         # Print the error
         print("No solution found")
 
-def set_unique_seed(batch_index, base_seed=42):
-    """Set a unique seed per batch."""
-    seed = base_seed + batch_index
-    th.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-
 if __name__ == "__main__":
     # Load the configuration file
     with open(f'{path_to_main}/config.yaml', 'r') as file:
@@ -472,8 +468,8 @@ if __name__ == "__main__":
         config = adapt_env_kwargs(config)
 
     # Run main for different seeds and number of scenarios
-    perfect_information = False
-    deterministic = True
+    perfect_information = True
+    deterministic = False
     debug = False
     generalization = config.env.generalization
 
@@ -484,7 +480,6 @@ if __name__ == "__main__":
     else:
         num_scenarios = [1]
     # todo: add warm-start
-
     for scen in num_scenarios: # 32
         results = []
         vars = []
