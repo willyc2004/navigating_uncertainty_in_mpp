@@ -101,7 +101,6 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     lr = kwargs["training"]["lr"]
     batch_size = kwargs["model"]["batch_size"]
     mini_batch_size = int(kwargs["algorithm"]["mini_batch_size"] * batch_size)
-    n_step = kwargs["algorithm"]["n_step"]
     num_epochs = kwargs["algorithm"]["ppo_epochs"]
     gamma = kwargs["algorithm"]["gamma"]
     gae_lambda = kwargs["algorithm"]["gae_lambda"]
@@ -119,6 +118,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
 
     # Environment
     train_env = make_env(env_kwargs=kwargs["env"], batch_size=[batch_size], device=device)
+    n_step = train_env.T * train_env.K
 
     # Optimizer, loss module, data collector, and scheduler
     advantage_module = GAE(gamma=gamma, lmbda=gae_lambda, value_network=critic, average_gae=True)

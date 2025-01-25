@@ -197,7 +197,8 @@ def main(config: Optional[DotMap] = None):
         # Extract trained hyperparameters
         config_load_path = f"{path}/config.yaml"
         loaded_config = load_config(config_load_path)
-        # Override the testing configuration for cv and generalization
+        # Override the loaded configuration based on config.yaml
+        loaded_config.env.ports = config.env.ports
         loaded_config.env.cv_demand = config.env.cv_demand
         loaded_config.env.generalization = config.env.generalization
 
