@@ -3,6 +3,7 @@ import torch
 import math
 from rl_algorithms.utils import make_env
 from rl_algorithms.train import get_performance_metrics
+from rl_algorithms.utils import set_unique_seed
 
 # Functions
 def get_z_score_torch(confidence_level):
@@ -60,13 +61,17 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     """
     # Extract evaluation hyperparameters
     env_kwargs = config.env
-    batch_size = config.model.get("batch_size", 2)
     num_episodes = kwargs.get("num_episodes", 10)
 
-    # Create the test environment # todo: error with batch_size [1]
-    test_env = make_env(env_kwargs=env_kwargs, batch_size=[batch_size], device=device)  # Single batch for evaluation
+    # Create the test environment
+    # Use same batch size as scenario tree to get same instance
+    stages = config.env.ports - 1  # Number of load ports (P-1)
+    max_scenarios_per_stage = 28  # Number of scenarios per stage
+    max_paths = max_scenarios_per_stage ** (stages-1) + 1
+    test_env = make_env(env_kwargs, batch_size=[max_paths], device=device)
     n_step = test_env.T * test_env.K  # Maximum steps per episode (T x K)
-    test_env.eval()  # Set environment to evaluation mode
+
+    # Set policy to evaluation mode
     policy.eval()  # Set policy to evaluation mode
 
     # Initialize metrics storage
@@ -77,18 +82,25 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     }
 
     with torch.no_grad():
-        # Warm-up phase
-        for _ in range(10):
-            _ = test_env.rollout(
-                policy=policy,
-                max_steps=n_step,
-                auto_reset=True,
-            )
+        # # Warm-up phase
+        # for _ in range(10):
+        #     _ = use_env.rollout(
+        #         policy=policy,
+        #         max_steps=n_step,
+        #         auto_reset=True,
+        #     )
 
         # Evaluation phase
         for episode in range(num_episodes):
-            # Test on different seeds
-            test_env.set_seed(episode + 1 + config.env.seed)
+            # Update seeds
+            seed = config.env.seed + episode + 1
+            set_unique_seed(seed)
+            config.env.seed = seed
+
+            # Setup new environment on cpu (same instance as scenario tree)
+            test_env = make_env(config.env, batch_size=[max_paths], device='cpu')
+            td = test_env.reset().to(device)
+            pregen_demand = td["observation", "realized_demand"].reshape(-1, test_env.T, test_env.K)
 
             # Synchronize and measure inference time
             torch.cuda.synchronize() if device.type == "cuda" else None
@@ -110,21 +122,21 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
             metrics["total_violations"][episode] = trajectory["violation"].mean(dim=0).sum()
             metrics["inference_times"][episode] = end_time - start_time
 
-
-
             # Print to analyze
+            print("real_demand", trajectory["observation"]["realized_demand"][-1,0,])
+            breakpoint()
             demand_violations = trajectory["action"].mean(dim=0).sum(dim=-1) - trajectory["observation"]["realized_demand"][:,0,].mean(dim=0)
             backorders = trajectory["observation"]["realized_demand"][:,0,].mean(dim=0) - trajectory["action"].mean(dim=0).sum(dim=-1)
 
-
             max_demand = trajectory["observation"]["realized_demand"].max().clamp(max=test_env.generator.train_max_demand)
-            print("max_demand", max_demand, "train_max_demand", test_env.generator.train_max_demand)
-            print("real_demand(mean,std)", trajectory["observation"]["realized_demand"].mean(), trajectory["observation"]["realized_demand"].std())
-            print("realized_demand", trajectory["observation"]["realized_demand"][:,0,].mean(dim=0))
-            print("norm_realized_demand", trajectory["observation"]["realized_demand"][:, 0,].mean(dim=0) / trajectory["observation"]["realized_demand"].max())
-            print("action", trajectory["action"][0].sum(dim=-1))
-            print("demand_viol", demand_violations.clamp(min=0).sum())
-            print("backorders", backorders.clamp(min=0).sum())
+            # print("max_demand", max_demand, "train_max_demand", test_env.generator.train_max_demand)
+            # print("real_demand(mean,std)", trajectory["observation"]["realized_demand"].mean(), trajectory["observation"]["realized_demand"].std())
+            # print("realized_demand", trajectory["observation"]["realized_demand"][:,0,].mean(dim=0))
+            # print("norm_realized_demand", trajectory["observation"]["realized_demand"][:, 0,].mean(dim=0) / trajectory["observation"]["realized_demand"].max())
+            # print("action", trajectory["action"][0].sum(dim=-1))
+            # print("demand_viol", demand_violations.clamp(min=0).sum())
+            # print("backorders", backorders.clamp(min=0).sum())
+            # breakpoint()
 
     # Summarize episode-level metrics (mean and std)
     summary_stats = compute_summary_stats(metrics)
