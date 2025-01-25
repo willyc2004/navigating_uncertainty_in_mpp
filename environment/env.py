@@ -440,7 +440,8 @@ class MasterPlanningEnv(EnvBase):
                          agg_pol_location, agg_pod_location, t, batch_size) -> Tensor:
         """Get observation from the TensorDict."""
         if self.normalize_obs:
-            max_demand = next_state_dict["realized_demand"].max()
+            # Normalize demand and clip max demand based on train range
+            max_demand = next_state_dict["realized_demand"].max().clamp(max=self.generator.train_max_demand)
             out = th.cat([
                 t.view(*batch_size, 1) / (self.T * self.K),
                 next_state_dict["observed_demand"].view(*batch_size, self.T * self.K) / max_demand,

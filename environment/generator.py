@@ -132,6 +132,7 @@ class MPP_Generator(Generator):
         else:
             std_x = self._create_std_x(e_x_init_demand, self.cv_demand)
             e_x, std_x, dist = self._iid_normal_distribution(e_x_init_demand, std_x,)
+            self.train_max_demand = (e_x + 4 * (e_x*0.5)).max() # add fixed ub for demand normalization
 
         if self.generalization:
             dist = self._generalization_uniform_distribution(e_x, std_x)
