@@ -2,10 +2,12 @@ import json
 import numpy as np
 
 # Load JSON file
-s = 20
+s = 4
 episodes = 30
 perfect_information = False
 gen = False
+cv = 0.7
+path = f'testing/cv={cv}'
 
 obj = []
 time = []
@@ -14,7 +16,7 @@ total_demand = []
 total_revenue = []
 total_cost = []
 for e in range(episodes):
-    with open(f'results_scenario_tree_e{e}_s{s}_pi{perfect_information}_gen{gen}.json', 'r') as file:
+    with open(f'{path}/results_scenario_tree_e{e}_s{s}_pi{perfect_information}_gen{gen}.json', 'r') as file:
         x = json.load(file)
         obj.append(x["obj"])
         time.append(x["time"])
