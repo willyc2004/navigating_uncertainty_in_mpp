@@ -62,7 +62,7 @@ class MPP_Generator(Generator):
         self.tr_ob = th.repeat_interleave(self.num_ob, self.num_loads)
 
         # todo: only added for the models trained before 26/01/2025
-        self.train_max_demand = 0 # None
+        self.train_max_demand = 0 # None # todo: fix this, because it is not nice to have this here
 
     def __call__(self, batch_size, td: Optional[TensorDict] = None, rng:Optional=None) -> TensorDict:
         batch_size = [batch_size] if isinstance(batch_size, int) else batch_size
