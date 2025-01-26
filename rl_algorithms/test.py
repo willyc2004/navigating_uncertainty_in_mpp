@@ -83,14 +83,13 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     }
 
     with torch.no_grad():
-        # todo: uncomment warm-up phase
-        # # Warm-up phase
-        # for _ in range(10):
-        #     _ = use_env.rollout(
-        #         policy=policy,
-        #         max_steps=n_step,
-        #         auto_reset=True,
-        #     )
+        # Warm-up phase
+        for _ in range(10):
+            _ = test_env.rollout(
+                policy=policy,
+                max_steps=n_step,
+                auto_reset=True,
+            )
 
         for episode in range(num_episodes):
             # Update seeds
@@ -118,24 +117,10 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
             torch.cuda.synchronize() if device.type == "cuda" else None
             end_time = time.perf_counter()
 
-            # Extract episode-level metrics
-            metrics["total_profit"][episode] = trajectory["profit"].mean(dim=0).sum()
-            metrics["total_violations"][episode] = trajectory["violation"].mean(dim=0).sum()
+            # Extract episode-level metrics - use batch = 0 for ground truth instance
+            metrics["total_profit"][episode] = trajectory["profit"][0].sum()
+            metrics["total_violations"][episode] = trajectory["violation"][0].sum()
             metrics["inference_times"][episode] = end_time - start_time
-
-            # # Print to analyze
-            # demand_violations = trajectory["action"].mean(dim=0).sum(dim=-1) - trajectory["observation"]["realized_demand"][:,0,].mean(dim=0)
-            # backorders = trajectory["observation"]["realized_demand"][:,0,].mean(dim=0) - trajectory["action"].mean(dim=0).sum(dim=-1)
-            #
-            # max_demand = trajectory["observation"]["realized_demand"].max().clamp(max=test_env.generator.train_max_demand)
-            # print("max_demand", max_demand, "train_max_demand", test_env.generator.train_max_demand)
-            # print("real_demand(mean,std)", trajectory["observation"]["realized_demand"].mean(), trajectory["observation"]["realized_demand"].std())
-            # print("realized_demand", trajectory["observation"]["realized_demand"][:,0,].mean(dim=0))
-            # print("norm_realized_demand", trajectory["observation"]["realized_demand"][:, 0,].mean(dim=0) / trajectory["observation"]["realized_demand"].max())
-            # print("action", trajectory["action"][0].sum(dim=-1))
-            # print("demand_viol", demand_violations.clamp(min=0).sum())
-            # print("backorders", backorders.clamp(min=0).sum())
-            # breakpoint()
 
     # Summarize episode-level metrics (mean and std)
     summary_stats = compute_summary_stats(metrics)
