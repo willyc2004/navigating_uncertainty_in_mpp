@@ -12,6 +12,7 @@ class MPPInitEmbedding(nn.Module):
         # Store environment and sequence size
         self.env = env
         self.seq_dim = seq_dim
+        self.train_max_demand = self.env.generator.train_max_demand
 
         # Embedding layers
         if env.name == "mpp":
@@ -46,7 +47,7 @@ class MPPInitEmbedding(nn.Module):
     def forward(self, td: Tensor,):
         batch_size = td.shape[0]
         cargo_parameters = self._combine_cargo_parameters(batch_size=batch_size)
-        max_demand = td["realized_demand"].max()
+        max_demand = td["realized_demand"].max() if self.train_max_demand == None else self.train_max_demand
         if td["expected_demand"].dim() == 2:
             expected_demand = td["expected_demand"].unsqueeze(-1) / max_demand
             std_demand = td["std_demand"].unsqueeze(-1) / max_demand
@@ -67,15 +68,16 @@ class MPPObservationEmbedding(nn.Module):
     - Embeds the state of the MPP for the context
     """
 
-    def __init__(self, action_dim, embed_dim, seq_dim, env, demand_aggregation="full",):
+    def __init__(self, action_dim, embed_dim, seq_dim, env, demand_aggregation="full"):
         super(MPPObservationEmbedding, self).__init__()
         self.env = env
         self.seq_dim = seq_dim
         self.project_context = nn.Linear(embed_dim + 143, embed_dim,)
+        self.train_max_demand = self.env.generator.train_max_demand
 
     def normalize_obs(self, td):
         batch_size = td.batch_size
-        max_demand = td["realized_demand"].max()
+        max_demand = td["realized_demand"].max() if self.train_max_demand == None else self.train_max_demand
         return torch.cat([
             (td["observed_demand"] / max_demand ).view(*batch_size, self.env.T * self.env.K),
             (td["residual_capacity"] / self.env.capacity.view(1, self.env.B * self.env.D)).view(*batch_size, self.env.B * self.env.D),
@@ -143,11 +145,12 @@ class MPPDynamicEmbedding(nn.Module):
         self.env = env
         self.seq_dim = seq_dim
         self.project_dynamic = nn.Linear(embed_dim + 1, 3 * embed_dim)
+        self.train_max_demand = self.env.generator.train_max_demand
 
     def forward(self, latent_state: Optional[Tensor], td: Tensor):
         """Embed the dynamic demand for the MPP"""
         # Get relevant demand embeddings
-        max_demand = td["realized_demand"].max()
+        max_demand = td["realized_demand"].max() if self.train_max_demand == None else self.train_max_demand
         if td["observed_demand"].dim() == 2:
             observed_demand = td["observed_demand"].unsqueeze(-1) / max_demand
         else:
