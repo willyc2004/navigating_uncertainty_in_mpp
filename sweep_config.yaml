@@ -34,5 +34,5 @@ parameters:
     min: 0.0
     max: 0.2
   alpha:
-    min: 0.000001
-    max: 0.005
+    min: 0.001
+    max: 0.05
