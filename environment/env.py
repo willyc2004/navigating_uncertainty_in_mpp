@@ -79,18 +79,9 @@ class MasterPlanningEnv(EnvBase):
         self.stability_params_lhs = self._precompute_stability_parameters()
 
         # Step ordering:
-        # to do: clean up
+        # todo: clean up
         # descending distance, longterm > spot; ascending TEU, ascending weight
-        self.ordering = kwargs.get("episode_order")
-        if self.ordering == "max_distance_then_priority":
-            self.ordered_steps = self._precompute_order_max_distance_then_priority()
-        elif self.ordering == "greedy_revenue":
-            self.ordered_steps = self._precompute_order_greedy_revenue()
-        elif self.ordering == "priority_then_greedy":
-            raise NotImplementedError("Priority then greedy ordering is not implemented yet.")
-        else:
-            self.ordered_steps = self._precompute_order_standard()
-        self.k, self.tau = get_k_tau_pair(self.ordered_steps, self.K)
+        self.k, self.tau = get_k_tau_pair(self._precompute_order_standard(), self.K)
         self.pol, self.pod = get_pol_pod_pair(self.tau, self.P)
         self.revenues = self.revenues_matrix[self.k, self.tau]
         self._precompute_transport_sets_episode()
@@ -552,8 +543,7 @@ class MasterPlanningEnv(EnvBase):
 
     def create_lhs_A(self, t:Tensor) -> Tensor:
         """Get A_t based on ordered timestep"""
-        order_t = self.ordered_steps[t]
-        lhs_A = self.A[..., order_t].permute((2, 0, 1,)).contiguous()
+        lhs_A = self.A[..., t].permute((2, 0, 1,)).contiguous()
         return lhs_A
 
     def create_rhs(self, utilization:Tensor, current_demand:Tensor, batch_size) -> Tensor:
