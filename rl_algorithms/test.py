@@ -83,6 +83,7 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     }
 
     with torch.no_grad():
+        # todo: uncomment warm-up phase
         # # Warm-up phase
         # for _ in range(10):
         #     _ = use_env.rollout(
@@ -122,13 +123,11 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
             metrics["total_violations"][episode] = trajectory["violation"].mean(dim=0).sum()
             metrics["inference_times"][episode] = end_time - start_time
 
-            # Print to analyze
-            print("real_demand", trajectory["observation"]["realized_demand"][0,0,])
-            breakpoint()
-            demand_violations = trajectory["action"].mean(dim=0).sum(dim=-1) - trajectory["observation"]["realized_demand"][:,0,].mean(dim=0)
-            backorders = trajectory["observation"]["realized_demand"][:,0,].mean(dim=0) - trajectory["action"].mean(dim=0).sum(dim=-1)
-
-            max_demand = trajectory["observation"]["realized_demand"].max().clamp(max=test_env.generator.train_max_demand)
+            # # Print to analyze
+            # demand_violations = trajectory["action"].mean(dim=0).sum(dim=-1) - trajectory["observation"]["realized_demand"][:,0,].mean(dim=0)
+            # backorders = trajectory["observation"]["realized_demand"][:,0,].mean(dim=0) - trajectory["action"].mean(dim=0).sum(dim=-1)
+            #
+            # max_demand = trajectory["observation"]["realized_demand"].max().clamp(max=test_env.generator.train_max_demand)
             # print("max_demand", max_demand, "train_max_demand", test_env.generator.train_max_demand)
             # print("real_demand(mean,std)", trajectory["observation"]["realized_demand"].mean(), trajectory["observation"]["realized_demand"].std())
             # print("realized_demand", trajectory["observation"]["realized_demand"][:,0,].mean(dim=0))
