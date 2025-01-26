@@ -480,14 +480,14 @@ if __name__ == "__main__":
         config = adapt_env_kwargs(config)
 
     # Run main for different seeds and number of scenarios
-    perfect_information = True
+    perfect_information = False
     deterministic = False
     debug = False
     generalization = config.env.generalization
     num_episodes = config.testing.num_episodes
 
     if not deterministic:
-        num_scenarios = [4,8,12,16,20,24,28] if not generalization else [28]
+        num_scenarios = [24,]# 4,8,12,16,20,24,28] if not generalization else [28]
     else:
         num_scenarios = [1]
 
@@ -525,6 +525,3 @@ if __name__ == "__main__":
                 with open(f"./test_results/scenario_tree/results_scenario_tree_e{x}_s{scen}_pi{perfect_information}"
                         f"_gen{generalization}.json", "w") as json_file:
                     json.dump(result, json_file, indent=4)
-                with open(f"./test_results/scenario_tree/variables_scenario_tree_e{x}_s{scen}_pi{perfect_information}"
-                        f"_gen{generalization}.json", "w") as json_file:
-                    json.dump(var, json_file, indent=4)
