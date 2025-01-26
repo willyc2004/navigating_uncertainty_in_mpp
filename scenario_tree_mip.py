@@ -487,7 +487,7 @@ if __name__ == "__main__":
     num_episodes = config.testing.num_episodes
 
     if not deterministic:
-        num_scenarios = [24,]# 4,8,12,16,20,24,28] if not generalization else [28]
+        num_scenarios = [28,]# 4,8,12,16,20,24,28] if not generalization else [28]
     else:
         num_scenarios = [1]
 
