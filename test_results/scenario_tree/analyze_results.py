@@ -2,12 +2,13 @@ import json
 import numpy as np
 
 # Load JSON file
-s = 4
+s = 28
 episodes = 30
-perfect_information = False
-gen = False
-cv = 0.7
-path = f'testing/cv={cv}'
+perfect_information = True
+gen = True
+cv = 0.5
+folder = 'testing' if not gen else 'generalization'
+path = f'{folder}/cv={cv}'
 
 obj = []
 time = []
