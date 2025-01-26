@@ -36,8 +36,6 @@ def precompute_demand(node_list, max_paths, stages, env):
     """Precompute the demand scenarios for each node in the scenario tree"""
     td = env.reset()
     pregen_demand = td["observation", "realized_demand"].detach().cpu().numpy().reshape(-1, env.T, env.K)
-    # print("pregen_demand", pregen_demand.mean(axis=0).sum(axis=-1))
-    # print("pregen_demand", pregen_demand[0])
 
     # Preallocate demand array for transport demands
     demand_ = np.zeros((max_paths, env.K, env.P, env.P))
@@ -45,14 +43,10 @@ def precompute_demand(node_list, max_paths, stages, env):
     for transport in range(env.T):
         pol, pod = get_pol_pod_pair(th.tensor(transport), env.P)
         demand_[:, :, pol, pod] = pregen_demand[:, transport, :]
-        # print("demand_", demand_[0])
-    # print("demand_", demand_[0])
-    # print("-----------------")
 
     demand_ = demand_.transpose(2, 0, 1, 3)
 
     # Populate demand scenarios
-    # todo: so here something changes in the demand; demand_ is correct, but demand_scenarios is different
     demand_scenarios = {}
     for (stage, node_id) in node_list:
         demand_scenarios[stage, node_id] = demand_[stage, node_id, :, :]

@@ -1,6 +1,7 @@
 import time
 import torch
 import math
+from tensordict import TensorDict
 from rl_algorithms.utils import make_env
 from rl_algorithms.train import get_performance_metrics
 from rl_algorithms.utils import set_unique_seed
@@ -90,7 +91,6 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
         #         auto_reset=True,
         #     )
 
-        # Evaluation phase
         for episode in range(num_episodes):
             # Update seeds
             seed = config.env.seed + episode + 1
@@ -98,19 +98,19 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
             config.env.seed = seed
 
             # Setup new environment on cpu (same instance as scenario tree)
-            test_env = make_env(config.env, batch_size=[max_paths], device='cpu')
-            td = test_env.reset().to(device)
-            pregen_demand = td["observation", "realized_demand"].reshape(-1, test_env.T, test_env.K)
+            gen_env = make_env(config.env, batch_size=[max_paths], device='cpu')
+            td = gen_env.reset().to(device)
 
             # Synchronize and measure inference time
             torch.cuda.synchronize() if device.type == "cuda" else None
             start_time = time.perf_counter()
 
-            # Perform rollout
+            # # Perform rollout
             trajectory = test_env.rollout(
                 policy=policy,
                 max_steps=n_step,
-                auto_reset=True,
+                auto_reset=False,
+                tensordict=td,
             )
 
             # Synchronize and measure inference time
@@ -123,7 +123,7 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
             metrics["inference_times"][episode] = end_time - start_time
 
             # Print to analyze
-            print("real_demand", trajectory["observation"]["realized_demand"][-1,0,])
+            print("real_demand", trajectory["observation"]["realized_demand"][0,0,])
             breakpoint()
             demand_violations = trajectory["action"].mean(dim=0).sum(dim=-1) - trajectory["observation"]["realized_demand"][:,0,].mean(dim=0)
             backorders = trajectory["observation"]["realized_demand"][:,0,].mean(dim=0) - trajectory["action"].mean(dim=0).sum(dim=-1)
