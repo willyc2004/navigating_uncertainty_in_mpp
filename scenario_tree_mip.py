@@ -486,7 +486,7 @@ if __name__ == "__main__":
         config = adapt_env_kwargs(config)
 
     # Run main for different seeds and number of scenarios
-    perfect_information = False
+    perfect_information = True
     deterministic = False
     debug = False
     generalization = config.env.generalization
@@ -534,23 +534,3 @@ if __name__ == "__main__":
                 with open(f"./test_results/scenario_tree/variables_scenario_tree_e{x}_s{scen}_pi{perfect_information}"
                         f"_gen{generalization}.json", "w") as json_file:
                     json.dump(var, json_file, indent=4)
-
-    # for scen in num_scenarios: # 32
-    #     results = []
-    #     vars = []
-    #     for x in range(num_episodes):
-    #         seed = config.env.seed + x + 1
-    #         set_unique_seed(seed)
-    #         result, var = main(config, demand , scen, seed, perfect_information, deterministic)
-    #         results.append(result)
-    #         vars.append(var)
-    #
-    #     if debug:
-    #         with open(f"./test_results/scenario_tree/results_scenario_tree_debug.json", "w") as json_file:
-    #             json.dump(results, json_file, indent=4)
-    #     else:
-    #         # Save results to a JSON file
-    #         with open(f"./test_results/scenario_tree/results_scenario_tree_s{scen}_pi{perfect_information}_gen{generalization}.json", "w") as json_file:
-    #             json.dump(results, json_file, indent=4)
-    #         with open(f"./test_results/scenario_tree/variables_scenario_tree_s{scen}_pi{perfect_information}_gen{generalization}.json", "w") as json_file:
-    #             json.dump(results, json_file, indent=4)
