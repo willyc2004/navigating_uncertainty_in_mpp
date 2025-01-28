@@ -25,7 +25,7 @@ env:
   iid_demand: True
   cv_demand: 0.5
   demand_uncertainty: True
-  generalization: False
+  generalization: True
 
 # Model settings
 model:
@@ -48,7 +48,7 @@ model:
   train_decode_type: "continuous_sampling"
   val_decode_type: "continuous_projection"
   test_decode_type: "continuous_projection"
-  phase: "tuned_training" # train, test, tuned_training
+  phase: "test" # train, test, tuned_training
   encoder_type: "attention" # mlp, attention
   decoder_type: "attention" # mlp, attention
   demand_aggregation: "full" # sum, self_attn, full
@@ -56,7 +56,7 @@ model:
 
 # PPO parameters
 algorithm:
-  type: "ppo" # ppo, ddpg, sac
+  type: "sac" # ppo, ddpg, sac
   clip_range: 0.2
   ppo_epochs: 7 # 2, 3, 5, 7, 10
   mini_batch_size: 0.25
@@ -79,7 +79,7 @@ algorithm:
 # AM PPO parameters
 training:
   lr: 0.00024019557446709172
-  projection_type: "None" #"linear_violation", "weighted_scaling_policy_clipping", "None"
+  projection_type: "weighted_scaling_policy_clipping" #"weighted_scaling_policy_clipping", "weighted_scaling_policy_clipping", "None"
   #todo: not implemented logprob adaptations - convex_program, linear_program
   projection_kwargs:
     alpha: 0.05
@@ -94,5 +94,5 @@ training:
   test_data_size: 5000
 
 testing:
-  timestamp: "20250124_082920"
+  timestamp: "20250127_042555"
   num_episodes: 30
