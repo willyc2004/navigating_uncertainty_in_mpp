@@ -26,25 +26,6 @@ for e in range(episodes):
         total_revenue.append(np.sum(x["mean_revenue"], axis=-1))
         total_cost.append(np.sum(x["mean_cost"], axis=-1))
 
-
-# folder = 'generalization'
-# with open(f'{folder}/results_scenario_tree_s{s}_pi{perfect_information}.json', 'r') as file:
-#     data = json.load(file)
-
-# obj = []
-# time = []
-# total_load = []
-# total_demand = []
-# total_revenue = []
-# total_cost = []
-# for x in data:
-#     obj.append(x["obj"])
-#     time.append(x["time"])
-#     total_load.append(np.sum(x["mean_load_per_port"], axis=-1))
-#     total_demand.append(np.sum(x["mean_demand"], axis=-1))
-#     total_revenue.append(np.sum(x["mean_revenue"], axis=-1))
-#     total_cost.append(np.sum(x["mean_cost"], axis=-1))
-
 # Helper function to print statistics
 def print_stats(data, name=""):
     """Summary statistics of the data"""
