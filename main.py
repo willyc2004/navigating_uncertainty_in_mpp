@@ -229,6 +229,10 @@ def main(config: Optional[DotMap] = None):
 
         # Evaluate the model
         metrics, summary_stats = evaluate_model(policy, loaded_config, device=device, **config.testing)
+        # Save summary statistics in path
+        with open(f"{path}/summary_stats_P{loaded_config.env.ports}_cv{loaded_config.env.cv_demand}"
+                  f"_gen{loaded_config.env.generalization}.yaml", "w") as file:
+            yaml.dump(summary_stats, file)
         print(summary_stats) # todo: add visualization of the metrics/summary_stats
 
 def check_nans_model(model):
