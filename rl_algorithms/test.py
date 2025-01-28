@@ -117,6 +117,10 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
             torch.cuda.synchronize() if device.type == "cuda" else None
             end_time = time.perf_counter()
 
+            # Deal with inaccurate computations; violations should be 0 if action is 0 and clip_max is 0
+            zero_idx = torch.where((trajectory["action"][0] == 0.0) & (trajectory["clip_max"][0] == 0.0))
+            trajectory["violation"][0][zero_idx] = 0.0
+
             # Extract episode-level metrics - use batch = 0 for ground truth instance
             metrics["total_profit"][episode] = trajectory["profit"][0].sum()
             metrics["total_violations"][episode] = trajectory["violation"][0].sum()
