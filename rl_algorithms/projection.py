@@ -17,7 +17,6 @@ class LinearViolationAdaption(th.nn.Module):
         super(LinearViolationAdaption, self).__init__()
         self.alpha = kwargs.get('alpha', 0.005)
         self.delta = kwargs.get('delta', 0.1)
-        self.tolerance = kwargs.get('tolerance', 0.1)
         self.max_iter = kwargs.get('max_iter', 100)
 
     def forward(self, x, A, b, **kwargs):
@@ -42,7 +41,6 @@ class LinearViolationAdaption(th.nn.Module):
         A = A.unsqueeze(1) if A.dim() == 3 else A
         x_ = x_.unsqueeze(1) if x_.dim() == 2 else x_
         # Initialize tensors
-        violation_old = th.zeros(batch_size, n_step, m, dtype=x.dtype, device=x.device)
         active_mask = th.ones(batch_size, n_step, dtype=th.bool, device=x.device)  # Start with all batches active
 
         # Start loop with early exit in case of nans
@@ -56,11 +54,10 @@ class LinearViolationAdaption(th.nn.Module):
             total_violation = th.sum(violation_new, dim=-1)  # Sum violations in [batch_size, n_step]
 
             # Define batch-wise stopping conditions
-            no_violation = total_violation < self.tolerance
-            # stalling_check = th.abs(total_violation - th.sum(violation_old, dim=-1)) < self.delta
+            no_violation = total_violation < self.delta
 
-            # Update active mask: only keep batches and steps that are neither within tolerance nor stalled
-            active_mask = ~(no_violation)# | stalling_check)
+            # Update active mask: only keep batches and steps that are not within tolerance
+            active_mask = ~(no_violation)
 
             # Break if no batches/steps are left active
             if not th.any(active_mask):
@@ -73,12 +70,9 @@ class LinearViolationAdaption(th.nn.Module):
             x_ = th.where(active_mask.unsqueeze(2), x_ - self.alpha * penalty_gradient, x_)
             x_ = th.clamp(x_, min=0) # Ensure non-negativity
 
-            # Update violation_old for the next iteration
-            violation_old = violation_new.clone()
             count += 1
             if count > self.max_iter:
                 break
-        # print("tot_vol, count:", total_violation.mean(), count)
         # Return the adjusted x_, reshaped to remove n_step dimension if it was initially 2D
         return x_.squeeze(1) if n_step == 1 else x_
 
