@@ -56,7 +56,7 @@ model:
 
 # PPO parameters
 algorithm:
-  type: "sac" # ppo, ddpg, sac
+  type: "ppo" # ppo, ddpg, sac
   clip_range: 0.2
   ppo_epochs: 7 # 2, 3, 5, 7, 10
   mini_batch_size: 0.25
@@ -79,7 +79,7 @@ algorithm:
 # AM PPO parameters
 training:
   lr: 0.00024019557446709172
-  projection_type: "weighted_scaling_policy_clipping" #"weighted_scaling_policy_clipping", "weighted_scaling_policy_clipping", "None"
+  projection_type: "linear_violation" #"linear_violation", "weighted_scaling_policy_clipping", "None"
   #todo: not implemented logprob adaptations - convex_program, linear_program
   projection_kwargs:
     alpha: 0.05
@@ -94,5 +94,5 @@ training:
   test_data_size: 5000
 
 testing:
-  timestamp: "20250127_042555"
+  timestamp: "20250128_135057"
   num_episodes: 30
