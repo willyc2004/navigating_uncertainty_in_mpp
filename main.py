@@ -182,8 +182,24 @@ def main(config: Optional[DotMap] = None):
 
     ## Main loop
     # Train the model
-    if config.model.phase == "train":
+    if config.model.phase == "train" or config.model.phase == "train_load_config":
+        if config.model.phase == "train_load_config":
+            # todo: improve code to load the configuration
+            # Get path to the trained model
+            timestamp = config.testing.timestamp
+            algorithm = config.algorithm.type
+            projection = config.training.projection_type
+            path = f"saved_models/{algorithm}/{projection}/{timestamp}"
+
+            # Extract trained hyperparameters
+            config_load_path = f"{path}/config.yaml"
+            config = load_config(config_load_path)
+            # Override the loaded configuration based on config.yaml
+            # todo: improve code
+            config.training.projection_type = "linear_violation"
+
         # Initialize models and run training
+        wandb.init(config=config,)
         policy, critic = initialize_policy_and_critic(config, env, device)
         run_training(policy, critic, **config)
     # Test the model
@@ -226,7 +242,6 @@ if __name__ == "__main__":
 
     # Call your main() function
     try:
-        wandb.init(config=config,)
         model = main(config)
     except Exception as e:
         # Log the error to WandB
