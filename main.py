@@ -182,8 +182,8 @@ def main(config: Optional[DotMap] = None):
 
     ## Main loop
     # Train the model
-    if config.model.phase == "train" or config.model.phase == "train_load_config":
-        if config.model.phase == "train_load_config":
+    if config.model.phase == "train" or config.model.phase == "tuned_training":
+        if config.model.phase == "tuned_training":
             # todo: improve code to load the configuration
             # Get path to the trained model
             timestamp = config.testing.timestamp
