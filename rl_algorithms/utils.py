@@ -13,9 +13,14 @@ def make_env(env_kwargs:DotMap, batch_size:Optional[list] = [], device: torch.de
 
 def adapt_env_kwargs(config):
     """Adapt environment kwargs based on configuration"""
-    config.env.bays = 10 if config.env.TEU == 1000 else 20
-    config.env.weight_classes = 3 if config.env.cargo_classes % 3 == 0 else 2 # 2 weights for 2 classes, 3 weights for 3,6 classes
-    config.env.capacity = [50] if config.env.TEU == 1000 else [500]
+    if type(config.env.cargo_classes) == DotMap:
+        config_env = config.env.value
+    else:
+        config_env = config.env
+
+    config_env.bays = 10 if config_env.TEU == 1000 else 20
+    config_env.weight_classes = 3 if config_env.cargo_classes % 3 == 0 else 2 # 2 weights for 2 classes, 3 weights for 3,6 classes
+    config_env.capacity = [50] if config_env.TEU == 1000 else [500]
     return config
 
 def recursive_check_for_nans(td, parent_key=""):
