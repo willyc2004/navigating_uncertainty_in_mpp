@@ -30,10 +30,10 @@ model:
   batch_size: 64
   init_dim: 8
   embed_dim: 128
-  hidden_dim: 128
-  num_encoder_layers: 3
+  hidden_dim: 256
+  num_encoder_layers: 1
   num_decoder_layers: 3
-  num_heads: 8
+  num_heads: 4
   dropout_rate: 0.008972135903337364
   normalization: layer
   out_bias_pointer_attn: false
