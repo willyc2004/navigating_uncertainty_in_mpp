@@ -74,9 +74,7 @@ training:
   lr: 0.00020407622212291503
   projection_type: weighted_scaling_policy_clipping
   projection_kwargs:
-#    alpha: 0.03216519289740723
-    alpha: 0.05
-    delta: 0.05
+    alpha: 0.03216519289740723
     max_iter: 100
     project_per_port: false
   optimizer: Adam
@@ -86,10 +84,39 @@ training:
   val_data_size: 5000
   test_data_size: 5000
 testing:
-  timestamp: '20250123_171145'
+  timestamp: '20250128_080908'
   num_episodes: 30
+_wandb:
+  python_version: 3.9.20
+  cli_version: 0.17.7
+  framework: torch
+  is_jupyter_run: false
+  is_kaggle_kernel: false
+  start_time: 1738029304
+  t:
+    1:
+    - 1
+    - 50
+    - 55
+    - 105
+    2:
+    - 1
+    - 50
+    - 55
+    - 105
+    3:
+    - 2
+    - 3
+    - 16
+    - 23
+    - 37
+    4: 3.9.20
+    5: 0.17.7
+    8:
+    - 5
+    13: linux-x86_64
 alpha:
-  value: 0.05 #3216519289740723
+  value: 0.03216519289740723
 batch_size:
   value: 64
 dropout_rate:
@@ -99,7 +126,7 @@ entropy_lambda:
 feasibility_lambda:
   value: 0.6773126513364854
 hidden_dim:
-  value: 128
+  value: 256
 lr:
   value: 0.00020407622212291503
 mini_batch_size:
@@ -107,9 +134,9 @@ mini_batch_size:
 num_decoder_layers:
   value: 3
 num_encoder_layers:
-  value: 3
+  value: 1
 num_heads:
-  value: 8
+  value: 4
 ppo_epochs:
   value: 5
 scale_max:

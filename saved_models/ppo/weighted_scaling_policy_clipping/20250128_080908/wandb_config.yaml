@@ -95,7 +95,7 @@ training:
 testing:
   desc: null
   value:
-    timestamp: '20250123_171145'
+    timestamp: '20250128_080908'
     num_episodes: 30
 _wandb:
  desc: null
@@ -145,7 +145,7 @@ feasibility_lambda:
   value: 0.6773126513364854
 hidden_dim:
   desc: null
-  value: 128
+  value: 256
 lr:
   desc: null
   value: 0.00020407622212291503
@@ -157,10 +157,10 @@ num_decoder_layers:
   value: 3
 num_encoder_layers:
   desc: null
-  value: 3
+  value: 1
 num_heads:
   desc: null
-  value: 8
+  value: 4
 ppo_epochs:
   desc: null
   value: 5
