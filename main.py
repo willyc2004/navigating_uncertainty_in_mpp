@@ -196,7 +196,7 @@ def main(config: Optional[DotMap] = None):
             config = load_config(config_load_path)
             # Override the loaded configuration based on config.yaml
             # todo: improve code
-            config.training.projection_type = "None"
+            config.training.projection_type = "linear_violation"
 
         # Initialize models and run training
         wandb.init(config=config,)
@@ -217,6 +217,7 @@ def main(config: Optional[DotMap] = None):
         loaded_config.env.ports = config.env.ports
         loaded_config.env.cv_demand = config.env.cv_demand
         loaded_config.env.generalization = config.env.generalization
+        loaded_config.testing = config.testing
 
         # Initialize models
         policy, critic = initialize_policy_and_critic(loaded_config, env, device)
