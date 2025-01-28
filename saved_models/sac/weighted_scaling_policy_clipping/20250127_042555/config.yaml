@@ -76,7 +76,9 @@ training:
   lr: 0.0002657103068167906
   optimizer: Adam
   projection_kwargs:
-    alpha: 0.020017276730816172
+#    alpha: 0.020017276730816172
+    alpha: 0.05
+    delta: 0.05
     max_iter: 100
     n_action: 20
     n_constraints: 25
