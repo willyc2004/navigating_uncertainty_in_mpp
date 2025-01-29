@@ -302,9 +302,6 @@ class MasterPlanningEnv(EnvBase):
             "reward": reward,
             "done": done,
         }, td.shape)
-        print("\ntimestep", t[0])
-        print("expected_demand", td["observation", "expected_demand"].view(*batch_size, self.T * self.K)[0])
-        print("std_demand", td["observation", "std_demand"].view(*batch_size, self.T * self.K)[0])
         return out
 
     def _reset(self,  td: Optional[TensorDict] = None, seed:Optional=None) -> TensorDict:
@@ -355,10 +352,6 @@ class MasterPlanningEnv(EnvBase):
         # Constraints
         lhs_A = self.create_lhs_A(t,)
         rhs = self.create_rhs(utilization.to(self.float_type), current_demand, batch_size)
-        print("expected_demand", expected_demand.view(*batch_size, self.T * self.K)[0])
-        print("std_demand", std_demand.view(*batch_size, self.T * self.K)[0])
-        print("real_expected_demand", td["observation", "expected_demand"].view(*batch_size, self.T * self.K)[0])
-        print("real_std_demand", td["observation", "std_demand"].view(*batch_size, self.T * self.K)[0])
 
         # Init tds - state: internal state
         initial_state = TensorDict({
