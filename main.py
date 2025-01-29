@@ -246,8 +246,6 @@ if __name__ == "__main__":
     config = load_config(f'{file_path}/config.yaml')
 
     # Call your main() function
-    # for cv in [0.1, 0.3, 0.5, 0.7, 0.9]:
-    #     config.env.cv_demand = cv
     try:
         model = main(config)
     except Exception as e:
