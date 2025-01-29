@@ -26,6 +26,7 @@ env:
   cv_demand: 0.5
   demand_uncertainty: True
   generalization: False
+  non_anticipation: True
 
 # Model settings
 model:

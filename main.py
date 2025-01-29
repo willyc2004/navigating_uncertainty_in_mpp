@@ -217,6 +217,7 @@ def main(config: Optional[DotMap] = None):
         loaded_config.env.ports = config.env.ports
         loaded_config.env.cv_demand = config.env.cv_demand
         loaded_config.env.generalization = config.env.generalization
+        loaded_config.env.non_anticipation = config.env.non_anticipation
         loaded_config.testing = config.testing
 
         # Initialize models
@@ -231,7 +232,7 @@ def main(config: Optional[DotMap] = None):
         metrics, summary_stats = evaluate_model(policy, loaded_config, device=device, **config.testing)
         # Save summary statistics in path
         with open(f"{path}/summary_stats_P{loaded_config.env.ports}_cv{loaded_config.env.cv_demand}"
-                  f"_gen{loaded_config.env.generalization}.yaml", "w") as file:
+                  f"_gen{loaded_config.env.generalization}_NA{loaded_config.env.non_anticipation}.yaml", "w") as file:
             yaml.dump(summary_stats, file)
         print(summary_stats) # todo: add visualization of the metrics/summary_stats
 
