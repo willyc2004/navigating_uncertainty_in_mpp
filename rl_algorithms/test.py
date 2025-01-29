@@ -126,8 +126,14 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
             metrics["total_violations"][episode] = trajectory["violation"][0].sum()
             metrics["inference_times"][episode] = end_time - start_time
 
+            # Close the generated environment
+            gen_env.close()
+            del gen_env  # Explicitly delete to free memory
+
     # Summarize episode-level metrics (mean and std)
     summary_stats = compute_summary_stats(metrics)
+
+    # todo: there is memory leaking if we run env P>4.
 
     test_env.close()
     return metrics, summary_stats
