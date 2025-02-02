@@ -2,7 +2,7 @@ import json
 import numpy as np
 
 # Load JSON file
-s = 24
+s = 28
 episodes = 30
 perfect_information = False
 gen = False
