@@ -198,7 +198,7 @@ def main(config: Optional[DotMap] = None):
             # Override the loaded configuration based on config.yaml
             # todo: improve code
             config.training.projection_type = projection
-            config.training.feasibility_lambda = feas_lambda
+            config.algorithm.feasibility_lambda = feas_lambda
 
         # Initialize models and run training
         wandb.init(config=config,)
