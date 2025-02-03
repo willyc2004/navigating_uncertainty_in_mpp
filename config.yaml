@@ -80,7 +80,7 @@ algorithm:
 # AM PPO parameters
 training:
   lr: 0.00024019557446709172
-  projection_type: "linear_violation" #"linear_violation", "weighted_scaling_policy_clipping", "None"
+  projection_type: "weighted_scaling_policy_clipping" #"linear_violation", "weighted_scaling_policy_clipping", "None"
   #todo: not implemented logprob adaptations - convex_program, linear_program
   projection_kwargs:
     alpha: 0.05
@@ -95,5 +95,5 @@ training:
   test_data_size: 5000
 
 testing:
-  timestamp: "20250128_135057"
+  timestamp: "20250128_080908"
   num_episodes: 30
