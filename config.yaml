@@ -57,7 +57,7 @@ model:
 
 # PPO parameters
 algorithm:
-  type: "ppo" # ppo, ddpg, sac
+  type: "sac" # ppo, ddpg, sac
   clip_range: 0.2
   ppo_epochs: 7 # 2, 3, 5, 7, 10
   mini_batch_size: 0.25
@@ -95,5 +95,5 @@ training:
   test_data_size: 5000
 
 testing:
-  timestamp: "20250128_080908"
+  timestamp: "20250127_042555"
   num_episodes: 30
