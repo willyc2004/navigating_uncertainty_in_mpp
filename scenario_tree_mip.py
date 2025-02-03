@@ -141,6 +141,7 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784,
     HM = {} # Hatch move
     CI = {} # Crane intensity
     CI_target = {} # Crane intensity target
+    CM = {} # Crane move
     spread_moves_bay = {} # Spread moves bay
     LM = {} # Longitudinal moment
     VM = {} # Vertical moment
@@ -192,6 +193,7 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784,
                 # Crane intensity:
                 CI[stage, node_id] = mdl.continuous_var(name=f'CI_{stage}_{node_id}')
                 CI_target[stage, node_id] = mdl.continuous_var(name=f'CI_target_{stage}_{node_id}')
+                CM[stage, node_id] = mdl.continuous_var(name=f'CM_{stage}_{node_id}')
                 spread_moves_bay[stage, node_id] = mdl.continuous_var(name=f'spread_moves_bay_{stage}_{node_id}')
 
                 # Stability:
@@ -331,7 +333,8 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784,
                     2 / B * mdl.sum(demand[stage, node_id][k, j]
                                     for (i, j) in all_port_moves[stage] for k in range(K))
                 )
-                mdl.add_constraint(CI[stage, node_id] <= CI_target[stage, node_id])
+                # mdl.add_constraint(CI[stage, node_id] <= CI_target[stage, node_id])
+                mdl.add_constraint(CI[stage, node_id] - CI_target[stage, node_id] <= CM[stage, node_id])
 
         # Add mip start
         if mip_start:
@@ -369,6 +372,7 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784,
                 for k in range(K)  # Loop over cargo classes
             )
             - mdl.sum(env.ho_costs * HO[stage, node_id, b] for b in range(B))
+            - env.lc_costs * CM[stage, node_id]
         )
         for stage in range(stages)  # Iterate over all stages
         for node_id in range(num_nodes_per_stage[stage])  # Iterate over nodes at each stage
