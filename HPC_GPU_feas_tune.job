@@ -1,0 +1,21 @@
+#!/bin/bash
+#SBATCH --job-name=feas_tuning                     # Job name
+#SBATCH --output=output_files/feas_tuning.%j.out   # Slurm job output
+#SBATCH --error=output_files/feas_tuning.%j.err    # Slurm job error log
+#SBATCH --cpus-per-task=32                         # CPUs per task
+#SBATCH --gres=gpu:1                                # GPU request
+#SBATCH --time=3-00:00:00                           # Job run time (d-hh:mm:ss)
+#SBATCH --partition=acltr                           # Partition to run on
+#SBATCH --mail-type=FAIL,END                        # Email notification
+
+# Ensure the output directory exists
+mkdir -p output_files
+
+# Print the hostname of the allocated node
+hostname
+
+# Define the path to the Python script you want to run
+SCRIPT_PATH="feasibility_penalty_tuning.py"
+
+# Run the Python script with log_file
+python3 "$SCRIPT_PATH" "$@"
