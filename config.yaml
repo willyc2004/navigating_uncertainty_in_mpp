@@ -49,7 +49,7 @@ model:
   train_decode_type: "continuous_sampling"
   val_decode_type: "continuous_projection"
   test_decode_type: "continuous_projection"
-  phase: "test" # train, test, tuned_training
+  phase: "tuned_training" # train, test, tuned_training
   encoder_type: "attention" # mlp, attention
   decoder_type: "attention" # mlp, attention
   demand_aggregation: "full" # sum, self_attn, full
@@ -71,7 +71,7 @@ algorithm:
   gae_lambda: 0.95
   vf_lambda: 0.5
   entropy_lambda: 0.01967669837772243
-  feasibility_lambda: 0.9632909195956464
+  feasibility_lambda: 0.0 #0.9632909195956464
   demand_lambda: 1.0
   stability_lambda: 1.0
   projection_lambda: 0.01
