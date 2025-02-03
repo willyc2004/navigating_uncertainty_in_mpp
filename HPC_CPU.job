@@ -5,6 +5,7 @@
 #SBATCH --cpus-per-task=32                      # Use fewer CPUs to fit into `mix` nodes
 #SBATCH --time=7-00:00:00                       # Run time (d-hh:mm:ss)
 #SBATCH --partition=cores_any                   # Select the cores_any partition
+#SBATCH --exclude=cn18,cn7,cn8                  # Exclude node cn18
 #SBATCH --mail-type=FAIL,END                    # Send an email when the job finishes or fails
 
 # Print out the hostname of the node the job is running on
