@@ -480,14 +480,14 @@ if __name__ == "__main__":
         config = adapt_env_kwargs(config)
 
     # Run main for different seeds and number of scenarios
-    perfect_information = True
+    perfect_information = False
     deterministic = False
     debug = False
     generalization = config.env.generalization
     num_episodes = config.testing.num_episodes
 
     if not deterministic:
-        num_scenarios = [24,]# 4,8,12,16,20,24,28] if not generalization else [28]
+        num_scenarios = [28,]# 4,8,12,16,20,24,28] if not generalization else [28]
     else:
         num_scenarios = [1]
 
