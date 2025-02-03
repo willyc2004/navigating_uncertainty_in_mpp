@@ -1,0 +1,9 @@
+method: bayes  # Or grid, random
+metric:
+  name: validation/total_violation  # Use the exact metric name from wandb.log()
+  goal: minimize  # Since "violation" likely represents an error, we minimize it
+run_cap: 100
+parameters:
+  feasibility_lambda:
+    min: 0.01
+    max: 10.0

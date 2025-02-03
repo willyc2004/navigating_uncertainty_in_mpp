@@ -45,7 +45,7 @@ if __name__ == "__main__":
             wandb.finish()
 
     # Load the sweep configuration from YAML
-    with open('sweep_config.yaml') as file:
+    with open('feas_tune_config.yaml') as file:
         sweep_config = yaml.safe_load(file)
 
     # Initialize the sweep with W&B
