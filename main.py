@@ -196,7 +196,8 @@ def main(config: Optional[DotMap] = None):
             config = load_config(config_load_path)
             # Override the loaded configuration based on config.yaml
             # todo: improve code
-            config.training.projection_type = "None"
+            config.training.projection_type = "linear_violation"
+            config.training.feasibility_lambda = 0.0 # no regularization
 
         # Initialize models and run training
         wandb.init(config=config,)
