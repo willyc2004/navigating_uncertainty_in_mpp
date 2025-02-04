@@ -22,6 +22,32 @@ if __name__ == "__main__":
             wandb.init(config=config)
             sweep_config = wandb.config
             config['algorithm']['feasibility_lambda'] = sweep_config.feasibility_lambda
+            config['algorithm'][f'lagrangian_multiplier_0'] = sweep_config.lagrangian_multiplier_0
+            config['algorithm'][f'lagrangian_multiplier_1'] = sweep_config.lagrangian_multiplier_1
+            config['algorithm'][f'lagrangian_multiplier_2'] = sweep_config.lagrangian_multiplier_2
+            config['algorithm'][f'lagrangian_multiplier_3'] = sweep_config.lagrangian_multiplier_3
+            config['algorithm'][f'lagrangian_multiplier_4'] = sweep_config.lagrangian_multiplier_4
+            config['algorithm'][f'lagrangian_multiplier_5'] = sweep_config.lagrangian_multiplier_5
+            config['algorithm'][f'lagrangian_multiplier_6'] = sweep_config.lagrangian_multiplier_6
+            config['algorithm'][f'lagrangian_multiplier_7'] = sweep_config.lagrangian_multiplier_7
+            config['algorithm'][f'lagrangian_multiplier_8'] = sweep_config.lagrangian_multiplier_8
+            config['algorithm'][f'lagrangian_multiplier_9'] = sweep_config.lagrangian_multiplier_9
+            config['algorithm'][f'lagrangian_multiplier_10'] = sweep_config.lagrangian_multiplier_10
+            config['algorithm'][f'lagrangian_multiplier_11'] = sweep_config.lagrangian_multiplier_11
+            config['algorithm'][f'lagrangian_multiplier_12'] = sweep_config.lagrangian_multiplier_12
+            config['algorithm'][f'lagrangian_multiplier_13'] = sweep_config.lagrangian_multiplier_13
+            config['algorithm'][f'lagrangian_multiplier_14'] = sweep_config.lagrangian_multiplier_14
+            config['algorithm'][f'lagrangian_multiplier_15'] = sweep_config.lagrangian_multiplier_15
+            config['algorithm'][f'lagrangian_multiplier_16'] = sweep_config.lagrangian_multiplier_16
+            config['algorithm'][f'lagrangian_multiplier_17'] = sweep_config.lagrangian_multiplier_17
+            config['algorithm'][f'lagrangian_multiplier_18'] = sweep_config.lagrangian_multiplier_18
+            config['algorithm'][f'lagrangian_multiplier_19'] = sweep_config.lagrangian_multiplier_19
+            config['algorithm'][f'lagrangian_multiplier_20'] = sweep_config.lagrangian_multiplier_20
+            config['algorithm'][f'lagrangian_multiplier_21'] = sweep_config.lagrangian_multiplier_21
+            config['algorithm'][f'lagrangian_multiplier_22'] = sweep_config.lagrangian_multiplier_22
+            config['algorithm'][f'lagrangian_multiplier_23'] = sweep_config.lagrangian_multiplier_23
+            config['algorithm'][f'lagrangian_multiplier_24'] = sweep_config.lagrangian_multiplier_24
+
 
             # Call your main() function
             model = main(config)
