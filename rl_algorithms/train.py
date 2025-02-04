@@ -119,12 +119,8 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     # Environment
     train_env = make_env(env_kwargs=kwargs["env"], batch_size=[batch_size], device=device)
     n_step = train_env.T * train_env.K
-    lagrangian_multiplier = torch.cat([
-        torch.tensor(kwargs["algorithm"][f"lagrangian_multiplier_{i}"], dtype=torch.float32).to(device)
-        for i in range(25)
-    ])
-    print(f"Lagrangian multipliers: {lagrangian_multiplier}")
-    breakpoint()
+    lagrangian_multiplier = torch.tensor([
+        kwargs["algorithm"][f"lagrangian_multiplier_{i}"] for i in range(25)], device=device)
 
     # Optimizer, loss module, data collector, and scheduler
     advantage_module = GAE(gamma=gamma, lmbda=gae_lambda, value_network=critic, average_gae=True)
