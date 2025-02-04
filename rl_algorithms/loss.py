@@ -41,17 +41,22 @@ from torchrl.objectives.sac import SACLoss, _delezify, compute_log_prob
 # Custom
 from environment.utils import compute_violation
 
-def loss_feasibility(td, action, aggregate_feasibility="sum"):
+def loss_feasibility(td, action, lagrange_multiplier=None, aggregate_feasibility="sum"):
     lhs_A = td.get("lhs_A")
     rhs = td.get("rhs")
-    mean_violation = compute_violation(action, lhs_A, rhs)
+    violations = compute_violation(action, lhs_A, rhs)
+
+    if lagrange_multiplier is not None:
+        lagrange_multiplier = violations * lagrange_multiplier
+    else:
+        lagrange_multiplier = violations
 
     # Get aggregation dimensions
     if aggregate_feasibility == "sum":
-        sum_dims = [-x for x in range(1, mean_violation.dim())]
-        return mean_violation.sum(dim=sum_dims).mean(), mean_violation
+        sum_dims = [-x for x in range(1, violations.dim())]
+        return lagrange_multiplier.sum(dim=sum_dims).mean(), violations
     elif aggregate_feasibility == "mean":
-        return mean_violation.mean(), mean_violation
+        return lagrange_multiplier.mean(), violations
 
 
 class FeasibilitySACLoss(SACLoss):
@@ -120,6 +125,7 @@ class FeasibilitySACLoss(SACLoss):
         priority_key: str = None,
         separate_losses: bool = True,
         reduction: str = None,
+        lagrangian_multiplier: torch.Tensor = None,
     ) -> None:
         super().__init__(
             actor_network=actor_network,
@@ -141,6 +147,7 @@ class FeasibilitySACLoss(SACLoss):
             separate_losses=separate_losses,
             reduction=reduction,
         )
+        self.register_buffer("lagrangian_multiplier", lagrangian_multiplier)
 
     def forward(self, tensordict: TensorDictBase) -> TensorDictBase:
         """Computes SAC loss with feasibility constraints."""
@@ -153,7 +160,7 @@ class FeasibilitySACLoss(SACLoss):
         # Feasibility loss
         action = metadata_actor["action"]
         if "lhs_A" in tensordict and "rhs" in tensordict:
-            feasibility_loss, mean_violation = loss_feasibility(tensordict, action)
+            feasibility_loss, mean_violation = loss_feasibility(tensordict, action, self.lagrangian_multiplier)
         else:
             raise ValueError("Feasibility loss requires 'lhs_A' and 'rhs' in tensordict.")
 
@@ -291,6 +298,7 @@ class FeasibilityClipPPOLoss(PPOLoss):
         separate_losses: bool = False,
         reduction: str = None,
         clip_value: bool | float | None = None,
+        lagrangian_multiplier: torch.Tensor = None,
         **kwargs,
     ):
         # Define clipping of the value loss
@@ -318,6 +326,7 @@ class FeasibilityClipPPOLoss(PPOLoss):
         else:
             device = None
         self.register_buffer("clip_epsilon", torch.tensor(clip_epsilon, device=device))
+        self.register_buffer("lagrangian_multiplier", lagrangian_multiplier)
 
     @property
     def _clip_bounds(self):
@@ -394,7 +403,7 @@ class FeasibilityClipPPOLoss(PPOLoss):
 
         # Feasibility loss based on policy mean
         loc = dist.loc if hasattr(dist, 'loc') else dist.base_dist.loc
-        feasibility_loss, mean_violation = loss_feasibility(tensordict, loc)
+        feasibility_loss, mean_violation = loss_feasibility(tensordict, loc, self.lagrangian_multiplier)
         td_out.set("loss_feasibility", feasibility_loss)
         td_out.set("violation", mean_violation)
 
