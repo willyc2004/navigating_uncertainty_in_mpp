@@ -190,7 +190,8 @@ def main(config: Optional[DotMap] = None):
             algorithm = config.algorithm.type
             projection = config.training.projection_type
             feas_lambda = config.algorithm.feasibility_lambda
-            path = f"saved_models/{algorithm}/{projection}/{timestamp}"
+            fr_folder = "FR" if feas_lambda > 0 else "No FR"
+            path = f"saved_models/{algorithm}/{projection}/{fr_folder}/{timestamp}"
 
             # Extract trained hyperparameters
             config_load_path = f"{path}/config.yaml"
@@ -210,7 +211,9 @@ def main(config: Optional[DotMap] = None):
         timestamp = config.testing.timestamp
         algorithm = config.algorithm.type
         projection = config.training.projection_type
-        path = f"saved_models/{algorithm}/{projection}/{timestamp}"
+        feas_lambda = config.algorithm.feasibility_lambda
+        fr_folder = "FR" if feas_lambda > 0 else "No FR"
+        path = f"saved_models/{algorithm}/{projection}/{fr_folder}/{timestamp}"
 
         # Extract trained hyperparameters
         config_load_path = f"{path}/config.yaml"
