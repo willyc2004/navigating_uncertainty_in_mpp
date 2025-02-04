@@ -119,6 +119,14 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     # Environment
     train_env = make_env(env_kwargs=kwargs["env"], batch_size=[batch_size], device=device)
     n_step = train_env.T * train_env.K
+    lagrangian_multiplier = torch.cat([
+        torch.tensor([kwargs["algorithm"]["demand_lambda"]], device=device),
+        torch.full((train_env.B * train_env.D,), kwargs["algorithm"]["capacity_lambda"], device=device),
+        torch.tensor([kwargs["algorithm"]["LCG_lambda"]], device=device),
+        torch.tensor([kwargs["algorithm"]["LCG_lambda"]], device=device),
+        torch.tensor([kwargs["algorithm"]["VCG_lambda"]], device=device),
+        torch.tensor([kwargs["algorithm"]["VCG_lambda"]], device=device),
+    ])
 
     # Optimizer, loss module, data collector, and scheduler
     advantage_module = GAE(gamma=gamma, lmbda=gae_lambda, value_network=critic, average_gae=True)
@@ -130,6 +138,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
             fixed_alpha=False,
             min_alpha=1e-2, #[1e-2, 1e-3]
             max_alpha=1.0, #[1.0, 10]
+            lagrangian_multiplier=lagrangian_multiplier,
         )
     elif kwargs["algorithm"]["type"] == "ppo":
         loss_module = FeasibilityClipPPOLoss(
@@ -141,6 +150,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
             critic_coef=vf_lambda,
             loss_critic_type="smooth_l1",
             normalize_advantage=True,
+            lagrangian_multiplier=lagrangian_multiplier,
         )
     elif kwargs["algorithm"]["type"] == "ddpg":
         # Create the DDPG loss module
