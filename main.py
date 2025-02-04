@@ -190,6 +190,7 @@ def main(config: Optional[DotMap] = None):
             algorithm = config.algorithm.type
             projection = config.training.projection_type
             feas_lambda = config.algorithm.feasibility_lambda
+            alg = config.algorithm
             fr_folder = "FR" if feas_lambda > 0 else "No FR"
             path = f"saved_models/{algorithm}/{projection}/{fr_folder}/{timestamp}"
 
@@ -200,6 +201,8 @@ def main(config: Optional[DotMap] = None):
             # todo: improve code
             config.training.projection_type = projection
             config.algorithm.feasibility_lambda = feas_lambda
+            for i in range(25):
+                config.algorithm[f"lagrangian_multiplier_{i}"] = alg[f"lagrangian_multiplier_{i}"]
 
         # Initialize models and run training
         wandb.init(config=config,)
