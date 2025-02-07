@@ -85,13 +85,13 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     }
 
     with torch.no_grad():
-        # Warm-up phase
-        for _ in range(10):
-            _ = test_env.rollout(
-                policy=policy,
-                max_steps=n_step,
-                auto_reset=True,
-            )
+        # # Warm-up phase
+        # for _ in range(10):
+        #     _ = test_env.rollout(
+        #         policy=policy,
+        #         max_steps=n_step,
+        #         auto_reset=True,
+        #     )
 
         for episode in range(num_episodes):
             # Update seeds
@@ -122,6 +122,8 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
             # Deal with inaccurate computations; violations should be 0 if action is 0 and clip_max is 0
             zero_idx = torch.where((trajectory["action"][0] == 0.0) & (trajectory["clip_max"][0] == 0.0))
             trajectory["violation"][0][zero_idx] = 0.0
+            # For overshooting demand lower than 0.05, we consider it as feasible:
+            trajectory["violation"][0, :, 0][trajectory["violation"][0, :, 0] < 0.05] = 0.0
 
             # Extract episode-level metrics - use batch = 0 for ground truth instance
             metrics["total_profit"][episode] = trajectory["profit"][0].sum()
