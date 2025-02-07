@@ -257,7 +257,7 @@ class MasterPlanningEnv(EnvBase):
         # reward = profit
 
         # Update td output
-        clip_max = (residual_capacity * self.capacity.unsqueeze(0) / self.teus_episode[t].view(*batch_size, 1, 1)).view(*batch_size, self.B*self.D)
+        clip_max = (residual_capacity / self.teus_episode[t].view(*batch_size, 1, 1)).view(*batch_size, self.B*self.D)
         clip_max = clip_max.clamp(max=next_state_dict["current_demand"].view(*batch_size, 1))
 
         # todo: reduce number of outputs in td (way too much now)
