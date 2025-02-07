@@ -71,6 +71,7 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     max_paths = max_scenarios_per_stage ** (stages-1) + 1
     test_env = make_env(env_kwargs, batch_size=[max_paths], device=device)
     n_step = test_env.T * test_env.K  # Maximum steps per episode (T x K)
+    feas_threshold = 1e-3
 
     # Set policy to evaluation mode
     policy.eval()  # Set policy to evaluation mode
@@ -80,6 +81,7 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
         "total_profit": torch.zeros(num_episodes, device=device),  # [num_episodes]
         "total_violations": torch.zeros(num_episodes, device=device),  # [num_episodes]
         "inference_times": torch.zeros(num_episodes, device=device),  # [num_episodes]
+        "feasible_instance":torch.zeros(num_episodes, device=device),  # [num_episodes]
     }
 
     with torch.no_grad():
@@ -125,6 +127,7 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
             metrics["total_profit"][episode] = trajectory["profit"][0].sum()
             metrics["total_violations"][episode] = trajectory["violation"][0].sum()
             metrics["inference_times"][episode] = end_time - start_time
+            metrics["feasible_instance"][episode] = 1.0 if metrics["total_violations"][episode] <= feas_threshold else 0.0
 
             # Close the generated environment
             gen_env.close()
