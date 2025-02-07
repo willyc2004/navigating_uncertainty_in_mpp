@@ -227,6 +227,9 @@ def main(config: Optional[DotMap] = None):
         loaded_config.env.generalization = config.env.generalization
         loaded_config.env.non_anticipation = config.env.non_anticipation
         loaded_config.testing = config.testing
+        print(f"alg{algorithm}, proj:{projection}, "
+              f"Feas lamda:{feas_lambda}, gen:{config.env.generalization}")
+
 
         # Initialize models
         policy, critic = initialize_policy_and_critic(loaded_config, env, device)
@@ -254,21 +257,68 @@ if __name__ == "__main__":
     file_path = os.getcwd()
     config = load_config(f'{file_path}/config.yaml')
 
-    # Call your main() function
-    try:
-        model = main(config)
-    except Exception as e:
-        # Log the error to WandB
-        wandb.log({"error": str(e)})
+    # todo: run cvs
+    # todo: run FR ablation
 
-        # Optionally, use WandB alert for critical errors
-        wandb.alert(
-            title="Training Error",
-            text=f"An error occurred during training: {e}",
-            level="error"  # 'info' or 'warning' levels can be used as needed
-        )
+    folders = {
+        'ppo':{
+            'linear_violation':{
+                'FR':'20250128_135057',
+                'No FR':'20250203_215550'
+            },
+            'None':{
+                'FR':'20250129_044203_retuned'
+            },
+            'weighted_scaling_policy_clipping':{
+                'FR':'20250128_080908',
+                'No FR': '20250203_222855',
+            },
+        },
+        'sac':{
+            'linear_violation': {
+                'FR': '20250128_150558',
+                'No FR': '20250203_182906'
+            },
+            'None': {
+                'FR': '20250129_012401_retuned'
+            },
+            'weighted_scaling_policy_clipping': {
+                'FR': '20250127_042555', # todo: check this one!
+                'No FR': '20250203_170059',
+            },
+        },
+    }
+    for alg in ['ppo', 'sac']:
+        for proj in ['linear_violation', 'weighted_scaling_policy_clipping', 'None']:
+            if proj == 'None':
+                FR_options = ['FR']
+            else:
+                FR_options = ['FR', 'No FR']
 
-        # Print the error for local console logging as well
-        print(f"An error occurred during training: {e}")
-    finally:
-        wandb.finish()
+            for FR in FR_options:
+                for gen in [True, False]:
+                    config.env.generalization = gen
+                    config.algorithm.type = alg
+                    if FR == 'No FR':
+                        config.algorithm.feasibility_lambda = 0.0
+                    config.training.projection_type = proj
+                    config.testing.timestamp = folders[alg][proj][FR]
+
+                    # Call your main() function
+                    try:
+                        model = main(config)
+                    except Exception as e:
+                        # Log the error to WandB
+                        wandb.log({"error": str(e)})
+
+                        # Optionally, use WandB alert for critical errors
+                        wandb.alert(
+                            title="Training Error",
+                            text=f"An error occurred during training: {e}",
+                            level="error"  # 'info' or 'warning' levels can be used as needed
+                        )
+
+                        # Print the error for local console logging as well
+                        print(f"An error occurred during training: {e}")
+                    finally:
+                        wandb.finish()
