@@ -41,7 +41,7 @@ model:
   critic_temperature: 1.0
   tanh_clipping: 0
   tanh_squashing: false
-  scale_max: 0.2577547803809653 #1.931286785557626
+  scale_max: 1.931286785557626
   train_decode_type: continuous_sampling
   val_decode_type: continuous_projection
   test_decode_type: continuous_projection
@@ -65,13 +65,13 @@ algorithm:
   gae_lambda: 0.95
   vf_lambda: 0.5
   entropy_lambda: 0.010071090711145904
-  feasibility_lambda: 0.30173940968331936 #0.6773126513364854
+  feasibility_lambda: 0.6773126513364854
   demand_lambda: 1.0
   stability_lambda: 1.0
   projection_lambda: 0.01
   adaptive_feasibility_lambda: false
 training:
-  lr: 0.00020407622212291503
+  lr: 0.00018 #20407622212291503
   projection_type: weighted_scaling_policy_clipping
   projection_kwargs:
     alpha: 0.03216519289740723
