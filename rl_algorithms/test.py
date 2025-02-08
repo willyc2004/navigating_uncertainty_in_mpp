@@ -72,7 +72,9 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     test_env = make_env(env_kwargs, batch_size=[max_paths], device=device)
     n_step = test_env.T * test_env.K  # Maximum steps per episode (T x K)
     feas_threshold = 1e-3
-    demand_capacity_constraints = 21
+    delta = config.training.projection_kwargs.get("delta", 0.05)
+    print(delta)
+    breakpoint()
 
     # Set policy to evaluation mode
     policy.eval()  # Set policy to evaluation mode
@@ -123,14 +125,16 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
             # Deal with inaccurate computations; violations should be 0 if action is 0 and clip_max is 0
             zero_idx = torch.where((trajectory["action"][0] == 0.0) & (trajectory["clip_max"][0] == 0.0))
             trajectory["violation"][0][zero_idx] = 0.0
-            # For overshooting demand lower than 0.05, we consider it as feasible:
-            trajectory["violation"][0, :, 0][trajectory["violation"][0, :, 0] < 0.05] = 0.0
 
             # Extract episode-level metrics - use batch = 0 for ground truth instance
             metrics["total_profit"][episode] = trajectory["profit"][0].sum()
             metrics["total_violations"][episode] = trajectory["violation"][0].sum()
             metrics["inference_times"][episode] = end_time - start_time
-            metrics["feasible_instance"][episode] = 1.0 if metrics["total_violations"][episode] <= feas_threshold else 0.0
+
+            # Determine feasibility per instance based on adjusted violations; violations < delta are set to 0
+            violation_adjusted = trajectory["violation"][0].copy()
+            violation_adjusted[violation_adjusted < delta] = 0.0
+            metrics["feasible_instance"][episode] = 1.0 if violation_adjusted.sum() <= feas_threshold else 0.0
 
             # Close the generated environment
             gen_env.close()
