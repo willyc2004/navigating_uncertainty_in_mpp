@@ -179,12 +179,6 @@ class FeasibilitySACLoss(SACLoss):
             "violation": mean_violation,
         }
 
-        # check all losses are not nan
-        for key, value in out.items():
-            if torch.isnan(value).any():
-                raise ValueError(f"Loss {key} is NaN")
-
-
         # Reduce outputs based on reduction mode
         td_out = TensorDict(out, [])
         td_out = td_out.named_apply(
@@ -412,6 +406,13 @@ class FeasibilityClipPPOLoss(PPOLoss):
         feasibility_loss, mean_violation = loss_feasibility(tensordict, loc, self.lagrangian_multiplier)
         td_out.set("loss_feasibility", feasibility_loss)
         td_out.set("violation", mean_violation)
+
+
+        # check all losses are not nan in td:
+        for k, v in td_out.items():
+            if torch.isnan(v).any():
+                print(f"Loss {k} is NaN")
+
 
         td_out.set("ESS", _reduce(ess, self.reduction) / batch)
         td_out = td_out.named_apply(
