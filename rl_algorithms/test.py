@@ -72,6 +72,7 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     test_env = make_env(env_kwargs, batch_size=[max_paths], device=device)
     n_step = test_env.T * test_env.K  # Maximum steps per episode (T x K)
     feas_threshold = 1e-3
+    demand_capacity_constraints = 21
 
     # Set policy to evaluation mode
     policy.eval()  # Set policy to evaluation mode
@@ -85,13 +86,13 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     }
 
     with torch.no_grad():
-        # # Warm-up phase
-        # for _ in range(10):
-        #     _ = test_env.rollout(
-        #         policy=policy,
-        #         max_steps=n_step,
-        #         auto_reset=True,
-        #     )
+        # Warm-up phase
+        for _ in range(10):
+            _ = test_env.rollout(
+                policy=policy,
+                max_steps=n_step,
+                auto_reset=True,
+            )
 
         for episode in range(num_episodes):
             # Update seeds

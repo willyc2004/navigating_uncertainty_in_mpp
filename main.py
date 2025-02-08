@@ -165,7 +165,7 @@ def initialize_policy_and_critic(config, env, device):
 
 
 # Main function
-def main(config: Optional[DotMap] = None):
+def main(config: Optional[DotMap] = None, **kwargs):
     ## Torch and cuda initialization
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.cuda.empty_cache()
@@ -215,7 +215,7 @@ def main(config: Optional[DotMap] = None):
         algorithm = config.algorithm.type
         projection = config.training.projection_type
         feas_lambda = config.algorithm.feasibility_lambda
-        fr_folder = "FR" if feas_lambda > 0 else "No FR"
+        fr_folder = kwargs.get("fr_folder") or ("FR" if feas_lambda > 0 else "No FR")
         path = f"saved_models/{algorithm}/{projection}/{fr_folder}/{timestamp}"
 
         # Extract trained hyperparameters
@@ -277,7 +277,7 @@ if __name__ == "__main__":
         'sac':{
             'linear_violation': {
                 'FR': '20250128_150558',
-                'No FR': '20250203_182906'
+                'No FR': '20250204_112604'
             },
             'None': {
                 'FR': '20250129_012401_retuned'
@@ -288,37 +288,38 @@ if __name__ == "__main__":
             },
         },
     }
-    for alg in ['ppo', 'sac']:
-        for proj in ['linear_violation', 'weighted_scaling_policy_clipping', 'None']:
-            if proj == 'None':
-                FR_options = ['FR']
-            else:
-                FR_options = ['FR', 'No FR']
+    # for alg in ['ppo', 'sac']:
+    #     for proj in ['linear_violation', 'weighted_scaling_policy_clipping', 'None']:
+    #         if proj == 'None':
+    #             FR_options = ['FR']
+    #         else:
+    #             FR_options = ['FR', 'No FR']
+    #
+    #         for FR in FR_options:
+    #             for gen in [True, False]:
+    #                 config.env.generalization = gen
+    #                 config.algorithm.type = alg
+    #                 if FR == 'No FR':
+    #                     config.algorithm.feasibility_lambda = 0.0
+    #                 config.training.projection_type = proj
+    #                 print(gen, alg, proj, FR)
+    #                 config.testing.timestamp = folders[alg][proj][FR]
 
-            for FR in FR_options:
-                for gen in [True, False]:
-                    config.env.generalization = gen
-                    config.algorithm.type = alg
-                    if FR == 'No FR':
-                        config.algorithm.feasibility_lambda = 0.0
-                    config.training.projection_type = proj
-                    config.testing.timestamp = folders[alg][proj][FR]
+    # Call your main() function
+    try:
+        model = main(config,)
+    except Exception as e:
+        # Log the error to WandB
+        wandb.log({"error": str(e)})
 
-                    # Call your main() function
-                    try:
-                        model = main(config)
-                    except Exception as e:
-                        # Log the error to WandB
-                        wandb.log({"error": str(e)})
+        # Optionally, use WandB alert for critical errors
+        wandb.alert(
+            title="Training Error",
+            text=f"An error occurred during training: {e}",
+            level="error"  # 'info' or 'warning' levels can be used as needed
+        )
 
-                        # Optionally, use WandB alert for critical errors
-                        wandb.alert(
-                            title="Training Error",
-                            text=f"An error occurred during training: {e}",
-                            level="error"  # 'info' or 'warning' levels can be used as needed
-                        )
-
-                        # Print the error for local console logging as well
-                        print(f"An error occurred during training: {e}")
-                    finally:
-                        wandb.finish()
+        # Print the error for local console logging as well
+        print(f"An error occurred during training: {e}")
+    finally:
+        wandb.finish()

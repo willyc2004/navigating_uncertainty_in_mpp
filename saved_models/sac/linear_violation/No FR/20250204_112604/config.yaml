@@ -73,7 +73,7 @@ testing:
   num_episodes: 30
   timestamp: '20250123_171145'
 training:
-  lr: 0.0002657103068167906
+  lr: 0.00020407622212291503
   optimizer: Adam
   projection_kwargs:
     alpha: 0.05
