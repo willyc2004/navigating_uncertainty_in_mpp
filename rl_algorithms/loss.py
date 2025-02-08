@@ -407,13 +407,6 @@ class FeasibilityClipPPOLoss(PPOLoss):
         td_out.set("loss_feasibility", feasibility_loss)
         td_out.set("violation", mean_violation)
 
-
-        # check all losses are not nan in td:
-        for k, v in td_out.items():
-            if torch.isnan(v).any():
-                print(f"Loss {k} is NaN")
-
-
         td_out.set("ESS", _reduce(ess, self.reduction) / batch)
         td_out = td_out.named_apply(
             lambda name, value: _reduce(value, reduction=self.reduction).squeeze(-1)

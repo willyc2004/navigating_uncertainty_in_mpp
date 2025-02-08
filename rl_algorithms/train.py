@@ -194,7 +194,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     # torch.autograd.set_detect_anomaly(True)
     # Training loop
     for step, td in enumerate(collector):
-        if kwargs["algorithm"]["type"] == "ppo_feas":
+        if kwargs["algorithm"]["type"] == "ppo":
             advantage_module(td)
         replay_buffer.extend(td)
         for _ in range(batch_size // mini_batch_size):
