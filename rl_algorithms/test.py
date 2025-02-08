@@ -73,8 +73,6 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     n_step = test_env.T * test_env.K  # Maximum steps per episode (T x K)
     feas_threshold = 1e-3
     delta = config.training.projection_kwargs.get("delta", 0.05)
-    print(delta)
-    breakpoint()
 
     # Set policy to evaluation mode
     policy.eval()  # Set policy to evaluation mode
@@ -132,7 +130,7 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
             metrics["inference_times"][episode] = end_time - start_time
 
             # Determine feasibility per instance based on adjusted violations; violations < delta are set to 0
-            violation_adjusted = trajectory["violation"][0].copy()
+            violation_adjusted = trajectory["violation"][0].clone()
             violation_adjusted[violation_adjusted < delta] = 0.0
             metrics["feasible_instance"][episode] = 1.0 if violation_adjusted.sum() <= feas_threshold else 0.0
 
