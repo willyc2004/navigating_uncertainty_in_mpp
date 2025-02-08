@@ -71,7 +71,7 @@ algorithm:
   projection_lambda: 0.01
   adaptive_feasibility_lambda: false
 training:
-  lr: 0.00018 #20407622212291503
+  lr: 0.0001 #20407622212291503
   projection_type: weighted_scaling_policy_clipping
   projection_kwargs:
     alpha: 0.03216519289740723
