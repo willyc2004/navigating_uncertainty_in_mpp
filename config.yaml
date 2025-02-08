@@ -49,7 +49,7 @@ model:
   train_decode_type: "continuous_sampling"
   val_decode_type: "continuous_projection"
   test_decode_type: "continuous_projection"
-  phase: "tuned_training" # train, test, tuned_training
+  phase: "test" # train, test, tuned_training
   encoder_type: "attention" # mlp, attention
   decoder_type: "attention" # mlp, attention
   demand_aggregation: "full" # sum, self_attn, full
