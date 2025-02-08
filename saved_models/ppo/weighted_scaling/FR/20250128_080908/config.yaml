@@ -41,7 +41,7 @@ model:
   critic_temperature: 1.0
   tanh_clipping: 0
   tanh_squashing: false
-  scale_max: 1.931286785557626
+  scale_max: 1.0
   train_decode_type: continuous_sampling
   val_decode_type: continuous_projection
   test_decode_type: continuous_projection
@@ -140,4 +140,4 @@ num_heads:
 ppo_epochs:
   value: 5
 scale_max:
-  value: 1.931286785557626
+  value: 1.0
