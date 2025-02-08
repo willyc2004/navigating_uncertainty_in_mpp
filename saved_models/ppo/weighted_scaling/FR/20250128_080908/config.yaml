@@ -65,7 +65,7 @@ algorithm:
   gae_lambda: 0.95
   vf_lambda: 0.5
   entropy_lambda: 0.010071090711145904
-  feasibility_lambda: 0.6773126513364854
+  feasibility_lambda: 0.9632909195956464 #0.30173940968331936 #0.6773126513364854
   demand_lambda: 1.0
   stability_lambda: 1.0
   projection_lambda: 0.01
