@@ -64,8 +64,8 @@ algorithm:
   gamma: 0.99
   gae_lambda: 0.95
   vf_lambda: 0.5
-  entropy_lambda: 0.0010071090711145904
-  feasibility_lambda: 0.6773126513364854
+  entropy_lambda: 0.010071090711145904
+  feasibility_lambda: 0.00001 #0.6773126513364854
   demand_lambda: 1.0
   stability_lambda: 1.0
   projection_lambda: 0.01
@@ -124,7 +124,7 @@ dropout_rate:
 entropy_lambda:
   value: 0.010071090711145904
 feasibility_lambda:
-  value: 0.6773126513364854
+  value: 0.00001 #0.6773126513364854
 hidden_dim:
   value: 256
 lr:
