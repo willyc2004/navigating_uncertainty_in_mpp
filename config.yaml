@@ -71,7 +71,7 @@ algorithm:
   gae_lambda: 0.95
   vf_lambda: 0.5
   entropy_lambda: 0.001967669837772243
-  feasibility_lambda: 0.9632909195956464
+  feasibility_lambda: 0.0 #0.9632909195956464
   projection_lambda: 0.01
   adaptive_feasibility_lambda: False
   lagrangian_multiplier_0: 1.0
@@ -104,7 +104,7 @@ algorithm:
 # AM PPO parameters
 training:
   lr: 0.00020407622212291503
-  projection_type: "weighted_scaling_policy_clipping" #"linear_violation", "weighted_scaling_policy_clipping", "None", "weighted_scaling", "policy_clipping"
+  projection_type: "linear_violation" #"linear_violation", "weighted_scaling_policy_clipping", "None", "weighted_scaling", "policy_clipping"
   #todo: not implemented logprob adaptations - convex_program, linear_program
   projection_kwargs:
     alpha: 0.05
