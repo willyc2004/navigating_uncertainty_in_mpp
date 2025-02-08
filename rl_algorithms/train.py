@@ -229,9 +229,9 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
                     alpha_optim.zero_grad()
             elif kwargs["algorithm"]["type"] == "ppo":
                 # check nans in subdata
-                for key in subdata.keys():
-                    if torch.isnan(subdata[key]).any():
-                        print(f"NaN in {key}")
+                for key, value in subdata.items():
+                    if isinstance(value, torch.Tensor) and torch.isnan(value).any():
+                        print(f"NaNs found in tensor: {key}")
 
                 for _ in range(num_epochs):
                     loss_out = loss_module(subdata.to(device))
