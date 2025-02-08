@@ -228,6 +228,11 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
                     alpha_optim.step()
                     alpha_optim.zero_grad()
             elif kwargs["algorithm"]["type"] == "ppo":
+                # check nans in subdata
+                for key in subdata.keys():
+                    if torch.isnan(subdata[key]).any():
+                        print(f"NaN in {key}")
+
                 for _ in range(num_epochs):
                     loss_out = loss_module(subdata.to(device))
                     loss_out["total_loss"] = (loss_out["loss_objective"] + loss_out["loss_critic"]
