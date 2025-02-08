@@ -179,6 +179,12 @@ class FeasibilitySACLoss(SACLoss):
             "violation": mean_violation,
         }
 
+        # check all losses are not nan
+        for key, value in out.items():
+            if torch.isnan(value).any():
+                raise ValueError(f"Loss {key} is NaN")
+
+
         # Reduce outputs based on reduction mode
         td_out = TensorDict(out, [])
         td_out = td_out.named_apply(
