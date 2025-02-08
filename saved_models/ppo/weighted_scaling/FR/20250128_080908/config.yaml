@@ -41,7 +41,7 @@ model:
   critic_temperature: 1.0
   tanh_clipping: 0
   tanh_squashing: false
-  scale_max: 0.1
+  scale_max: 0.2577547803809653 #1.931286785557626
   train_decode_type: continuous_sampling
   val_decode_type: continuous_projection
   test_decode_type: continuous_projection
@@ -52,8 +52,8 @@ model:
   logger: wandb
 algorithm:
   type: ppo
-  clip_range: 0.1
-  ppo_epochs: 3
+  clip_range: 0.2
+  ppo_epochs: 5
   mini_batch_size: 0.25
   normalize_adv: false
   normalize_return: false
@@ -65,7 +65,7 @@ algorithm:
   gae_lambda: 0.95
   vf_lambda: 0.5
   entropy_lambda: 0.010071090711145904
-  feasibility_lambda: 0.00001 #0.6773126513364854
+  feasibility_lambda: 0.6773126513364854
   demand_lambda: 1.0
   stability_lambda: 1.0
   projection_lambda: 0.01
@@ -124,7 +124,7 @@ dropout_rate:
 entropy_lambda:
   value: 0.010071090711145904
 feasibility_lambda:
-  value: 0.00001 #0.6773126513364854
+  value: 0.6773126513364854
 hidden_dim:
   value: 256
 lr:
@@ -140,4 +140,4 @@ num_heads:
 ppo_epochs:
   value: 5
 scale_max:
-  value: 0.1
+  value: 1.931286785557626
