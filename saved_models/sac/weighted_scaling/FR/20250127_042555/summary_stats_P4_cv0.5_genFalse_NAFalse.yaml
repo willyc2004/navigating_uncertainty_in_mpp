@@ -1,0 +1,32 @@
+feasible_instance:
+  lb_ci: 1.0
+  max: 1.0
+  mean: 1.0
+  median: 1.0
+  min: 1.0
+  std: 0.0
+  ub_ci: 1.0
+inference_times:
+  lb_ci: 10.040842298720117
+  max: 10.296575546264648
+  mean: 10.07137680053711
+  median: 10.068325996398926
+  min: 9.876617431640625
+  std: 0.0853303074836731
+  ub_ci: 10.101911302354102
+total_profit:
+  lb_ci: 1298.514648768339
+  max: 1616.55810546875
+  mean: 1351.3011474609375
+  median: 1350.200927734375
+  min: 1112.8934326171875
+  std: 147.51470947265625
+  ub_ci: 1404.087646153536
+total_violations:
+  lb_ci: 0.0
+  max: 0.0
+  mean: 0.0
+  median: 0.0
+  min: 0.0
+  std: 0.0
+  ub_ci: 0.0
