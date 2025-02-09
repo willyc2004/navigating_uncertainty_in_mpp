@@ -53,7 +53,7 @@ env:
   utilization_rate_initial_demand: 1.1
   weight_classes: 3
 feasibility_lambda:
-  value: 0.6773126513364854
+  value: 0.06773126513364854
 hidden_dim:
   value: 128
 lr:

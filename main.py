@@ -189,9 +189,8 @@ def main(config: Optional[DotMap] = None, **kwargs):
             timestamp = config.testing.timestamp
             algorithm = config.algorithm.type
             projection = config.training.projection_type
-            feas_lambda = config.algorithm.feasibility_lambda
             alg = config.algorithm
-            fr_folder = "FR" if feas_lambda > 0 else "No FR"
+            fr_folder = "FR" if config.algorithm.feasibility_lambda > 0 else "No FR"
             path = f"saved_models/{algorithm}/{projection}/{fr_folder}/{timestamp}"
 
             # Extract trained hyperparameters
@@ -200,7 +199,6 @@ def main(config: Optional[DotMap] = None, **kwargs):
             # Override the loaded configuration based on config.yaml
             # todo: improve code
             config.training.projection_type = projection
-            config.algorithm.feasibility_lambda = feas_lambda
             for i in range(25):
                 config.algorithm[f"lagrangian_multiplier_{i}"] = alg[f"lagrangian_multiplier_{i}"]
 
@@ -305,6 +303,40 @@ if __name__ == "__main__":
         print(f"An error occurred during training: {e}")
     finally:
         wandb.finish()
+
+    # for cv in [0.1, 0.3, 0.5, 0.7, 0.9]:
+    #     config.env.cv_demand = cv
+    #     for alg in ['sac', 'ppo']:
+    #         for proj in ['linear_violation', 'weighted_scaling_policy_clipping',]:
+    #             for FR in  ['No FR']:
+    #                 for gen in [True]:
+    #                     config.env.generalization = gen
+    #                     config.algorithm.type = alg
+    #                     config.training.projection_type = proj
+    #                     if FR == 'No FR':
+    #                         config.algorithm.feasibility_lambda = 0.0
+    #
+    #                     config.testing.timestamp = folders[alg][proj][FR]
+    #                     print(f"cv: {cv}, alg: {alg}, proj: {proj}, FR: {FR}, gen: {gen}")
+    #
+    #                     # Call your main() function
+    #                     try:
+    #                         model = main(config, fr_folder=FR)
+    #                     except Exception as e:
+    #                         # Log the error to WandB
+    #                         wandb.log({"error": str(e)})
+    #
+    #                         # Optionally, use WandB alert for critical errors
+    #                         wandb.alert(
+    #                             title="Training Error",
+    #                             text=f"An error occurred during training: {e}",
+    #                             level="error"  # 'info' or 'warning' levels can be used as needed
+    #                         )
+    #
+    #                         # Print the error for local console logging as well
+    #                         print(f"An error occurred during training: {e}")
+    #                     finally:
+    #                         wandb.finish()
 
     # for alg in ['ppo', 'sac']:
     #     for proj in ['linear_violation', 'weighted_scaling_policy_clipping', 'None']:
