@@ -78,7 +78,7 @@ model:
   num_heads: 8
   out_bias_pointer_attn: false
   phase: train
-  scale_max: 1.0 #1.931286785557626
+  scale_max: 0.33 #1.931286785557626
   tanh_clipping: 0
   tanh_squashing: false
   temperature: 1.0
