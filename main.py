@@ -282,7 +282,7 @@ if __name__ == "__main__":
                 'FR': '20250129_012401_retuned'
             },
             'weighted_scaling_policy_clipping': {
-                'FR': '20250127_042555', # todo: check this one!
+                'FR': '20250127_042555',
                 'No FR': '20250209_053730', # OLD FILE: '20250203_170059'
             },
         },
