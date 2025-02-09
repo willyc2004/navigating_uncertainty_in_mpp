@@ -107,7 +107,6 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     # Loss hyperparameters
     vf_lambda = kwargs["algorithm"]["vf_lambda"]
     feasibility_lambda = kwargs["algorithm"]["feasibility_lambda"]
-    print(f"feasibility_lambda: {feasibility_lambda}")
     entropy_lambda = kwargs["algorithm"]["entropy_lambda"]
     clip_epsilon = kwargs["algorithm"]["clip_range"]
     max_grad_norm = kwargs["algorithm"]["max_grad_norm"]
