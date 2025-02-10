@@ -61,7 +61,7 @@ lr:
 mini_batch_size:
   value: 0.25
 model:
-  batch_size: 64
+  batch_size: 128
   critic_temperature: 1.0
   decoder_type: attention
   demand_aggregation: full
