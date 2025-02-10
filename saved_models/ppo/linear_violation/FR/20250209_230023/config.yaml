@@ -8,20 +8,45 @@ algorithm:
   gamma: 0.99
   kl_penalty_lambda: None
   kl_threshold: None
+  lagrangian_multiplier_0: 1.0
+  lagrangian_multiplier_1: 1.0
+  lagrangian_multiplier_10: 1.0
+  lagrangian_multiplier_11: 1.0
+  lagrangian_multiplier_12: 1.0
+  lagrangian_multiplier_13: 1.0
+  lagrangian_multiplier_14: 1.0
+  lagrangian_multiplier_15: 1.0
+  lagrangian_multiplier_16: 1.0
+  lagrangian_multiplier_17: 1.0
+  lagrangian_multiplier_18: 1.0
+  lagrangian_multiplier_19: 1.0
+  lagrangian_multiplier_2: 1.0
+  lagrangian_multiplier_20: 1.0
+  lagrangian_multiplier_21: 1.0
+  lagrangian_multiplier_22: 1.0
+  lagrangian_multiplier_23: 1.0
+  lagrangian_multiplier_24: 1.0
+  lagrangian_multiplier_3: 1.0
+  lagrangian_multiplier_4: 1.0
+  lagrangian_multiplier_5: 1.0
+  lagrangian_multiplier_6: 1.0
+  lagrangian_multiplier_7: 1.0
+  lagrangian_multiplier_8: 1.0
+  lagrangian_multiplier_9: 1.0
   max_grad_norm: 0.5
   mini_batch_size: 0.25
   normalize_adv: false
   normalize_return: false
-  ppo_epochs: 3
+  ppo_epochs: 5
   projection_lambda: 0.01
   stability_lambda: 1.0
   tau: 0.005
-  type: sac
+  type: ppo
   vf_lambda: 0.5
 alpha:
   value: 0.05
 batch_size:
-  value: 128
+  value: 64
 dropout_rate:
   value: 0.008972135903337364
 entropy_lambda:
@@ -92,14 +117,14 @@ num_encoder_layers:
 num_heads:
   value: 8
 ppo_epochs:
-  value: 3
+  value: 5
 scale_max:
   value: 1.931286785557626
 testing:
   num_episodes: 30
   timestamp: '20250123_171145'
 training:
-  lr: 0.000020407622212291503
+  lr: 0.00020407622212291503
   optimizer: Adam
   projection_kwargs:
     alpha: 0.05
