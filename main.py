@@ -260,27 +260,27 @@ if __name__ == "__main__":
     folders = {
         'ppo':{
             'linear_violation':{
-                'FR':'20250128_135057',
-                'No FR':'20250203_215550'
+                'FR':'20250209_230023', #OLD FILE: '20250128_135057',
+                'No FR':'20250210_083016', #OLD FILE: '20250203_215550'
             },
             'None':{
                 'FR':'20250129_044203_retuned'
             },
             'weighted_scaling_policy_clipping':{
-                'FR':'20250128_080908',
-                'No FR': '20250203_222855',
+                'FR':'20250210_114523', # OLD FILE: '20250128_080908',
+                'No FR': '20250210_032558' #OLD FILE: '20250203_222855',
             },
         },
         'sac':{
             'linear_violation': {
-                'FR': '20250128_150558',
+                'FR': '20250210_000006', #OLD FILE:  '20250128_150558',
                 'No FR': '20250209_112711' # OLD FILE: '20250204_112604'
             },
             'None': {
                 'FR': '20250129_012401_retuned'
             },
             'weighted_scaling_policy_clipping': {
-                'FR': '20250127_042555',
+                'FR': '20250127_042555', # todo: get this!
                 'No FR': '20250209_053730', # OLD FILE: '20250203_170059'
             },
         },
@@ -303,40 +303,6 @@ if __name__ == "__main__":
         print(f"An error occurred during training: {e}")
     finally:
         wandb.finish()
-
-    # for cv in [0.1, 0.3, 0.5, 0.7, 0.9]:
-    #     config.env.cv_demand = cv
-    #     for alg in ['sac', 'ppo']:
-    #         for proj in ['linear_violation', 'weighted_scaling_policy_clipping',]:
-    #             for FR in  ['No FR']:
-    #                 for gen in [True]:
-    #                     config.env.generalization = gen
-    #                     config.algorithm.type = alg
-    #                     config.training.projection_type = proj
-    #                     if FR == 'No FR':
-    #                         config.algorithm.feasibility_lambda = 0.0
-    #
-    #                     config.testing.timestamp = folders[alg][proj][FR]
-    #                     print(f"cv: {cv}, alg: {alg}, proj: {proj}, FR: {FR}, gen: {gen}")
-    #
-    #                     # Call your main() function
-    #                     try:
-    #                         model = main(config, fr_folder=FR)
-    #                     except Exception as e:
-    #                         # Log the error to WandB
-    #                         wandb.log({"error": str(e)})
-    #
-    #                         # Optionally, use WandB alert for critical errors
-    #                         wandb.alert(
-    #                             title="Training Error",
-    #                             text=f"An error occurred during training: {e}",
-    #                             level="error"  # 'info' or 'warning' levels can be used as needed
-    #                         )
-    #
-    #                         # Print the error for local console logging as well
-    #                         print(f"An error occurred during training: {e}")
-    #                     finally:
-    #                         wandb.finish()
 
     # for alg in ['ppo', 'sac']:
     #     for proj in ['linear_violation', 'weighted_scaling_policy_clipping', 'None']:
