@@ -3,7 +3,7 @@ algorithm:
   clip_range: 0.2
   demand_lambda: 1.0
   entropy_lambda: 0.010071090711145904
-  feasibility_lambda: 0.06773126513364854
+  feasibility_lambda: 0.02773126513364854
   gae_lambda: 0.95
   gamma: 0.99
   kl_penalty_lambda: None
@@ -12,7 +12,7 @@ algorithm:
   mini_batch_size: 0.25
   normalize_adv: false
   normalize_return: false
-  ppo_epochs: 3
+  ppo_epochs: 5
   projection_lambda: 0.01
   stability_lambda: 1.0
   tau: 0.005
@@ -21,7 +21,7 @@ algorithm:
 alpha:
   value: 0.05
 batch_size:
-  value: 128
+  value: 64
 dropout_rate:
   value: 0.008972135903337364
 entropy_lambda:
@@ -61,7 +61,7 @@ lr:
 mini_batch_size:
   value: 0.25
 model:
-  batch_size: 128
+  batch_size: 64
   critic_temperature: 1.0
   decoder_type: attention
   demand_aggregation: full
@@ -92,14 +92,14 @@ num_encoder_layers:
 num_heads:
   value: 8
 ppo_epochs:
-  value: 3
+  value: 5
 scale_max:
   value: 1.931286785557626
 testing:
   num_episodes: 30
   timestamp: '20250123_171145'
 training:
-  lr: 0.000040407622212291503
+  lr: 0.00020407622212291503
   optimizer: Adam
   projection_kwargs:
     alpha: 0.05
