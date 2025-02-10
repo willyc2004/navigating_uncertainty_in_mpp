@@ -1,6 +1,6 @@
 algorithm:
   adaptive_feasibility_lambda: false
-  clip_range: 0.2
+  clip_range: 0.1
   demand_lambda: 1.0
   entropy_lambda: 0.010071090711145904
   feasibility_lambda: 0.06773126513364854
@@ -61,7 +61,7 @@ lr:
 mini_batch_size:
   value: 0.25
 model:
-  batch_size: 128
+  batch_size: 64
   critic_temperature: 1.0
   decoder_type: attention
   demand_aggregation: full
@@ -92,7 +92,7 @@ num_encoder_layers:
 num_heads:
   value: 8
 ppo_epochs:
-  value: 3
+  value: 5
 scale_max:
   value: 1.931286785557626
 testing:
