@@ -255,8 +255,6 @@ if __name__ == "__main__":
     file_path = os.getcwd()
     config = load_config(f'{file_path}/config.yaml')
 
-    # todo: run cvs
-
     folders = {
         'ppo':{
             'linear_violation':{
