@@ -4,7 +4,7 @@ algorithm:
   demand_lambda: 1.0
   entropy_lambda: 0.010071090711145904
   feasibility_lambda: 0.06773126513364854
-  gae_lambda: 0.90
+  gae_lambda: 0.95
   gamma: 0.99
   kl_penalty_lambda: None
   kl_threshold: None
@@ -12,7 +12,7 @@ algorithm:
   mini_batch_size: 0.25
   normalize_adv: false
   normalize_return: false
-  ppo_epochs: 5
+  ppo_epochs: 3
   projection_lambda: 0.01
   stability_lambda: 1.0
   tau: 0.005
@@ -92,14 +92,14 @@ num_encoder_layers:
 num_heads:
   value: 8
 ppo_epochs:
-  value: 5
+  value: 3
 scale_max:
   value: 1.931286785557626
 testing:
   num_episodes: 30
   timestamp: '20250123_171145'
 training:
-  lr: 0.00020407622212291503
+  lr: 0.000020407622212291503
   optimizer: Adam
   projection_kwargs:
     alpha: 0.05
