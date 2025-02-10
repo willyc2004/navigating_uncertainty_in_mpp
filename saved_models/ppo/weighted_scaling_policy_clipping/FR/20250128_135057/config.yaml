@@ -1,10 +1,10 @@
 algorithm:
   adaptive_feasibility_lambda: false
-  clip_range: 0.1
+  clip_range: 0.2
   demand_lambda: 1.0
   entropy_lambda: 0.010071090711145904
   feasibility_lambda: 0.06773126513364854
-  gae_lambda: 0.95
+  gae_lambda: 0.90
   gamma: 0.99
   kl_penalty_lambda: None
   kl_threshold: None
