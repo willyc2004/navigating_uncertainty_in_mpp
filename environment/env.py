@@ -70,6 +70,7 @@ class MasterPlanningEnv(EnvBase):
         self.teus_episode = th.cat([self.teus.repeat(self.T)])
         # Revenue
         self.revenues_matrix = self._precompute_revenues()
+        self.limit_revenue = kwargs.get("limit_revenue", False)
         # Weights and stability
         self.weights = th.arange(1, self.W + 1, device=self.device, dtype=self.float_type).repeat(self.K // self.W)
         self.longitudinal_position = th.arange(1/self.B, self.B * 2/self.B, 2/self.B, device=self.device, dtype=self.float_type)
@@ -98,7 +99,6 @@ class MasterPlanningEnv(EnvBase):
         self.swap_signs_stability = -ones_cons.clone() # swap signs for constraints
         self.swap_signs_stability[0] *= -1 # only demand constraint is positive
         self.A = self._create_constraint_matrix(shape=(self.n_constraints, self.n_action, self.T, self.K))
-        self.non_anticipation = kwargs.get("non_anticipation", True)
 
     def _make_spec(self, td:TensorDict = None) -> None:
         """Define the specs for observations, actions, rewards, and done flags."""
@@ -193,8 +193,10 @@ class MasterPlanningEnv(EnvBase):
         sum_action = action.sum(dim=(-2, -1)).unsqueeze(-1)
 
         ## Reward
-        revenue = th.clamp(sum_action, min=th.zeros_like(sum_action), max=demand_state["current_demand"]) * self.revenues[t[0]]
-        # revenue = sum_action * self.revenues[t[0]]
+        if self.limit_revenue:
+            revenue = th.clamp(sum_action, min=th.zeros_like(sum_action), max=demand_state["current_demand"]) * self.revenues[t[0]]
+        else:
+            revenue = sum_action * self.revenues[t[0]]
         profit = revenue.clone()
         if self.next_port_mask[t].any():
             # Compute aggregated: overstowage and long crane excess
@@ -324,15 +326,8 @@ class MasterPlanningEnv(EnvBase):
             observed_demand = th.zeros_like(realized_demand)
             load_idx = self.load_transport[pol]
             observed_demand[..., load_idx, :] = realized_demand[..., load_idx, :]
-
-            if self.non_anticipation:
-                expected_demand = th.zeros_like(realized_demand)
-                std_demand = th.zeros_like(realized_demand)
-                expected_demand[..., load_idx, :] = td["observation", "expected_demand"].view(*batch_size, self.T, self.K)[..., load_idx, :].clone()
-                std_demand[..., load_idx, :] = td["observation", "std_demand"].view(*batch_size, self.T, self.K)[..., load_idx, :].clone()
-            else:
-                expected_demand = td["observation", "expected_demand"].clone()
-                std_demand = td["observation", "std_demand"].clone()
+            expected_demand = td["observation", "expected_demand"].clone()
+            std_demand = td["observation", "std_demand"].clone()
         else:
             observed_demand = realized_demand.clone()
             expected_demand = td["observation", "expected_demand"].clone()
@@ -512,9 +507,6 @@ class MasterPlanningEnv(EnvBase):
                 demand_state["realized_demand"], moves_idx, self.capacity, self.B, self.CI_target).view(*batch_size, 1)
             if self.demand_uncertainty:
                 demand_state["observed_demand"][..., load_idx, :] = demand_state["realized_demand"][..., load_idx, :]
-                if self.non_anticipation:
-                    demand_state["expected_demand"][..., load_idx, :] = demand_state["real_expected_demand"][..., load_idx,:].clone()
-                    demand_state["std_demand"][..., load_idx, :] = demand_state["real_std_demand"][..., load_idx, :].clone()
 
         # Update residual lc capacity: target - actual load and discharge moves
         long_crane_moves = long_crane_moves_load + long_crane_moves_discharge

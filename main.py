@@ -103,9 +103,9 @@ def initialize_policy_and_critic(config, env, device):
 
     # Embedding initialization
     init_embed = CargoEmbedding(action_dim, embed_dim, sequence_dim, env)
-    context_embed = ContextEmbedding(action_dim, embed_dim, sequence_dim, env, config.model.demand_aggregation)
+    context_embed = ContextEmbedding(action_dim, embed_dim, sequence_dim, env,)
     dynamic_embed = DynamicEmbedding(embed_dim, sequence_dim, env)
-    critic_embed = CriticEmbedding(action_dim, embed_dim, sequence_dim, env, config.model.demand_aggregation)
+    critic_embed = CriticEmbedding(action_dim, embed_dim, sequence_dim, env,)
 
     # Model arguments
     decoder_args = {
@@ -209,8 +209,7 @@ def main(config: Optional[DotMap] = None, **kwargs):
         loaded_config.env.cv_demand = config.env.cv_demand
         loaded_config.testing = config.testing
         print(f"alg{loaded_config.algorithm.type}, proj:{loaded_config.training.projection_type}, "
-              f"Feas lamda:{loaded_config.algorithm.feasibility_lambda}, gen:{config.env.generalization}")
-
+              f"Feas lamda:{loaded_config.algorithm.feasibility_lambda}, gen:{loaded_config.env.generalization}")
 
         # Initialize models
         policy, critic = initialize_policy_and_critic(loaded_config, env, device)
@@ -224,7 +223,7 @@ def main(config: Optional[DotMap] = None, **kwargs):
         metrics, summary_stats = evaluate_model(policy, loaded_config, device=device, **config.testing)
         # Save summary statistics in path
         with open(f"{path}/summary_stats_P{loaded_config.env.ports}_feas_recov{loaded_config.testing.feasibility_recovery}_"
-                  f"cv{loaded_config.env.cv_demand}_gen{loaded_config.env.generalization}_NA{loaded_config.env.non_anticipation}.yaml", "w") as file:
+                  f"cv{loaded_config.env.cv_demand}_gen{loaded_config.env.generalization}.yaml", "w") as file:
             yaml.dump(summary_stats, file)
         print(summary_stats)
 
