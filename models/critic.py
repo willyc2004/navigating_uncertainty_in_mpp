@@ -71,14 +71,6 @@ class CriticNetwork(nn.Module):
         self.value_head = value_head
 
     def forward(self, obs: Union[Tensor, TensorDict], action:Optional=None,) -> Tensor:
-        """Forward pass of the critic network: encode the imput in embedding space and return the value
-
-        Args:
-            x: Input containing the environment state. Can be a Tensor or a TensorDict
-
-        Returns:
-            Value of the input state
-        """
         # Encode the input
         h, _ = self.encoder(obs)  # [batch_size, N, embed_dim] -> [batch_size, N]
         h = self.obs_embedding(h, obs)

@@ -2,6 +2,7 @@ from torch import nn
 from models.decoder import AttentionDecoderWithCache
 
 class Autoencoder(nn.Module):
+    """Autoencoder model that takes in an observation and returns the decoded output."""
     def __init__(self, encoder, decoder, env):
         super().__init__()
         self.encoder = encoder

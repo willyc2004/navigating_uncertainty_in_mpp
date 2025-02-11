@@ -1,12 +1,12 @@
 from typing import List, Union
 import torch
 from torch import nn
-
 from rl4co.models.nn.mlp import MLP
 from rl4co.utils.pylogger import get_pylogger
 log = get_pylogger(__name__)
 
 class CustomMLP(MLP):
+    """Custom MLP model with additional features."""
     @staticmethod
     def _get_norm_layer(norm_method, dim):
         if norm_method == "Batch":
@@ -46,6 +46,7 @@ class ResidualBlock(nn.Module):
         return x + residual  # Add residual connection
 
 class Permute(nn.Module):
+    """Permute layer for reshaping input dimensions."""
     def __init__(self, dims):
         super(Permute, self).__init__()
         self.dims = dims
@@ -59,9 +60,7 @@ class Permute(nn.Module):
             raise ValueError("Invalid dimensions.")
 
 def add_normalization_layer(normalization, embed_dim):
-    """
-    Adds a normalization layer based on the specified type and handles input shape compatibility.
-    """
+    """Adds a normalization layer based on the specified type and handles input shape compatibility."""
     if normalization == "batch":
         return nn.Sequential(
             Permute((0, 2, 1)),  # Permute for BatchNorm1d

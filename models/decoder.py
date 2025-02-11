@@ -20,6 +20,7 @@ class PrecomputedCache:
     logit_key: Tensor
 
 class AttentionDecoderWithCache(nn.Module):
+    """Attention-based decoder with cache for precomputed values."""
     def __init__(self,
                  action_dim: int,
                  embed_dim: int,
@@ -165,6 +166,7 @@ class AttentionDecoderWithCache(nn.Module):
         )
 
 class MLPDecoderWithCache(nn.Module):
+    """MLP-based decoder with cache for precomputed values."""
     def __init__(self,
                  action_dim: int,
                  embed_dim: int,
