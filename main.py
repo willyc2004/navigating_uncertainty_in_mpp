@@ -52,13 +52,11 @@ def load_trained_hyperparameters(path):
     config_path = f"{path}/config.yaml"
     loaded_config = load_config(config_path)
 
-    # Override algorithm hyperparameters if they exist
-    # todo: check if this is necessary
-    alg = loaded_config.algorithm
+    # Add hyperparameters if they exist
     for i in range(25):
         key = f"lagrangian_multiplier_{i}"
-        if key in alg:
-            loaded_config.algorithm[key] = alg[key]
+        if key in loaded_config.algorithm:
+            loaded_config.algorithm[key] = loaded_config.algorithm[key]
 
     return loaded_config
 
