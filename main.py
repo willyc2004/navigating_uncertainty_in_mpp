@@ -184,21 +184,13 @@ def main(config: Optional[DotMap] = None, **kwargs):
     # Train the model
     if config.model.phase == "train" or config.model.phase == "tuned_training":
         if config.model.phase == "tuned_training":
-            # todo: improve code to load the configuration
-            # Get path to the trained model
-            timestamp = config.testing.timestamp
-            algorithm = config.algorithm.type
-            projection = config.training.projection_type
-            alg = config.algorithm
-            fr_folder = "FR" if config.algorithm.feasibility_lambda > 0 else "No FR"
-            path = f"saved_models/{algorithm}/{projection}/{fr_folder}/{timestamp}"
-
             # Extract trained hyperparameters
+            path = f"{config.testing.path}/{config.testing.timestamp}"
             config_load_path = f"{path}/config.yaml"
             config = load_config(config_load_path)
             # Override the loaded configuration based on config.yaml
             # todo: improve code
-            config.training.projection_type = projection
+            alg = config.algorithm
             for i in range(25):
                 config.algorithm[f"lagrangian_multiplier_{i}"] = alg[f"lagrangian_multiplier_{i}"]
 
@@ -208,15 +200,8 @@ def main(config: Optional[DotMap] = None, **kwargs):
         run_training(policy, critic, **config)
     # Test the model
     elif config.model.phase == "test":
-        # Get path to the trained model
-        timestamp = config.testing.timestamp
-        algorithm = config.algorithm.type
-        projection = config.training.projection_type
-        feas_lambda = config.algorithm.feasibility_lambda
-        fr_folder = kwargs.get("fr_folder") or ("FR" if feas_lambda > 0 else "No FR")
-        path = f"saved_models/{algorithm}/{projection}/{fr_folder}/{timestamp}"
-
         # Extract trained hyperparameters
+        path = f"{config.testing.path}/{config.testing.timestamp}"
         config_load_path = f"{path}/config.yaml"
         loaded_config = load_config(config_load_path)
         # Override the loaded configuration based on config.yaml
@@ -225,8 +210,8 @@ def main(config: Optional[DotMap] = None, **kwargs):
         loaded_config.env.generalization = config.env.generalization
         loaded_config.env.non_anticipation = config.env.non_anticipation
         loaded_config.testing = config.testing
-        print(f"alg{algorithm}, proj:{projection}, "
-              f"Feas lamda:{feas_lambda}, gen:{config.env.generalization}")
+        print(f"alg{loaded_config.algorithm.type}, proj:{loaded_config.training.projection_type}, "
+              f"Feas lamda:{loaded_config.algorithm.feasibility_lambda}, gen:{config.env.generalization}")
 
 
         # Initialize models
@@ -240,8 +225,8 @@ def main(config: Optional[DotMap] = None, **kwargs):
         # Evaluate the model
         metrics, summary_stats = evaluate_model(policy, loaded_config, device=device, **config.testing)
         # Save summary statistics in path
-        with open(f"{path}/summary_stats_P{loaded_config.env.ports}_cv{loaded_config.env.cv_demand}"
-                  f"_gen{loaded_config.env.generalization}_NA{loaded_config.env.non_anticipation}.yaml", "w") as file:
+        with open(f"{path}/summary_stats_P{loaded_config.env.ports}_feas_recov{loaded_config.testing.feasibility_recovery}_"
+                  f"cv{loaded_config.env.cv_demand}_gen{loaded_config.env.generalization}_NA{loaded_config.env.non_anticipation}.yaml", "w") as file:
             yaml.dump(summary_stats, file)
         print(summary_stats) # todo: add visualization of the metrics/summary_stats
 
@@ -278,7 +263,7 @@ if __name__ == "__main__":
                 'FR': '20250129_012401_retuned'
             },
             'weighted_scaling_policy_clipping': {
-                'FR': '20250127_042555', # todo: get this!
+                'FR': '20250211_082215', # OLD FILE: '20250127_042555',
                 'No FR': '20250209_053730', # OLD FILE: '20250203_170059'
             },
         },

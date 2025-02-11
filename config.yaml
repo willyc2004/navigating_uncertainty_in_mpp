@@ -17,8 +17,9 @@ env:
   long_crane_costs: 0.5
   episode_order: "standard" # greedy_revenue, priority_then_greedy, max_distance_then_priority, standard
   normalize_obs: True
+  limit_revenue: True
 
-  # Generator
+  # Demand settings
   seed: 42
   utilization_rate_initial_demand: 1.1
   spot_percentage: 0.3
@@ -57,7 +58,7 @@ model:
 
 # PPO parameters
 algorithm:
-  type: "sac" # ppo, ddpg, sac
+  type: "ppo" # ppo, ddpg, sac
   clip_range: 0.2
   ppo_epochs: 7 # 2, 3, 5, 7, 10
   mini_batch_size: 0.25
@@ -104,7 +105,7 @@ algorithm:
 # AM PPO parameters
 training:
   lr: 0.00020407622212291503
-  projection_type: "weighted_scaling_policy_clipping" #"linear_violation", "weighted_scaling_policy_clipping", "None", "weighted_scaling", "policy_clipping"
+  projection_type: "linear_violation" #"linear_violation", "weighted_scaling_policy_clipping", "None", "weighted_scaling", "policy_clipping"
   #todo: not implemented logprob adaptations - convex_program, linear_program
   projection_kwargs:
     alpha: 0.05
@@ -119,5 +120,7 @@ training:
   test_data_size: 5000
 
 testing:
-  timestamp: "20250128_135057"
+  feasibility_recovery: False
+  path: "saved_models/ppo/linear_violation/No FR"
+  timestamp: "20250210_083016"
   num_episodes: 30
