@@ -122,8 +122,6 @@ class MPP_Generator(Generator):
         if td is None or td.is_empty():
             e_x_init_demand, _ = self._initial_contract_demand(batch_size)
             batch_updates = th.zeros(batch_size, device=self.device).view(*batch_size, 1)
-            if self.train_max_demand is not None:
-                self.train_max_demand = (e_x_init_demand + 4 * (e_x_init_demand*0.5)).max() # add fixed ub for demand normalization
         else:
             e_x_init_demand = td["observation", "init_expected_demand"].view(-1, self.T, self.K)
             batch_updates = td["observation", "batch_updates"].clone() + 1
