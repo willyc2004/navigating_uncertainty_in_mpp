@@ -163,16 +163,12 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         out["log_prob"] = self.get_logprobs(out["action"], dist)
 
         # Raise error for projection layers without log prob adaptation implementations
-        if self.projection_type not in ["linear_violation", "weighted_scaling_policy_clipping", "weighted_scaling", "policy_clipping", "None"]:
+        if self.projection_type not in ["linear_violation", "weighted_scaling_policy_clipping", "none"]:
             raise ValueError(f"Log prob adaptation for projection type \'{self.projection_type}\' not supported.")
 
         # Pre-compute upper bound for weighted_scaling
         timestep_idx = out["observation", "timestep"].squeeze(0)
         out["ub"] = out["observation", "realized_demand"].gather(-1, timestep_idx.unsqueeze(-1)).squeeze(-1)
-        #
-        # out["ub"] = out["observation", "realized_demand"][..., out["observation", "timestep"][0]] \
-        #     if out["observation", "realized_demand"].dim() == 2 \
-        #     else out["observation", "realized_demand"][..., out["observation", "timestep"][0, 0], :]
 
         # Projection and log probs adjustment
         out["action"] = self.handle_action_projection(out)
