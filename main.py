@@ -232,6 +232,7 @@ if __name__ == "__main__":
     file_path = os.getcwd()
     config = load_config(f'{file_path}/config.yaml')
     # Call your main() function
+    ## todo: Likely a bunch of warnings will be thrown, but they are not critical. Should be fixed soon.
     try:
         model = main(config)
     except Exception as e:
