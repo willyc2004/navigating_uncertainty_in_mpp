@@ -23,8 +23,7 @@ class MasterPlanningEnv(EnvBase):
 
     def __init__(self, device="cuda", batch_size=[], td_gen=None, **kwargs):
         super().__init__(device=device, batch_size=batch_size)
-        ## Kwargs
-        # Sets
+        # Kwargs
         self.P = kwargs.get("ports") # Number of ports
         self.B = kwargs.get("bays")  # Number of bays
         self.D = kwargs.get("decks") # Number of decks
@@ -32,7 +31,6 @@ class MasterPlanningEnv(EnvBase):
         self.CC = kwargs.get("customer_classes")  # Number of customer contracts
         self.K = kwargs.get("cargo_classes") * self.CC # Number of container classes
         self.W = kwargs.get("weight_classes")  # Number of weight classes
-        # Env parameters
         self.stab_delta = kwargs.get("stability_difference")
         self.LCG_target = kwargs.get("LCG_target")
         self.VCG_target = kwargs.get("VCG_target")
@@ -41,7 +39,8 @@ class MasterPlanningEnv(EnvBase):
         self.ho_mask = kwargs.get("hatch_overstowage_mask")
         self.CI_target = kwargs.get("CI_target")
         self.normalize_obs = kwargs.get("normalize_obs")
-        
+        self.limit_revenue = kwargs.get("limit_revenue", False)
+
         ## Init env
         # Seed and generator
         self._set_seed(kwargs.get("seed"))
@@ -51,54 +50,17 @@ class MasterPlanningEnv(EnvBase):
             self.td_gen = self.generator(batch_size=batch_size,)
         # Data type and shapes
         self.float_type = kwargs.get("float_type", th.float32)
+        self.zero = th.tensor([0], device=self.device, dtype=self.float_type)
         self._compact_form_shapes()
         self._make_spec(self.td_gen)
-        self.zero = th.tensor([0], device=self.device, dtype=self.float_type)
-        # todo: perform big clean-up here!
-        
-        ## Parameters:
-        # Transports
-        self.ports = torch.arange(self.P, device=self.device)
-        self.transport_idx = get_transport_idx(self.P, device=self.device)
-        self.duration = self.transport_idx[..., 1] - self.transport_idx[..., 0]
+
+        ## Sets and Parameters:
         self._precompute_transport_sets()
-        # Capacity (TEU)
-        self.capacity = th.full((self.B, self.D,), *kwargs.get("capacity"), device=self.device, dtype=self.float_type)
-        self.total_capacity = th.sum(self.capacity)
-        self.teus = th.arange(1, self.K // (self.CC * self.W) + 1, device=self.device, dtype=self.float_type)\
-            .repeat_interleave(self.W).repeat(self.CC)
-        self.teus_episode = th.cat([self.teus.repeat(self.T)])
-        # Revenue
+        self._initialize_capacity(*kwargs.get("capacity"))
         self.revenues_matrix = self._precompute_revenues()
-        self.limit_revenue = kwargs.get("limit_revenue", False)
-        # Weights and stability
-        self.weights = th.arange(1, self.W + 1, device=self.device, dtype=self.float_type).repeat(self.K // self.W)
-        self.longitudinal_position = th.arange(1/self.B, self.B * 2/self.B, 2/self.B, device=self.device, dtype=self.float_type)
-        self.vertical_position = th.arange(1/self.D, self.D * 2/self.D, 2/self.D, device=self.device, dtype=self.float_type)
-        self.lp_weight = th.einsum("d, b -> bd", self.weights, self.longitudinal_position).unsqueeze(0)
-        self.vp_weight = th.einsum("d, c -> cd", self.weights, self.vertical_position).unsqueeze(0)
-        self.stability_params_lhs = self._precompute_stability_parameters()
-
-        # Step ordering:
-        # todo: clean up
-        # descending distance, longterm > spot; ascending TEU, ascending weight
-        self.k, self.tau = get_k_tau_pair(self._precompute_order_standard(), self.K)
-        self.pol, self.pod = get_pol_pod_pair(self.tau, self.P)
-        self.revenues = self.revenues_matrix[self.k, self.tau]
-        self._precompute_transport_sets_episode()
-        self.next_port_mask = self._precompute_next_port_mask()
-        self.transform_tau_to_pol = get_pols_from_transport(self.transport_idx, self.P, dtype=self.float_type)
-        self.transform_tau_to_pod = get_pods_from_transport(self.transport_idx, self.P, dtype=self.float_type)
-
-        # Constraints
-        # todo clean-up
-        ones_cons = th.ones(self.n_constraints, device=self.device, dtype=self.float_type)
-        self.constraint_signs = ones_cons.clone()
-        indices_to_multiply = th.tensor([-3, -1], device=self.device)
-        self.constraint_signs[indices_to_multiply] *= -1
-        self.swap_signs_stability = -ones_cons.clone() # swap signs for constraints
-        self.swap_signs_stability[0] *= -1 # only demand constraint is positive
-        self.A = self._create_constraint_matrix(shape=(self.n_constraints, self.n_action, self.T, self.K))
+        self._initialize_stability()
+        self._initialize_step_parameters()
+        self._initialize_constraints()
 
     def _make_spec(self, td:TensorDict = None) -> None:
         """Define the specs for observations, actions, rewards, and done flags."""
@@ -238,25 +200,15 @@ class MasterPlanningEnv(EnvBase):
             cost += lc_cost_
             lc_costs += lc_cost_
 
-
-        # # Update action mask # todo: add action mask
-        # # action_mask[t] = 0
-        # mask_condition = (t[0] % self.K == 0)
-        # min_pod = compute_min_pod(pod_locations, self.P, self.float_type)
-        # new_mask = compute_HO_mask(action_mask, pod, pod_locations, min_pod, self.B, self.D)
-        # action_mask = th.where(mask_condition, new_mask, action_mask)
-
         # Normalize revenue \in [0,1]:
         # revenue_norm = rev_t / max(rev_t) * min(q_t, sum(a_t)) / q_t
         normalize_revenue = self.revenues.max() * demand_state["current_demand"]
         # Normalize accumulated cost \in [0, t_cost], where t_cost is the time at which we evaluate cost:
         # cost_norm = cost_{t_cost} / E[q_t]
-        # todo: check proper cost normalization
         normalize_cost = demand_state["realized_demand"].view(*batch_size, -1)[...,:t[0]].sum(dim=-1, keepdims=True) / t[0]
         # Normalize reward: r_t = revenue_norm - cost_norm
         # We have spikes over delayed costs at specific time steps.
         reward = (revenue.clone() / normalize_revenue) - (cost.clone() / normalize_cost)
-        # reward = profit
 
         # Update td output
         clip_max = (residual_capacity / self.teus_episode[t].view(*batch_size, 1, 1)).view(*batch_size, self.B*self.D)
@@ -575,53 +527,50 @@ class MasterPlanningEnv(EnvBase):
                         min=0, max=self.capacity[0,0].item())
         return rhs
 
+    # Initializations
+
+    def _initialize_capacity(self, capacity):
+        """Initialize capacity (TEU) parameters"""
+        self.capacity = th.full((self.B, self.D,), capacity, device=self.device, dtype=self.float_type)
+        self.total_capacity = th.sum(self.capacity)
+        self.teus = th.arange(1, self.K // (self.CC * self.W) + 1, device=self.device, dtype=self.float_type) \
+            .repeat_interleave(self.W).repeat(self.CC)
+        self.teus_episode = th.cat([self.teus.repeat(self.T)])
+
+    def _initialize_stability(self, ):
+        """Initialize stability parameters"""
+        self.weights = th.arange(1, self.W + 1, device=self.device, dtype=self.float_type).repeat(self.K // self.W)
+        self.longitudinal_position = th.arange(1 / self.B, self.B * 2 / self.B, 2 / self.B, device=self.device,
+                                               dtype=self.float_type)
+        self.vertical_position = th.arange(1 / self.D, self.D * 2 / self.D, 2 / self.D, device=self.device,
+                                           dtype=self.float_type)
+        self.lp_weight = th.einsum("d, b -> bd", self.weights, self.longitudinal_position).unsqueeze(0)
+        self.vp_weight = th.einsum("d, c -> cd", self.weights, self.vertical_position).unsqueeze(0)
+        self.stability_params_lhs = self._precompute_stability_parameters()
+
+    def _initialize_step_parameters(self, ):
+        """Initialize step parameters"""
+        self.k, self.tau = get_k_tau_pair(self._precompute_order_standard(), self.K)
+        self.pol, self.pod = get_pol_pod_pair(self.tau, self.P)
+        self.revenues = self.revenues_matrix[self.k, self.tau]
+        self._precompute_transport_sets_episode()
+        self.next_port_mask = self._precompute_next_port_mask()
+        self.transform_tau_to_pol = get_pols_from_transport(self.transport_idx, self.P, dtype=self.float_type)
+        self.transform_tau_to_pod = get_pods_from_transport(self.transport_idx, self.P, dtype=self.float_type)
+
+    def _initialize_constraints(self, ):
+        """Initialize constraint-related parameters."""
+        self.constraint_signs = th.ones(self.n_constraints, device=self.device, dtype=self.float_type)
+        self.constraint_signs[th.tensor([-3, -1], device=self.device)] *= -1  # Flip signs for specific constraints
+
+        # Swap signs for stability constraints, only the first one remains positive
+        self.swap_signs_stability = -th.ones_like(self.constraint_signs)
+        self.swap_signs_stability[0] = 1
+
+        # Create constraint matrix
+        self.A = self._create_constraint_matrix(shape=(self.n_constraints, self.n_action, self.T, self.K))
+
     # Precomputes
-    def _precompute_order_max_distance_then_priority(self):
-        """Get ordered steps with transports in descending order of distance
-        Suppose (k,tau) = (k, (POL,POD), then we have the following ordered set:
-        { (0, (0,P-1)), (1, (0,P-1)), ..., (K-1, (0,P-1));
-          (0, (0,P-2)), (1, (0,P-2)), ..., (K-1, (0,P-2));
-          ...
-          (0, (1,P-1)), (1, (1,P-1)), ..., (K-1, (1,P-1));
-          (0, (1,P-2)), (1, (1,P-2)), ..., (K-1, (1,P-2));
-          ...
-          (0, (P-2,P-1)), (1, (P-2,P-1)), ..., (K-1, (P-2,P-1)) }
-        """
-        # Initialize steps and idx
-        steps = th.zeros(self.T*self.K, dtype=th.int64, device=self.device)
-        idx = 0
-        # We use loops for readability and simplicity, only because it is part of initialization
-        for pol in range(self.P - 1):
-            for pod in range(self.P - 1, pol, -1):
-                # Get the transport index of (POL,POD)
-                tau = get_transport_from_pol_pod(pol, pod, self.transport_idx)
-                # Create a range of k values for this combination and store the result
-                steps[idx:idx + self.K] = th.arange(self.K, device=self.device, dtype=self.float_type) + tau * self.K
-                idx += self.K
-        return steps
-
-    def _precompute_order_greedy_revenue(self):
-        """Get ordered steps with transports in descending order of revenue per capacity usage:
-        - Revenue per capacity: revenue / (teus * weights * duration)"""
-        # Init
-        steps = th.zeros(self.T*self.K, dtype=th.int64, device=self.device)
-        cap_usage = torch.einsum("j,i->ij", self.duration, (self.teus*self.weights))
-        self.revenue_per_capacity = self.revenues_matrix / cap_usage
-        idx = 0
-        for pol in range(self.P - 1):
-            # Create a mask for `revenue_per_capacity` where `loads` is True
-            loads = self.load_transport[pol].expand(self.K, -1)
-            masked_revenues = torch.where(loads, self.revenue_per_capacity, float("-inf"))  # Use -inf to exclude non-loads
-
-            # Get argsort indices of the max values in descending order
-            sorted_indices = torch.argsort(masked_revenues.T.flatten(), descending=True)
-            # Filter out indices corresponding to -inf
-            valid_indices = sorted_indices[masked_revenues.T.flatten()[sorted_indices] > float("-inf")]
-            # Store the valid indices in the steps array
-            steps[idx:idx + len(valid_indices)] = valid_indices
-            idx += len(valid_indices)
-        return steps
-
     def _precompute_order_standard(self):
         """Get standard order of steps;
         - POL, POD are in ascending order
@@ -640,6 +589,7 @@ class MasterPlanningEnv(EnvBase):
         """Precompute matrix of revenues with shape [K, T]"""
         # Initialize revenues and pod_grid
         revenues = th.zeros((self.K, self.P, self.P), device=self.device, dtype=self.float_type) # Shape: [K, P, P]
+        self.ports = torch.arange(self.P, device=self.device)
         pol_grid, pod_grid = th.meshgrid(self.ports, self.ports, indexing='ij')  # Shapes: [P, P]
         duration_grid = (pod_grid-pol_grid).to(revenues.dtype) # Shape: [P, P]
         # Compute revenues
@@ -654,6 +604,7 @@ class MasterPlanningEnv(EnvBase):
         """Precompute transport sets based on POL with shape(s): [P, T]"""
         # Note: transport sets in the environment do not depend on batches for efficiency.
         # Hence, implementation only works for batches with the same episodic step (e.g., single-step MDP)
+        self.transport_idx = get_transport_idx(self.P, device=self.device)
 
         # Get transport sets for demand
         p = th.arange(self.P, device=self.device, dtype=self.float_type).view(-1,1)
