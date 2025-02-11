@@ -1,7 +1,6 @@
 import torch as th
 import cvxpy as cp
 from cvxpylayers.torch import CvxpyLayer
-from rl_algorithms.lp_solver import stepwise_lp
 
 class EmptyLayer(th.nn.Module):
     def __init__(self, **kwargs):
@@ -18,6 +17,7 @@ class LinearViolationAdaption(th.nn.Module):
         self.alpha = kwargs.get('alpha', 0.005)
         self.delta = kwargs.get('delta', 0.1)
         self.max_iter = kwargs.get('max_iter', 100)
+        self.use_early_stopping = kwargs.get('use_early_stopping', False)
 
     def forward(self, x, A, b, **kwargs):
         """
@@ -60,7 +60,7 @@ class LinearViolationAdaption(th.nn.Module):
             active_mask = ~(no_violation)
 
             # Break if no batches/steps are left active
-            if not th.any(active_mask):
+            if self.use_early_stopping and not th.any(active_mask):
                 break
 
             # Calculate penalty gradient for adjustment
@@ -76,70 +76,6 @@ class LinearViolationAdaption(th.nn.Module):
         # Return the adjusted x_, reshaped to remove n_step dimension if it was initially 2D
         return x_.squeeze(1) if n_step == 1 else x_
 
-class ConvexProgramLayer(th.nn.Module):
-    """Convex programming layer to enforce strict feasibility by ensuring constraints are satisfied."""
-
-    def __init__(self, **kwargs):
-        super(ConvexProgramLayer, self).__init__()
-        # Input
-        n_action = kwargs['n_action']
-        n_constraints = kwargs['n_constraints']
-
-        # Create convex program
-        x_ = cp.Variable(n_action)
-        slack_minus = cp.Variable(n_action)
-        x = cp.Parameter(n_action)
-        A = cp.Parameter((n_action, n_constraints))
-        b = cp.Parameter(n_constraints)
-        constraints = [slack_minus >= 0, x_ >= 0,
-                       x_ == (x - slack_minus),
-                       A.T @ x_ <= b]
-        objective = cp.Minimize(cp.sum(slack_minus))
-        problem = cp.Problem(objective, constraints)
-        assert problem.is_dpp()
-
-        # Create CVXPY layer
-        self.cvxpylayer = CvxpyLayer(problem, parameters=[A, b, x], variables=[slack_minus, x_])
-        self.solver_options = {
-            'solve_method': "ECOS",  # "SCS", "ECOS"
-            'max_iters': 1000, # creates feasible solutions; but convex layer takes long
-        }
-
-    def forward(self, x, A, b, **kwargs):
-        # Get the dimensions of the input
-        batch_size = A.shape[0]
-        x_out = []
-
-        # Loop over each batch
-        for i in range(batch_size):
-            A_i = A[i].T
-            b_i = b[i]
-            x_i = x[i]
-            try:
-                # Solve the convex problem for each batch element
-                _, x_ = self.cvxpylayer(A_i, b_i, x_i, solver_args=self.solver_options)
-                x_out.append(x_)
-            except cp.error.SolverError as e:
-                print(f"Solver failed for batch {i}: {e}")
-                x_out.append(th.zeros_like(x_i))  # Handle failure case
-
-        # Stack the results back into a single tensor
-        x_out = th.stack(x_out)
-        return x_out  # Scale back to original values
-
-class LinearProgramLayer(th.nn.Module):
-    """Linear programming layer to enforce strict feasibility by ensuring constraints are satisfied."""
-    def __init__(self, **kwargs):
-        super(LinearProgramLayer, self).__init__()
-
-    def forward(self, x, A, b, **kwargs):
-        x_ = th.zeros_like(x)
-        for i in range(x.size(0)):
-            # Solve the stepwise problem for each instance in the batch
-            solution, _, _, _ = stepwise_lp(x[i], A[i], b[i], verbose=False)
-            x_[i, :] = th.tensor(solution, device=x.device)
-        return x_
-
 class ProjectionFactory:
     """
     Projection layers to project the input tensor to the feasible set.
@@ -150,8 +86,6 @@ class ProjectionFactory:
     - None:                 Empty layer.
     """
     _class_map = {
-        'convex_program': ConvexProgramLayer,
-        'linear_program': LinearProgramLayer,
         'linear_violation':LinearViolationAdaption,
     }
 
