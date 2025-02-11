@@ -16,11 +16,14 @@ To ensure compliance with double-blind review requirements, we have taken the fo
 ├── 📂 models/   # Model scripts
 ├── 📂 rl_algorithms/   # Reinforcement learning algorithms
 ├── 📂 trained_models/   # Trained models
+├── 📄 .gitignore      # This document
 ├── 📄 README.md      # This document
 ├── 📄 requirements.txt   # Required dependencies
 ├── 📄 main.py   # Main script
-├── 📄 config.py   # Configuration file
-└── 📄 utils.py   # Utility functions
+├── 📄 scenario_tree_mip.py   # SMIP script
+├── 📄 config.yaml   # Configuration file
+└── 📄 LICENSE   # License information
+```
 
 ## Running the Code
 To execute the supplementary code, ensure the config files are correctly set up. Then, use the following instructions:
