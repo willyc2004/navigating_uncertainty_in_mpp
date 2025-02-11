@@ -64,12 +64,9 @@ class CargoEmbedding(nn.Module):
         return initial_embedding
 
 class CriticEmbedding(nn.Module):
-    """Embedding for critic of the MPP;
-    - Selects the initial embedding based on the episodic step
-    - Embeds the state of the MPP for the context
-    """
+    """Embedding for critic of the MPP"""
 
-    def __init__(self, action_dim, embed_dim, seq_dim, env, demand_aggregation="full"):
+    def __init__(self, action_dim, embed_dim, seq_dim, env,):
         super(CriticEmbedding, self).__init__()
         self.env = env
         self.seq_dim = seq_dim
