@@ -10,8 +10,5 @@
 /not_on_git/examples/
 /rl4co_files/
 /rl_algorithms/__pycache__/
-/saved_models/old obs norm models
-/saved_models/transform code.py
-/saved_models/check_nans_pth_files.py
-
+/saved_models
 /not_on_git/
