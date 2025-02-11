@@ -18,6 +18,7 @@ from environment.utils import compute_violation
 from rl_algorithms.clipped_gaussian import ClippedGaussian
 
 class ProjectionProbabilisticActor(ProbabilisticActor):
+    """Probabilistic actor with projection layer for enforcing constraints."""
     def __init__(self,
                  module: TensorDictModule,
                  in_keys: Union[NestedKey, Sequence[NestedKey]],
@@ -26,25 +27,16 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
                  spec: Optional[TensorSpec] = None,
                  projection_layer: Optional[nn.Module] = None,
                  projection_type: Optional[str] = None,
-                 action_rescale_min: Optional[float] = None,
-                 action_rescale_max: Optional[float] = None,
                  **kwargs):
         super().__init__(module, in_keys, out_keys, spec=spec, **kwargs)
 
-        # Rescale actions from [-upscale, upscale] to (min, max)
-        self.upscale = kwargs.get("distribution_kwargs", {}).get("upscale", 1.0)
-        if action_rescale_min is not None and action_rescale_max is not None:
-            self.rescale_action = lambda x: x * (action_rescale_max - action_rescale_min) + action_rescale_min
         # Initialize projection layer
         self.projection_layer = projection_layer
         self.projection_type = projection_type.lower()
 
         # Initialize clipped Gaussian
-        shape = spec.shape
-        device = spec.device
-        dtype = spec.dtype
-        initial_loc = torch.zeros(shape, device=device, dtype=dtype)
-        initial_scale = torch.ones(shape, device=device, dtype=dtype)
+        initial_loc = torch.zeros(spec.shape, device=spec.device, dtype=spec.dtype)
+        initial_scale = torch.ones(spec.shape, device=spec.device, dtype=spec.dtype)
         clip_min = spec.space.low
         clip_max = spec.space.high
         self.clipped_gaussian = ClippedGaussian(initial_loc, initial_scale, clip_min, clip_max)
@@ -148,9 +140,7 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
             "weighted_scaling_policy_clipping": self.jacobian_weighted_scaling,
         }
         jacobian_fn = jacobian_methods.get(self.projection_type, None)
-        if jacobian_fn is None:
-            return None
-        return jacobian_fn(out)
+        return jacobian_fn(out) if jacobian_fn else None
 
     def jacobian_adaptation(self, logprob, jacobian, epsilon=1e-8) -> Tensor:
         """Perform logprob adaptation for invertible and differentiable (bijective) functions with non-singular Jacobians.
@@ -161,7 +151,7 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
             return logprob
 
         # log pi'(x|s) = log pi(x|s) - log|det(J_g(x))|
-        sign, log_abs_det = torch.linalg.slogdet(jacobian) # Compute the sign and log absolute determinant of the Jacobian
+        _, log_abs_det = torch.linalg.slogdet(jacobian) # Compute the sign and log absolute determinant of the Jacobian
         logprob_ = logprob - log_abs_det.unsqueeze(-1) # Note log_abs_det is a scalar applied to all batch elements
         # This is appropriate for our projection functions, as the actions are transformed globally rather than per element
         return logprob_ # Apply reduction for loss computations. Shape: [Batch]
@@ -173,13 +163,16 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         out["log_prob"] = self.get_logprobs(out["action"], dist)
 
         # Raise error for projection layers without log prob adaptation implementations
-        if self.projection_type in ["convex_program", "worst_case_violation", "linear_program"]:
+        if self.projection_type not in ["linear_violation", "weighted_scaling_policy_clipping", "weighted_scaling", "policy_clipping", "None"]:
             raise ValueError(f"Log prob adaptation for projection type \'{self.projection_type}\' not supported.")
 
         # Pre-compute upper bound for weighted_scaling
-        out["ub"] = out["observation", "realized_demand"][..., out["observation", "timestep"][0]] \
-            if out["observation", "realized_demand"].dim() == 2 \
-            else out["observation", "realized_demand"][..., out["observation", "timestep"][0, 0], :]
+        timestep_idx = out["observation", "timestep"].squeeze(0)
+        out["ub"] = out["observation", "realized_demand"].gather(-1, timestep_idx.unsqueeze(-1)).squeeze(-1)
+        #
+        # out["ub"] = out["observation", "realized_demand"][..., out["observation", "timestep"][0]] \
+        #     if out["observation", "realized_demand"].dim() == 2 \
+        #     else out["observation", "realized_demand"][..., out["observation", "timestep"][0, 0], :]
 
         # Projection and log probs adjustment
         out["action"] = self.handle_action_projection(out)
@@ -201,8 +194,3 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         # Get sample log probabilities for loss computations
         out["sample_log_prob"] = out["log_prob"].sum(dim=-1)
         return out
-
-def nan_detection(out: Tensor, name: str):
-    if torch.isnan(out).any():
-        print(f"NAN detected in {name}")
-        print(out)

@@ -140,8 +140,5 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
 
     # Summarize episode-level metrics (mean and std)
     summary_stats = compute_summary_stats(metrics)
-
-    # todo: there is memory leaking if we run env P>4.
-
     test_env.close()
     return metrics, summary_stats
