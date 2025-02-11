@@ -156,17 +156,16 @@ class MasterPlanningEnv(EnvBase):
             revenue, utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge, moves, ac_transport, t)
 
         # Transition to next step
-        t = th.where(done.any(), t, t+1)
+        is_done = done.any()
+        t = th.where(is_done, t, t+1)
         next_state_dict = self._update_next_state(
             utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge, demand_state, t, batch_size)
-        if not done.any():
+
+        if not is_done:
             # Update feasibility constraints
             lhs_A = self.create_lhs_A(t,)
             rhs = self.create_rhs(next_state_dict["utilization"], next_state_dict["current_demand"], batch_size)
-            residual_capacity = th.clamp(self.capacity - next_state_dict["utilization"].sum(dim=-2) @ self.teus, min=self.zero)
         else:
-            # Final port; set residual capacity to zero
-            residual_capacity = th.zeros_like(td["observation"]["residual_capacity"], dtype=self.float_type).view(*batch_size, self.B, self.D, )
             # Compute crane excess at last port (only discharging)
             lc_moves_last_port = compute_long_crane(utilization, moves, self.T)
             lc_excess_last_port = th.clamp(lc_moves_last_port - next_state_dict["target_long_crane"].view(-1,1), min=0)
@@ -178,9 +177,9 @@ class MasterPlanningEnv(EnvBase):
 
         # Update td output
         reward = self._compute_final_reward(revenue, cost, demand_state, t, batch_size)
+        residual_capacity = self._compute_residual_capacity(next_state_dict["utilization"]) if not is_done else \
+            torch.zeros_like(td["observation"]["residual_capacity"], dtype=self.float_type).view(*batch_size, self.B, self.D,)
         clip_max = self._compute_clip_max(residual_capacity, next_state_dict, batch_size, t)
-
-        # todo: reduce number of outputs in td (way too much now)
         out =  TensorDict({
             "observation":{
                 # Vessel
@@ -658,6 +657,10 @@ class MasterPlanningEnv(EnvBase):
         # Normalize reward: r_t = revenue_norm - cost_norm
         # We have spikes over delayed costs, but per port the revenue and costs are normalized.
         return (revenue.clone() / norm_revenue) - (cost.clone() / norm_cost)
+
+    def _compute_residual_capacity(self, utilization):
+        """Compute residual capacity based on utilization"""
+        return th.clamp(self.capacity - utilization.sum(dim=-2) @ self.teus, min=self.zero)
 
     def _compute_clip_max(self, residual_capacity, next_state_dict, batch_size, t):
         """Compute clip max based on residual capacity and next state"""
