@@ -20,7 +20,7 @@ class CriticNetwork(nn.Module):
             decoder_layers: int = 1,
             context_embedding: Optional[nn.Module] = None,  # Context embedding for additional input
             dynamic_embedding: Optional[nn.Module] = None,  # Dynamic embedding for additional input
-            obs_embedding: Optional[nn.Module] = None,  # Observation embedding for additional input
+            critic_embedding: Optional[nn.Module] = None,  # Observation embedding for additional input
             normalization: Optional[str] = None,
             dropout_rate: Optional[float] = None,
             critic_temperature: float = 1.0,
@@ -34,7 +34,7 @@ class CriticNetwork(nn.Module):
         self.encoder = encoder
         self.context_embedding = context_embedding  # Store context_embedding
         self.dynamic_embedding = dynamic_embedding  # Store dynamic_embedding
-        self.obs_embedding = obs_embedding
+        self.critic_embedding = critic_embedding
         self.temperature = critic_temperature
         self.customized = customized
 
@@ -73,7 +73,7 @@ class CriticNetwork(nn.Module):
     def forward(self, obs: Union[Tensor, TensorDict], action:Optional=None,) -> Tensor:
         # Encode the input
         h, _ = self.encoder(obs)  # [batch_size, N, embed_dim] -> [batch_size, N]
-        h = self.obs_embedding(h, obs)
+        h = self.critic_embedding(h, obs)
 
         # State-action value
         if action is not None and hasattr(self, "state_action_layer"):

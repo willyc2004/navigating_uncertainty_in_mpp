@@ -21,7 +21,7 @@ from torchrl.modules import TruncatedNormal, ValueOperator
 from rl_algorithms.utils import make_env, adapt_env_kwargs
 from rl_algorithms.train import run_training
 # Models
-from models.embeddings import MPPInitEmbedding, MPPContextEmbedding, MPPDynamicEmbedding, MPPObservationEmbedding
+from models.embeddings import CargoEmbedding, ContextEmbedding, DynamicEmbedding, CriticEmbedding
 from models.autoencoder import Autoencoder
 from models.encoder import MLPEncoder, AttentionEncoder
 from models.decoder import AttentionDecoderWithCache, MLPDecoderWithCache
@@ -102,10 +102,10 @@ def initialize_policy_and_critic(config, env, device):
     sequence_dim = env.K * env.T if env.action_spec.shape[0] == env.B * env.D else env.P - 1
 
     # Embedding initialization
-    init_embed = MPPInitEmbedding(action_dim, embed_dim, sequence_dim, env)
-    context_embed = MPPContextEmbedding(action_dim, embed_dim, sequence_dim, env, config.model.demand_aggregation)
-    dynamic_embed = MPPDynamicEmbedding(embed_dim, sequence_dim, env)
-    obs_embed = MPPObservationEmbedding(action_dim, embed_dim, sequence_dim, env, config.model.demand_aggregation)
+    init_embed = CargoEmbedding(action_dim, embed_dim, sequence_dim, env)
+    context_embed = ContextEmbedding(action_dim, embed_dim, sequence_dim, env, config.model.demand_aggregation)
+    dynamic_embed = DynamicEmbedding(embed_dim, sequence_dim, env)
+    critic_embed = CriticEmbedding(action_dim, embed_dim, sequence_dim, env, config.model.demand_aggregation)
 
     # Model arguments
     decoder_args = {
@@ -115,7 +115,7 @@ def initialize_policy_and_critic(config, env, device):
         "init_embedding": init_embed,
         "context_embedding": context_embed,
         "dynamic_embedding": dynamic_embed,
-        "obs_embedding": obs_embed,
+        "critic_embedding": critic_embed,
         **config.model,
     }
     encoder_args = {
@@ -127,7 +127,7 @@ def initialize_policy_and_critic(config, env, device):
     critic_args = {
         "embed_dim": embed_dim,
         "action_dim": action_dim,
-        "obs_embedding": obs_embed,
+        "critic_embedding": critic_embed,
         **config.model,
     }
 
@@ -205,10 +205,8 @@ def main(config: Optional[DotMap] = None, **kwargs):
         config_load_path = f"{path}/config.yaml"
         loaded_config = load_config(config_load_path)
         # Override the loaded configuration based on config.yaml
-        loaded_config.env.ports = config.env.ports
+        # todo: remove from code
         loaded_config.env.cv_demand = config.env.cv_demand
-        loaded_config.env.generalization = config.env.generalization
-        loaded_config.env.non_anticipation = config.env.non_anticipation
         loaded_config.testing = config.testing
         print(f"alg{loaded_config.algorithm.type}, proj:{loaded_config.training.projection_type}, "
               f"Feas lamda:{loaded_config.algorithm.feasibility_lambda}, gen:{config.env.generalization}")
@@ -228,7 +226,7 @@ def main(config: Optional[DotMap] = None, **kwargs):
         with open(f"{path}/summary_stats_P{loaded_config.env.ports}_feas_recov{loaded_config.testing.feasibility_recovery}_"
                   f"cv{loaded_config.env.cv_demand}_gen{loaded_config.env.generalization}_NA{loaded_config.env.non_anticipation}.yaml", "w") as file:
             yaml.dump(summary_stats, file)
-        print(summary_stats) # todo: add visualization of the metrics/summary_stats
+        print(summary_stats)
 
 def check_nans_model(model):
     for name, param in model.named_parameters():
