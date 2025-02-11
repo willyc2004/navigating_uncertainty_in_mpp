@@ -7,6 +7,7 @@ from typing import Tuple, Callable, Optional, Dict
 from rl4co.utils.ops import gather_by_index
 
 class MPPInitEmbedding(nn.Module):
+    """Initial embedding of the MPP"""
     def __init__(self, action_dim, embed_dim, seq_dim, env):
         super(MPPInitEmbedding, self).__init__()
         # Store environment and sequence size

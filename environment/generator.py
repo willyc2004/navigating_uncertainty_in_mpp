@@ -60,6 +60,7 @@ class MPP_Generator(Generator):
         self.tr_discharges = th.repeat_interleave(self.num_discharges, self.num_loads)
         self.tr_ac = th.repeat_interleave(self.num_ac, self.num_loads)
         self.tr_ob = th.repeat_interleave(self.num_ob, self.num_loads)
+        self.train_max_demand = 0
 
     def __call__(self, batch_size, td: Optional[TensorDict] = None, rng:Optional=None) -> TensorDict:
         batch_size = [batch_size] if isinstance(batch_size, int) else batch_size
@@ -122,6 +123,7 @@ class MPP_Generator(Generator):
         if td is None or td.is_empty():
             e_x_init_demand, _ = self._initial_contract_demand(batch_size)
             batch_updates = th.zeros(batch_size, device=self.device).view(*batch_size, 1)
+            self.train_max_demand = (e_x_init_demand + 4 * (e_x_init_demand*0.5)).max() # add fixed ub for demand normalization
         else:
             e_x_init_demand = td["observation", "init_expected_demand"].view(-1, self.T, self.K)
             batch_updates = td["observation", "batch_updates"].clone() + 1
