@@ -17,7 +17,9 @@ from environment.generator import MPP_Generator
 from environment.utils import *
 
 class MasterPlanningEnv(EnvBase):
-    """Master Planning Problem environment."""
+    """Master Planning Problem environment.
+    # todo: add problem description with citations for camera-ready paper
+    """
     name = "mpp"
     batch_locked = False
 
@@ -35,7 +37,7 @@ class MasterPlanningEnv(EnvBase):
         self.LCG_target = kwargs.get("LCG_target")
         self.VCG_target = kwargs.get("VCG_target")
         self.ho_costs = kwargs.get("hatch_overstowage_costs")
-        self.lc_costs = kwargs.get("long_crane_costs")
+        self.cm_costs = kwargs.get("long_crane_costs")
         self.ho_mask = kwargs.get("hatch_overstowage_mask")
         self.CI_target = kwargs.get("CI_target")
         self.normalize_obs = kwargs.get("normalize_obs")
@@ -122,97 +124,61 @@ class MasterPlanningEnv(EnvBase):
 
     def _step(self, td: TensorDict) -> TensorDict:
         """Perform a step in the environment and return the next state."""
-        # todo: perform big clean-up here!
-        ## Extraction and precompute
+        # Extraction
         batch_size = td.batch_size
         action, lhs_A, rhs, demand_state, utilization, \
             target_long_crane, long_crane_moves_discharge, t = self._extract_from_td(td, batch_size)
         pol, pod, tau, k, rev = self._extract_cargo_parameters_for_step(t[0])
+
         # Get indices
-        ac_transport = self.remain_on_board_transport[pol]
-        moves = self.moves_idx[pol]
+        ac_transport, moves = self.remain_on_board_transport[pol], self.moves_idx[pol]
 
-        ## Current state
-        # Check done, update utilization, and compute violation
+        # Check done
         done = self._check_done(t)
-        utilization = update_state_loading(action, utilization, tau, k,)
-        # todo: improve readability of this part
-        if lhs_A.dim() == 2:
-            violation = lhs_A @ action.view(*batch_size, -1) - rhs
-        elif lhs_A.dim() == 3:
-            violation = torch.bmm(lhs_A, action.view(*batch_size, -1, 1)) - rhs.unsqueeze(-1)
-        else:
-            raise ValueError("lhs_A has wrong dimensions.")
-        violation = torch.clamp(violation, min=0).view(*batch_size, -1)
 
-        # Compute long crane moves
+        # Update utilization
+        utilization = update_state_loading(action, utilization, tau, k,)
+
+        # Compute violation
+        violation = self._compute_violation(lhs_A, rhs, action,  batch_size)
+
+        # Compute long crane moves & od-pairs
         long_crane_moves_load = compute_long_crane(utilization, moves, self.T)
-        # Compute od-pairs
-        pol_locations, pod_locations = compute_pol_pod_locations(
-            utilization, self.transform_tau_to_pol, self.transform_tau_to_pod)
+        pol_locations, pod_locations = compute_pol_pod_locations(utilization, self.transform_tau_to_pol, self.transform_tau_to_pod)
         agg_pol_location, agg_pod_location = aggregate_pol_pod_location(pol_locations, pod_locations, self.float_type)
+
         # Compute total loaded
         sum_action = action.sum(dim=(-2, -1)).unsqueeze(-1)
 
-        ## Reward
-        if self.limit_revenue:
-            revenue = th.clamp(sum_action, min=th.zeros_like(sum_action), max=demand_state["current_demand"]) * self.revenues[t[0]]
-        else:
-            revenue = sum_action * self.revenues[t[0]]
-        profit = revenue.clone()
-        if self.next_port_mask[t].any():
-            # Compute aggregated: overstowage and long crane excess
-            overstowage = compute_hatch_overstowage(utilization, moves, ac_transport)
-            excess_crane_moves = th.clamp(long_crane_moves_load + long_crane_moves_discharge - target_long_crane.view(-1, 1), min=0)
-            # Compute costs
-            ho_costs = overstowage.sum(dim=-1, keepdim=True) * self.ho_costs
-            lc_costs = excess_crane_moves.sum(dim=-1, keepdim=True) * self.lc_costs
-            cost = ho_costs + lc_costs
-            profit -= cost
-        else:
-            cost = th.zeros_like(profit)
+        # Compute reward & cost
+        revenue = self._compute_revenue(sum_action, demand_state, t)
+        profit, cost = self._compute_cost(
+            revenue, utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge, moves, ac_transport, t)
 
-        ## Transition to next step
-        # Update next state
+        # Transition to next step
         t = th.where(done.any(), t, t+1)
-        next_state_dict = self._update_next_state(utilization, target_long_crane,
-                                                  long_crane_moves_load, long_crane_moves_discharge,
-                                                  demand_state, t, batch_size)
+        next_state_dict = self._update_next_state(
+            utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge, demand_state, t, batch_size)
         if not done.any():
-            # Update feasibility: lhs_A, rhs, clip_max based on next state
+            # Update feasibility constraints
             lhs_A = self.create_lhs_A(t,)
             rhs = self.create_rhs(next_state_dict["utilization"], next_state_dict["current_demand"], batch_size)
-
-            # Express residual capacity in teu
-            residual_capacity = th.clamp(self.capacity - next_state_dict["utilization"].sum(dim=-2)
-                                         @ self.teus, min=self.zero)
+            residual_capacity = th.clamp(self.capacity - next_state_dict["utilization"].sum(dim=-2) @ self.teus, min=self.zero)
         else:
-            # Only for final port
+            # Final port; set residual capacity to zero
             residual_capacity = th.zeros_like(td["observation"]["residual_capacity"], dtype=self.float_type).view(*batch_size, self.B, self.D, )
-            # Compute last port long crane excess
+            # Compute crane excess at last port (only discharging)
             lc_moves_last_port = compute_long_crane(utilization, moves, self.T)
             lc_excess_last_port = th.clamp(lc_moves_last_port - next_state_dict["target_long_crane"].view(-1,1), min=0)
 
-            # Compute metrics
-            excess_crane_moves += lc_excess_last_port
-            lc_cost_ = lc_excess_last_port.sum(dim=-1, keepdim=True) * self.lc_costs
+            # Update cost and profit
+            lc_cost_ = lc_excess_last_port.sum(dim=-1, keepdim=True) * self.cm_costs
             profit -= lc_cost_
             cost += lc_cost_
-            lc_costs += lc_cost_
-
-        # Normalize revenue \in [0,1]:
-        # revenue_norm = rev_t / max(rev_t) * min(q_t, sum(a_t)) / q_t
-        normalize_revenue = self.revenues.max() * demand_state["current_demand"]
-        # Normalize accumulated cost \in [0, t_cost], where t_cost is the time at which we evaluate cost:
-        # cost_norm = cost_{t_cost} / E[q_t]
-        normalize_cost = demand_state["realized_demand"].view(*batch_size, -1)[...,:t[0]].sum(dim=-1, keepdims=True) / t[0]
-        # Normalize reward: r_t = revenue_norm - cost_norm
-        # We have spikes over delayed costs at specific time steps.
-        reward = (revenue.clone() / normalize_revenue) - (cost.clone() / normalize_cost)
 
         # Update td output
-        clip_max = (residual_capacity / self.teus_episode[t].view(*batch_size, 1, 1)).view(*batch_size, self.B*self.D)
-        clip_max = clip_max.clamp(max=next_state_dict["current_demand"].view(*batch_size, 1))
+        reward = self._compute_final_reward(revenue, cost, demand_state, t, batch_size)
+        clip_max = self._compute_clip_max(residual_capacity, next_state_dict, batch_size, t)
 
         # todo: reduce number of outputs in td (way too much now)
         out =  TensorDict({
@@ -528,7 +494,6 @@ class MasterPlanningEnv(EnvBase):
         return rhs
 
     # Initializations
-
     def _initialize_capacity(self, capacity):
         """Initialize capacity (TEU) parameters"""
         self.capacity = th.full((self.B, self.D,), capacity, device=self.device, dtype=self.float_type)
@@ -648,3 +613,53 @@ class MasterPlanningEnv(EnvBase):
                              device=self.device, dtype=self.float_type).view(-1,1,1,1)
         output = p_weight - self.weights.view(1,1,1,self.K) * (target + delta)
         return output.view(-1, self.B*self.D, self.K,)
+
+    # Compute functions
+    def _compute_violation(self, lhs_A, rhs, action, batch_size):
+        if lhs_A.dim() == 2:
+            violation = lhs_A @ action.view(*batch_size, -1) - rhs
+        elif lhs_A.dim() == 3:
+            violation = torch.bmm(lhs_A, action.view(*batch_size, -1, 1)) - rhs.unsqueeze(-1)
+        else:
+            raise ValueError("lhs_A has wrong dimensions.")
+
+        return torch.clamp(violation, min=0).view(*batch_size, -1)
+
+    def _compute_revenue(self, sum_action, demand_state, t):
+        if self.limit_revenue:
+            return torch.clamp(sum_action, min=self.zero, max=demand_state["current_demand"]) * self.revenues[t[0]]
+        return sum_action * self.revenues[t[0]]
+
+    def _compute_cost(self, revenue, utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge,
+                      moves, ac_transport, t):
+        """Compute profit based on revenue and cost, where cost = overstowage costs + excess_crane_moves costs.
+        Costs are based on utilization, long crane moves and target long crane"""
+        profit = revenue.clone()
+        if self.next_port_mask[t].any():
+            # Compute aggregated: overstowage and long crane excess
+            overstowage = compute_hatch_overstowage(utilization, moves, ac_transport)
+            excess_crane_moves = th.clamp(long_crane_moves_load + long_crane_moves_discharge - target_long_crane.view(-1, 1), min=0)
+            # Compute costs
+            ho_costs = overstowage.sum(dim=-1, keepdim=True) * self.ho_costs
+            cm_costs = excess_crane_moves.sum(dim=-1, keepdim=True) * self.cm_costs
+            cost = ho_costs + cm_costs
+            profit -= cost
+        else:
+            cost = th.zeros_like(profit)
+        return profit, cost
+
+    def _compute_final_reward(self, revenue, cost, demand_state, t, batch_size):
+        """Compute final reward based on normalized revenue and cost."""
+        # Normalize revenue \in [0,1]: revenue_norm = rev_t / max(rev_t) * min(q_t, sum(x_t)) / q_t
+        norm_revenue = self.revenues.max() * demand_state["current_demand"]
+        # Normalize accumulated cost \in [0, t_{leave_port}], where t_{leave_port} is the final step of the port;
+        #     cost_norm = cost_{t_cost} / E[q_t]
+        norm_cost = demand_state["realized_demand"].view(*batch_size, -1)[..., :t[0]].sum(dim=-1, keepdims=True) / t[0]
+        # Normalize reward: r_t = revenue_norm - cost_norm
+        # We have spikes over delayed costs, but per port the revenue and costs are normalized.
+        return (revenue.clone() / norm_revenue) - (cost.clone() / norm_cost)
+
+    def _compute_clip_max(self, residual_capacity, next_state_dict, batch_size, t):
+        """Compute clip max based on residual capacity and next state"""
+        clip_max = (residual_capacity / self.teus_episode[t].view(*batch_size, 1, 1)).view(*batch_size, self.B*self.D)
+        return clip_max.clamp(max=next_state_dict["current_demand"].view(*batch_size, 1))
