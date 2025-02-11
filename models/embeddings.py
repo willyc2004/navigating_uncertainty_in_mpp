@@ -6,10 +6,10 @@ from tensordict import TensorDict
 from typing import Tuple, Callable, Optional, Dict
 from rl4co.utils.ops import gather_by_index
 
-class MPPInitEmbedding(nn.Module):
-    """Initial embedding of the MPP"""
+class CargoEmbedding(nn.Module):
+    """Cargo embedding of the MPP"""
     def __init__(self, action_dim, embed_dim, seq_dim, env):
-        super(MPPInitEmbedding, self).__init__()
+        super(CargoEmbedding, self).__init__()
         # Store environment and sequence size
         self.env = env
         self.seq_dim = seq_dim
@@ -63,14 +63,14 @@ class MPPInitEmbedding(nn.Module):
         initial_embedding = self.positional_encoding(combined_emb)
         return initial_embedding
 
-class MPPObservationEmbedding(nn.Module):
-    """Context embedding of the MPP;
+class CriticEmbedding(nn.Module):
+    """Embedding for critic of the MPP;
     - Selects the initial embedding based on the episodic step
     - Embeds the state of the MPP for the context
     """
 
     def __init__(self, action_dim, embed_dim, seq_dim, env, demand_aggregation="full"):
-        super(MPPObservationEmbedding, self).__init__()
+        super(CriticEmbedding, self).__init__()
         self.env = env
         self.seq_dim = seq_dim
         self.project_context = nn.Linear(embed_dim + 143, embed_dim,)
@@ -104,14 +104,11 @@ class MPPObservationEmbedding(nn.Module):
         return output
 
 
-class MPPContextEmbedding(nn.Module):
-    """Context embedding of the MPP;
-    - Selects the initial embedding based on the episodic step
-    - Embeds the state of the MPP for the context
-    """
+class ContextEmbedding(nn.Module):
+    """Context embedding of the MPP"""
 
-    def __init__(self, action_dim, embed_dim, seq_dim, env, demand_aggregation="full",):
-        super(MPPContextEmbedding, self).__init__()
+    def __init__(self, action_dim, embed_dim, seq_dim, env, ):
+        super(ContextEmbedding, self).__init__()
         self.env = env
         self.seq_dim = seq_dim
         self.project_context = nn.Linear(embed_dim + 71, embed_dim,)
@@ -140,9 +137,11 @@ class MPPContextEmbedding(nn.Module):
         output = self.project_context(context_embedding)
         return output
 
-class MPPDynamicEmbedding(nn.Module):
-    def __init__(self, embed_dim, seq_dim, env, demand_aggregation="full",):
-        super(MPPDynamicEmbedding, self).__init__()
+class DynamicEmbedding(nn.Module):
+    """Dynamic embedding of the MPP"""
+
+    def __init__(self, embed_dim, seq_dim, env, ):
+        super(DynamicEmbedding, self).__init__()
         self.env = env
         self.seq_dim = seq_dim
         self.project_dynamic = nn.Linear(embed_dim + 1, 3 * embed_dim)
@@ -163,6 +162,7 @@ class MPPDynamicEmbedding(nn.Module):
         return glimpse_k_dyn, glimpse_v_dyn, logit_k_dyn
 
 class StaticEmbedding(nn.Module):
+    """Static embedding as placeholder"""
     # This defines shape of key, value
     def __init__(self, *args, **kwargs):
         super(StaticEmbedding, self).__init__()
@@ -171,6 +171,7 @@ class StaticEmbedding(nn.Module):
         return 0, 0, 0
 
 class DynamicSinusoidalPositionalEncoding(nn.Module):
+    """Dynamic sinusoidal positional encoding"""
     def __init__(self, embed_dim):
         super().__init__()
         self.embed_dim = embed_dim
@@ -186,41 +187,3 @@ class DynamicSinusoidalPositionalEncoding(nn.Module):
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         return x + pe
-
-class SelfAttentionStateMapping(nn.Module):
-    def __init__(self, embed_dim, feature_dim=1, device='cuda'):
-        super(SelfAttentionStateMapping, self).__init__()
-        self.feature_dim = feature_dim  # F (number of features)
-
-        # Learnable linear transformations for Q, K, V
-        self.W_Q = nn.Linear(feature_dim, feature_dim)
-        self.W_K = nn.Linear(feature_dim, feature_dim)
-        self.W_V = nn.Linear(feature_dim, feature_dim)
-        self.scale_factor = torch.sqrt(torch.tensor(feature_dim, device=device))
-        self.final_linear = nn.Linear(feature_dim, embed_dim)
-
-    def forward(self, X):
-        # Reshape input if it includes multiple steps
-        if X.dim() == 4:  # Expected shape [batch, n_step, seq, feature_dim]
-            batch_size, n_step, seq_len, _ = X.shape
-            X = X.view(batch_size * n_step, seq_len, self.feature_dim)
-
-        # Linearly transform input tensor X to Q, K, V
-        Q = self.W_Q(X)  # (batch_size * n_step, seq_len, F)
-        K = self.W_K(X)  # (batch_size * n_step, seq_len, F)
-        V = self.W_V(X)  # (batch_size * n_step, seq_len, F)
-
-        # Compute attention scores
-        attention_scores = torch.matmul(Q, K.transpose(-1,-2)) / self.scale_factor  # (batch_size * n_step, seq_len, seq_len)
-        attention_weights = nn.functional.softmax(attention_scores, dim=-1)  # (batch_size * n_step, seq_len, seq_len)
-
-        # Compute weighted sum of V
-        attention_output = torch.matmul(attention_weights, V)  # (batch_size * n_step, seq_len, F)
-        attention_output = self.final_linear(attention_output)  # (batch_size * n_step, seq_len, embed_dim)
-
-        # Restore original batch and step dimensions if reshaped
-        if X.dim() == 4:
-            attention_output = attention_output.view(batch_size, n_step, seq_len, -1)
-            attention_weights = attention_weights.view(batch_size, n_step, seq_len, seq_len)
-
-        return attention_output, attention_weights
