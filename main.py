@@ -50,15 +50,15 @@ def setup_torch():
 def load_trained_hyperparameters(path):
     """Load hyperparameters from a previously trained model."""
     config_path = f"{path}/config.yaml"
-    loaded_config = load_config(config_path)
+    config = load_config(config_path)
 
     # Add hyperparameters if they exist
     for i in range(25):
         key = f"lagrangian_multiplier_{i}"
-        if key in loaded_config.algorithm:
-            loaded_config.algorithm[key] = loaded_config.algorithm[key]
+        if key in config.algorithm:
+            config.algorithm[key] = config.algorithm[key]
 
-    return loaded_config
+    return config
 
 
 def initialize_encoder(encoder_type, encoder_args, device):
@@ -200,12 +200,9 @@ def main(config: Optional[DotMap] = None, **kwargs):
     check_env_specs(env)
 
     ## Main loop
-    # Get existing model path
-    path = f"{config.testing.path}/{config.testing.timestamp}"
+    path = f"{config.testing.path}/{config.testing.folder}"
 
     if config.model.phase in {"train", "tuned_training"}:
-        if config.model.phase == "tuned_training":
-            config = load_trained_hyperparameters(path)
         # Initialize models and run training
         wandb.init(config=config,)
         policy, critic = initialize_policy_and_critic(config, env, device)
@@ -213,20 +210,19 @@ def main(config: Optional[DotMap] = None, **kwargs):
 
     elif config.model.phase == "test":
         # Initialize
-        loaded_config = load_trained_hyperparameters(path)
-        policy, critic = initialize_policy_and_critic(loaded_config, env, device)
+        policy, critic = initialize_policy_and_critic(config, env, device)
 
         # Evaluate policy
         policy_load_path = f"{path}/policy.pth"
         policy.load_state_dict(torch.load(policy_load_path, map_location=device))
-        metrics, summary_stats = evaluate_model(policy, loaded_config, device=device, **config.testing)
+        metrics, summary_stats = evaluate_model(policy, config, device=device, **config.testing)
         # Save summary statistics in path
-        if "feasibility_recovery" in loaded_config.testing:
-            file_name = f"summary_stats_P{loaded_config.env.ports}_feas_recov{loaded_config.testing.feasibility_recovery}_" \
-                   f"cv{loaded_config.env.cv_demand}_gen{loaded_config.env.generalization}.yaml"
+        if "feasibility_recovery" in config.testing:
+            file_name = f"summary_stats_P{config.env.ports}_feas_recov{config.testing.feasibility_recovery}_" \
+                   f"cv{config.env.cv_demand}_gen{config.env.generalization}.yaml"
         else:
-            file_name = f"summary_stats_P{loaded_config.env.ports}_cv{loaded_config.env.cv_demand}" \
-                        f"_gen{loaded_config.env.generalization}.yaml"
+            file_name = f"summary_stats_P{config.env.ports}_cv{config.env.cv_demand}" \
+                        f"_gen{config.env.generalization}.yaml"
         with open(f"{path}/{file_name}", "w") as file:
             yaml.dump(summary_stats, file)
         print(summary_stats)
