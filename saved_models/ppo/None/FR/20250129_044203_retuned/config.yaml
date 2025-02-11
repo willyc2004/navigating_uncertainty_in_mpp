@@ -72,7 +72,7 @@ model:
   train_decode_type: continuous_sampling
   val_decode_type: continuous_projection
 testing:
-  feasibility_recovery: True
+  feasibility_recovery: False
   num_episodes: 30
   timestamp: '20250116_110903'
 training:
