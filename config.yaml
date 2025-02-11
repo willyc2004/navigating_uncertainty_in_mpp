@@ -52,7 +52,7 @@ model:
   dropout_rate: 0.008972135903337364
   embed_dim: 128
   encoder_type: attention
-  hidden_dim: 256
+  hidden_dim: 128
   init_dim: 8
   logger: wandb
   lr_end_factor: 0.5
@@ -71,7 +71,7 @@ model:
   val_decode_type: continuous_projection
 testing:
   num_episodes: 30
-  folder: 'sac-fr'
+  folder: 'ppo-fr+vp'
   path: trained_models
 training:
   lr: 0.00020407622212291503
