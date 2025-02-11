@@ -38,6 +38,30 @@ def load_config(config_path: str) -> DotMap:
         config = adapt_env_kwargs(config)
     return config
 
+def setup_torch():
+    """Initialize Torch settings for deterministic behavior and efficiency."""
+    torch.set_num_threads(1)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch._dynamo.config.cache_size_limit = 64
+
+def load_trained_hyperparameters(path):
+    """Load hyperparameters from a previously trained model."""
+    config_path = f"{path}/config.yaml"
+    loaded_config = load_config(config_path)
+
+    # Override algorithm hyperparameters if they exist
+    # todo: check if this is necessary
+    alg = loaded_config.algorithm
+    for i in range(25):
+        key = f"lagrangian_multiplier_{i}"
+        if key in alg:
+            loaded_config.algorithm[key] = alg[key]
+
+    return loaded_config
+
 
 def initialize_encoder(encoder_type, encoder_args, device):
     """Initialize the encoder based on the type."""
@@ -166,105 +190,53 @@ def initialize_policy_and_critic(config, env, device):
 
 # Main function
 def main(config: Optional[DotMap] = None, **kwargs):
-    ## Torch and cuda initialization
+    """
+    Main function to train or test the model based on the configuration.
+    """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    torch.cuda.empty_cache()
-    torch._dynamo.config.cache_size_limit = 64  # or some higher value
-    torch.set_num_threads(1)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    setup_torch()
 
     ## Environment initialization
-    # todo: add parallel environment runs; # env = ParallelEnv(4, make_env)
     env = make_env(config.env)
     env.set_seed(config.env.seed)
     check_env_specs(env)
 
     ## Main loop
-    # Train the model
-    if config.model.phase == "train" or config.model.phase == "tuned_training":
-        if config.model.phase == "tuned_training":
-            # Extract trained hyperparameters
-            path = f"{config.testing.path}/{config.testing.timestamp}"
-            config_load_path = f"{path}/config.yaml"
-            config = load_config(config_load_path)
-            # Override the loaded configuration based on config.yaml
-            # todo: improve code
-            alg = config.algorithm
-            for i in range(25):
-                config.algorithm[f"lagrangian_multiplier_{i}"] = alg[f"lagrangian_multiplier_{i}"]
+    # Get existing model path
+    path = f"{config.testing.path}/{config.testing.timestamp}"
 
+    if config.model.phase in {"train", "tuned_training"}:
+        if config.model.phase == "tuned_training":
+            config = load_trained_hyperparameters(path)
         # Initialize models and run training
         wandb.init(config=config,)
         policy, critic = initialize_policy_and_critic(config, env, device)
         run_training(policy, critic, **config)
-    # Test the model
-    elif config.model.phase == "test":
-        # Extract trained hyperparameters
-        path = f"{config.testing.path}/{config.testing.timestamp}"
-        config_load_path = f"{path}/config.yaml"
-        loaded_config = load_config(config_load_path)
-        # Override the loaded configuration based on config.yaml
-        # todo: remove from code
-        loaded_config.env.cv_demand = config.env.cv_demand
-        loaded_config.testing = config.testing
-        print(f"alg{loaded_config.algorithm.type}, proj:{loaded_config.training.projection_type}, "
-              f"Feas lamda:{loaded_config.algorithm.feasibility_lambda}, gen:{loaded_config.env.generalization}")
 
-        # Initialize models
+    elif config.model.phase == "test":
+        # Initialize
+        loaded_config = load_trained_hyperparameters(path)
         policy, critic = initialize_policy_and_critic(loaded_config, env, device)
 
-        # Reload policy model
+        # Evaluate policy
         policy_load_path = f"{path}/policy.pth"
         policy.load_state_dict(torch.load(policy_load_path, map_location=device))
-        check_nans_model(policy)
-
-        # Evaluate the model
         metrics, summary_stats = evaluate_model(policy, loaded_config, device=device, **config.testing)
         # Save summary statistics in path
-        with open(f"{path}/summary_stats_P{loaded_config.env.ports}_feas_recov{loaded_config.testing.feasibility_recovery}_"
-                  f"cv{loaded_config.env.cv_demand}_gen{loaded_config.env.generalization}.yaml", "w") as file:
+        if "feasibility_recovery" in loaded_config.testing:
+            file_name = f"summary_stats_P{loaded_config.env.ports}_feas_recov{loaded_config.testing.feasibility_recovery}_" \
+                   f"cv{loaded_config.env.cv_demand}_gen{loaded_config.env.generalization}.yaml"
+        else:
+            file_name = f"summary_stats_P{loaded_config.env.ports}_cv{loaded_config.env.cv_demand}" \
+                        f"_gen{loaded_config.env.generalization}.yaml"
+        with open(f"{path}/{file_name}", "w") as file:
             yaml.dump(summary_stats, file)
         print(summary_stats)
-
-def check_nans_model(model):
-    for name, param in model.named_parameters():
-        if torch.isnan(param).any():
-            print(f"NaN detected in {name}")
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
     file_path = os.getcwd()
     config = load_config(f'{file_path}/config.yaml')
-
-    folders = {
-        'ppo':{
-            'linear_violation':{
-                'FR':'20250209_230023', #OLD FILE: '20250128_135057',
-                'No FR':'20250210_083016', #OLD FILE: '20250203_215550'
-            },
-            'None':{
-                'FR':'20250129_044203_retuned'
-            },
-            'weighted_scaling_policy_clipping':{
-                'FR':'20250210_114523', # OLD FILE: '20250128_080908',
-                'No FR': '20250210_032558' #OLD FILE: '20250203_222855',
-            },
-        },
-        'sac':{
-            'linear_violation': {
-                'FR': '20250210_000006', #OLD FILE:  '20250128_150558',
-                'No FR': '20250209_112711' # OLD FILE: '20250204_112604'
-            },
-            'None': {
-                'FR': '20250129_012401_retuned'
-            },
-            'weighted_scaling_policy_clipping': {
-                'FR': '20250211_082215', # OLD FILE: '20250127_042555',
-                'No FR': '20250209_053730', # OLD FILE: '20250203_170059'
-            },
-        },
-    }
     # Call your main() function
     try:
         model = main(config)
@@ -283,48 +255,3 @@ if __name__ == "__main__":
         print(f"An error occurred during training: {e}")
     finally:
         wandb.finish()
-
-    # for alg in ['ppo', 'sac']:
-    #     for proj in ['linear_violation', 'weighted_scaling_policy_clipping', 'None']:
-    #         if proj == 'None':
-    #             FR_options = ['FR']
-    #         else:
-    #             FR_options = ['FR', 'No FR']
-    #
-    #         for FR in FR_options:
-    #             for gen in [True, False]:
-    #                 config.env.generalization = gen
-    #                 config.algorithm.type = alg
-    #                 config.training.projection_type = proj
-    #                 if FR == 'No FR':
-    #                     config.algorithm.feasibility_lambda = 0.0
-    #
-    #                 # Determine cv values based on conditions
-    #                 if proj != 'None' and FR != 'No FR':
-    #                     cv_values = [0.1, 0.3, 0.5, 0.7, 0.9]  # Run multiple cv values
-    #                 else:
-    #                     cv_values = [0.5]  # Default single cv value
-    #
-    #                 for cv in cv_values:
-    #                     config.env.cv_demand = cv
-    #                     print(gen, alg, proj, FR, cv)
-    #                     config.testing.timestamp = folders[alg][proj][FR]
-    #
-    #                     # Call your main() function
-    #                     try:
-    #                         model = main(config, fr_folder=FR)
-    #                     except Exception as e:
-    #                         # Log the error to WandB
-    #                         wandb.log({"error": str(e)})
-    #
-    #                         # Optionally, use WandB alert for critical errors
-    #                         wandb.alert(
-    #                             title="Training Error",
-    #                             text=f"An error occurred during training: {e}",
-    #                             level="error"  # 'info' or 'warning' levels can be used as needed
-    #                         )
-    #
-    #                         # Print the error for local console logging as well
-    #                         print(f"An error occurred during training: {e}")
-    #                     finally:
-    #                         wandb.finish()
