@@ -42,6 +42,7 @@ from torchrl.objectives.sac import SACLoss, _delezify, compute_log_prob
 from environment.utils import compute_violation
 
 def loss_feasibility(td, action, lagrange_multiplier=None, aggregate_feasibility="sum"):
+    """ Compute feasibility loss based on the action and the lagrange multiplier."""
     lhs_A = td.get("lhs_A")
     rhs = td.get("rhs")
     violations = compute_violation(action, lhs_A, rhs)
