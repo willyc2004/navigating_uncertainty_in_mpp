@@ -71,7 +71,7 @@ model:
   val_decode_type: continuous_projection
 testing:
   num_episodes: 30
-  folder: 'ppo-fr+vp'
+  folder: 'sac-fr+vp'
   path: trained_models
 training:
   lr: 0.00020407622212291503
