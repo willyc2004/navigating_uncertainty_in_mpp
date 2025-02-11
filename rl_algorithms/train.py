@@ -292,7 +292,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
             if early_stopping.validation_check():
                 print(f"Early stopping at epoch {step} due to {validation_patience} consecutive decreases in validation reward.")
                 break
-            # Save models (create a new directory for each validation)
+            # Save models (create a new directory for each validation); note that final model is also saved at the end
             save_models(policy, loss_module, critic, kwargs["algorithm"]["type"], kwargs, save_dir="saved_models/validation")
             policy.train()
 
