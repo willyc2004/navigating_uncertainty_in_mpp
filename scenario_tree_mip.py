@@ -8,7 +8,9 @@ from docplex.mp.model import Model
 import sys
 import os
 import json
-sys.path.append('/home/jaiv/ILOG/CPLEX_Studio2211/cplex/python/3.9/x86-64_linux')
+
+path = 'add path to cplex here'
+sys.path.append(path)
 
 # Module imports
 path_to_main = os.path.abspath(os.path.join(os.path.dirname(__file__), ''))
@@ -51,7 +53,7 @@ def precompute_demand(node_list, max_paths, stages, env):
     for (stage, node_id) in node_list:
         demand_scenarios[stage, node_id] = demand_[stage, node_id, :, :]
 
-    # todo: Allow for deterministic - just take scenarios 0
+    # todo: Allow for deterministic
     # Real demand
     real_demand = {}
     for stage in range(stages):
@@ -152,39 +154,6 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784,
     all_port_moves = []
     all_load_moves = []
     transport_indices = [(i, j) for i in range(P) for j in range(P) if i < j]
-
-    def generate_mip_start(warm_start_values, stages, num_nodes_per_stage, B, D, K, P):
-        """
-        Generate a MIP start dictionary for warm-starting the solver.
-
-        Args:
-            warm_start_values (dict): Dictionary of warm start values for decision variables.
-                                      Keys should be (stage, node_id, bay, deck, cargo_class, pol, pod).
-            stages (int): Number of stages in the scenario tree.
-            num_nodes_per_stage (list): List of the number of nodes per stage.
-            B (int): Number of bays.
-            D (int): Number of decks.
-            K (int): Number of cargo classes.
-            P (int): Number of ports.
-
-        Returns:
-            dict: MIP start dictionary for CPLEX.
-        """
-        mip_start = {}  # Dictionary to hold MIP start values
-
-        for stage in range(stages):
-            for node_id in range(num_nodes_per_stage[stage]):
-                for bay in range(B):
-                    for deck in range(D):
-                        for cargo_class in range(K):
-                            for pol in range(stage + 1):
-                                for pod in range(pol + 1, P):
-                                    # Check if a warm start value is available for this variable
-                                    key = (stage, node_id, bay, deck, cargo_class, pol, pod)
-                                    if key in warm_start_values:
-                                        mip_start[key] = warm_start_values[key]
-
-        return mip_start
 
     def build_tree(stages, demand, mip_start=None):
         """Function to build the scenario tree; with decisions and constraints for each node"""
@@ -340,11 +309,6 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784,
         if mip_start:
             mdl.add_mip_start({x[key]: value for key, value in mip_start.items()}, write_level=1)
 
-    # Generate MIP warm start
-    # todo: add warm_start tensor
-    if warm_start is not None:
-        warm_start = generate_mip_start(warm_start, stages, num_nodes_per_stage, B, D, K, P)
-
     # Build the scenario tree
     build_tree(stages, demand, warm_start)
 
@@ -491,7 +455,7 @@ if __name__ == "__main__":
     num_episodes = config.testing.num_episodes
 
     if not deterministic:
-        num_scenarios = [28,]# 4,8,12,16,20,24,28] if not generalization else [28]
+        num_scenarios = [4,8,12,16,20,24,28] if not generalization else [28]
     else:
         num_scenarios = [1]
 
@@ -502,7 +466,6 @@ if __name__ == "__main__":
     max_paths = max_scenarios_per_stage ** (stages-1) + 1
     node_list = precompute_node_list(stages, max_scenarios_per_stage)
 
-    # todo: add warm-start
     for x in range(num_episodes):  # Iterate over episodes
         # Create the environment on cpu
         seed = config.env.seed + x + 1
