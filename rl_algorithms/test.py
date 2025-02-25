@@ -1,6 +1,7 @@
 import time
 import torch
 import math
+from tqdm import tqdm
 from tensordict import TensorDict
 from rl_algorithms.utils import make_env
 from rl_algorithms.train import get_performance_metrics
@@ -68,7 +69,7 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     # Use same batch size as scenario tree to get same instance
     stages = config.env.ports - 1  # Number of load ports (P-1)
     max_scenarios_per_stage = 28  # Number of scenarios per stage
-    max_paths = max_scenarios_per_stage ** (stages-1) + 1
+    max_paths = max_scenarios_per_stage ** (stages-1) + 1 if stages < 4 else 2 # Prevent out-of-memory by limit max_paths
     test_env = make_env(env_kwargs, batch_size=[max_paths], device=device)
     n_step = test_env.T * test_env.K  # Maximum steps per episode (T x K)
     feas_threshold = 1e-3
@@ -94,7 +95,7 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
                 auto_reset=True,
             )
 
-        for episode in range(num_episodes):
+        for episode in tqdm(range(num_episodes), desc="Episodes"):
             # Update seeds
             seed = config.env.seed + episode + 1
             set_unique_seed(seed)
