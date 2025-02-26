@@ -77,9 +77,9 @@ class CriticEmbedding(nn.Module):
         batch_size = td.batch_size
         max_demand = td["realized_demand"].max() if self.train_max_demand == None else self.train_max_demand
         return torch.cat([
-            (td["observed_demand"] / max_demand ).view(*batch_size, self.env.T * self.env.K),
-            (td["residual_capacity"] / self.env.capacity.view(1, self.env.B * self.env.D)).view(*batch_size, self.env.B * self.env.D),
-            (td["residual_lc_capacity"] / td["target_long_crane"].unsqueeze(0)).view(*batch_size, self.env.B - 1),
+            (td["observed_demand"] / max_demand ).view(*batch_size, -1),
+            (td["residual_capacity"] / self.env.capacity.view(1, -1)).view(*batch_size, -1),
+            (td["residual_lc_capacity"] / td["target_long_crane"].unsqueeze(0)).view(*batch_size, -1),
             td["lcg"],
             td["vcg"],
             td["agg_pol_location"] / self.env.P,
@@ -113,8 +113,8 @@ class ContextEmbedding(nn.Module):
     def normalize_obs(self, td):
         batch_size = td.batch_size
         return torch.cat([
-            (td["residual_capacity"] / self.env.capacity.view(1, self.env.B * self.env.D)).view(*batch_size, self.env.B * self.env.D),
-            (td["residual_lc_capacity"] / td["target_long_crane"].unsqueeze(0)).view(*batch_size, self.env.B - 1),
+            (td["residual_capacity"] / self.env.capacity.view(1, -1)).view(*batch_size, -1),
+            (td["residual_lc_capacity"] / td["target_long_crane"].unsqueeze(0)).view(*batch_size, -1),
             td["lcg"],
             td["vcg"],
             td["agg_pol_location"] / self.env.P,
