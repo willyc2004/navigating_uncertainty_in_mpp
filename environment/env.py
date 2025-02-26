@@ -13,7 +13,7 @@ from torchrl.data import (
 )
 
 # Modules
-from environment.generator import MPP_Generator
+from environment.generator import MPP_Generator, UniformMPP_Generator
 from environment.utils import *
 
 class MasterPlanningEnv(EnvBase):
@@ -47,7 +47,7 @@ class MasterPlanningEnv(EnvBase):
         # Seed and generator
         self._set_seed(kwargs.get("seed"))
         self.demand_uncertainty = kwargs.get("demand_uncertainty", False)
-        self.generator = MPP_Generator(device=device,**kwargs)
+        self.generator = UniformMPP_Generator(device=device, **kwargs) #MPP_Generator(device=device,**kwargs)
         if td_gen == None:
             self.td_gen = self.generator(batch_size=batch_size,)
         # Data type and shapes
