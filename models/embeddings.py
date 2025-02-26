@@ -70,7 +70,8 @@ class CriticEmbedding(nn.Module):
         super(CriticEmbedding, self).__init__()
         self.env = env
         self.seq_dim = seq_dim
-        self.project_context = nn.Linear(embed_dim + 143, embed_dim,)
+        # embed_dim + 143 # todo: remove hardcoding
+        self.project_context = nn.Linear(embed_dim + 203, embed_dim,)
         self.train_max_demand = self.env.generator.train_max_demand
 
     def normalize_obs(self, td):
@@ -108,7 +109,8 @@ class ContextEmbedding(nn.Module):
         super(ContextEmbedding, self).__init__()
         self.env = env
         self.seq_dim = seq_dim
-        self.project_context = nn.Linear(embed_dim + 71, embed_dim,)
+        # embed_dim + 71 # todo: remove hardcoding
+        self.project_context = nn.Linear(embed_dim + 131, embed_dim,)
 
     def normalize_obs(self, td):
         batch_size = td.batch_size
