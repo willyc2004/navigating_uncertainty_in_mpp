@@ -121,7 +121,7 @@ def initialize_policy_and_critic(config, env, device):
     # Embedding dimensions
     embed_dim = config.model.embed_dim
     action_dim = env.action_spec.shape[0]
-    sequence_dim = env.K * env.T if env.action_spec.shape[0] == env.B * env.D else env.P - 1
+    sequence_dim = env.K * env.T if env.action_spec.shape[0] > env.P-1 else env.P - 1
 
     # Embedding initialization
     init_embed = CargoEmbedding(action_dim, embed_dim, sequence_dim, env)
