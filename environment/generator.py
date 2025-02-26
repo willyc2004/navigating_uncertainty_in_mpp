@@ -241,7 +241,7 @@ class UniformMPP_Generator(MPP_Generator):
             # Get initial demand bound based on capacity
             bound = self._initialize_demand_bound_on_capacity(batch_size)
             self.train_max_demand = self._get_ub_demand_normalization(bound/2)
-            if batch_size != []: bound = bound.unsqueeze(0).expand(*batch_size, -1, -1) # Expands to (batch_size, 6, 12)
+            if batch_size != []: bound = bound.unsqueeze(0).expand(*batch_size, -1, -1) # Expand to batch size
 
             # Get initial demand based on random perturbed bound
             bound = self._random_perturbation(bound, 0.1)
