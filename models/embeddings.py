@@ -16,11 +16,11 @@ class CargoEmbedding(nn.Module):
         self.train_max_demand = self.env.generator.train_max_demand
 
         # Embedding layers
-        if env.name == "mpp":
-            num_embeddings = 7  # Number of embeddings
-            self.fc = nn.Linear(num_embeddings, embed_dim)
-        elif env.name == "port_mpp":
+        if env.name == "port_mpp":
             num_embeddings = self.seq_dim  # Number of embeddings
+            self.fc = nn.Linear(num_embeddings, embed_dim)
+        else:
+            num_embeddings = 7  # Number of embeddings
             self.fc = nn.Linear(num_embeddings, embed_dim)
         self.positional_encoding = DynamicSinusoidalPositionalEncoding(embed_dim)
         self.zeros = torch.zeros(1, seq_dim, embed_dim, device=self.env.device, dtype=self.env.float_type)
