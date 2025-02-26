@@ -119,11 +119,12 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     # Environment
     train_env = make_env(env_kwargs=kwargs["env"], batch_size=[batch_size], device=device)
     n_step = train_env.T * train_env.K
+    n_constraints = train_env.n_constraints if train_env.name == "mpp" else train_env.n_block_constraints
     if f"lagrangian_multiplier_0" in kwargs["algorithm"]:
         lagrangian_multiplier = torch.tensor([
-            kwargs["algorithm"][f"lagrangian_multiplier_{i}"] for i in range(25)], device=device)
+            kwargs["algorithm"][f"lagrangian_multiplier_{i}"] for i in range(n_constraints)], device=device)
     else:
-        lagrangian_multiplier = torch.ones(25, device=device)
+        lagrangian_multiplier = torch.ones(n_constraints, device=device)
 
     # Optimizer, loss module, data collector, and scheduler
     advantage_module = GAE(gamma=gamma, lmbda=gae_lambda, value_network=critic, average_gae=True)
