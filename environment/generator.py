@@ -238,17 +238,19 @@ class UniformMPP_Generator(MPP_Generator):
         """Generate demand matrix for voyage with uniform distribution"""
         # Get initial demand if not provided
         if td is None or td.is_empty():
+            # Get initial demand bound based on capacity
             bound = self._initialize_demand_bound_on_capacity(batch_size)
-            # Expand for perturbation
-            if batch_size != []:
-                bound = bound.unsqueeze(0).expand(*batch_size, -1, -1) # Expands to (batch_size, 6, 12)
+            self.train_max_demand = self._get_ub_demand_normalization(bound/2)
+            if batch_size != []: bound = bound.unsqueeze(0).expand(*batch_size, -1, -1) # Expands to (batch_size, 6, 12)
+
+            # Get initial demand based on random perturbed bound
             bound = self._random_perturbation(bound, 0.1)
             demand, _ = self._generate_initial_moments(batch_size, bound, self.cv)
+            # Get moments from uniform distribution
             e_x = (bound * 0.5).expand_as(demand)
             init_e_x = e_x.clone()
             std_x = bound / th.sqrt(th.tensor(12, device=self.device)).expand_as(demand)
             batch_updates = th.zeros(batch_size, device=self.device).view(*batch_size, 1)
-            self.train_max_demand = self._get_ub_demand_normalization(bound/2)
         else:
             demand = td["observation", "realized_demand"].view(-1, self.T, self.K)
             e_x = td["observation", "expected_demand"].view(-1, self.T, self.K)
@@ -256,12 +258,16 @@ class UniformMPP_Generator(MPP_Generator):
             std_x = td["observation", "std_demand"].view(-1, self.T, self.K)
             batch_updates = td["observation", "batch_updates"].clone() + 1
 
+        if not self.iid_demand:
+            e_x, std_x, _ = self._gbm_lognormal_distribution(batch_updates, init_e_x,)
+        print(f"Mean(E[X]): {e_x.mean()}, Std(E[X]): {std_x.mean()}")
+
         # Return demand matrix
         return TensorDict({"observation":
                                {"realized_demand": demand.view(*batch_size, self.T * self.K),
                                 "expected_demand": e_x.view(*batch_size, self.T * self.K),
-                                "std_demand": std_x.view(*batch_size, self.T * self.K),
                                 "init_expected_demand": init_e_x.view(*batch_size, self.T * self.K),
+                                "std_demand": std_x.view(*batch_size, self.T * self.K),
                                 "batch_updates": batch_updates.clone(), }}, batch_size=batch_size,
                           device=self.device, )
 
