@@ -45,7 +45,7 @@ class LinearViolationAdaption(th.nn.Module):
 
         # Start loop with early exit in case of nans
         if th.isnan(x_).any():
-            return x_
+            return x_.squeeze(1)
         count = 0
         while th.any(active_mask):
             # Compute current violation for each batch and step
