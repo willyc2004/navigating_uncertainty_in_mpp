@@ -260,7 +260,6 @@ class UniformMPP_Generator(MPP_Generator):
 
         if not self.iid_demand:
             e_x, std_x, _ = self._gbm_lognormal_distribution(batch_updates, init_e_x,)
-        print(f"Mean(E[X]): {e_x.mean()}, Std(E[X]): {std_x.mean()}")
 
         # Return demand matrix
         return TensorDict({"observation":
