@@ -180,6 +180,8 @@ class MasterPlanningEnv(EnvBase):
         residual_capacity = self._compute_residual_capacity(next_state_dict["utilization"]) if not is_done else \
             torch.zeros_like(td["observation"]["residual_capacity"], dtype=self.float_type).view(*batch_size, self.B, self.D,)
         clip_max = self._compute_clip_max(residual_capacity, next_state_dict, batch_size, t)
+
+        # todo: hardcoded shapes; use spec instead
         out =  TensorDict({
             "observation":{
                 # Vessel
@@ -266,6 +268,7 @@ class MasterPlanningEnv(EnvBase):
         rhs = self.create_rhs(utilization.to(self.float_type), current_demand, batch_size)
 
         # Init tds - state: internal state
+        # todo: hardcoded shapes; use spec instead
         initial_state = TensorDict({
             "timestep": t,
             # Demand
@@ -307,7 +310,7 @@ class MasterPlanningEnv(EnvBase):
             "revenue": th.zeros_like(t, dtype=self.float_type).view(*batch_size, 1),
             "cost": th.zeros_like(t, dtype=self.float_type).view(*batch_size, 1),
             # Reward, done and step
-            "done": th.zeros_like(t, dtype=th.bool),
+            "done": th.zeros_like(t, dtype=th.bool).view(*batch_size, 1),
         }, batch_size=batch_size, device=device,)
         return out
 
@@ -664,7 +667,8 @@ class MasterPlanningEnv(EnvBase):
 
     def _compute_clip_max(self, residual_capacity, next_state_dict, batch_size, t):
         """Compute clip max based on residual capacity and next state"""
-        clip_max = (residual_capacity / self.teus_episode[t].view(*batch_size, 1, 1)).view(*batch_size, self.B*self.D)
+        # todo: check if expanded shape of self.teus_episode[t] works for non-block env
+        clip_max = (residual_capacity / self.teus_episode[t].view(*batch_size, 1, 1, 1)).view(*batch_size, self.action_spec.shape[-1])
         return clip_max.clamp(max=next_state_dict["current_demand"].view(*batch_size, 1))
 
 class BlockMasterPlanningEnv(MasterPlanningEnv):
@@ -691,8 +695,111 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
 
     # todo: add step function
     def _step(self, td: TensorDict) -> TensorDict:
-        raise NotImplementedError("Step function not implemented yet.")
+        """Perform a step in the environment and return the next state."""
+        # Extraction
+        batch_size = td.batch_size
+        action, lhs_A, rhs, demand_state, utilization, \
+            target_long_crane, long_crane_moves_discharge, t = self._extract_from_block_td(td, batch_size)
+        pol, pod, tau, k, rev = self._extract_cargo_parameters_for_step(t[0])
 
+        # Get indices
+        ac_transport, moves = self.remain_on_board_transport[pol], self.moves_idx[pol]
+
+        # Check done
+        done = self._check_done(t)
+
+        # Update utilization
+        utilization = update_state_loading(action, utilization, tau, k, )
+
+        # Compute violation
+        violation = self._compute_violation(lhs_A, rhs, action, batch_size)
+
+        # Compute long crane moves & od-pairs
+        long_crane_moves_load = compute_long_crane_block(utilization, moves, self.T)
+        pol_locations, pod_locations = compute_pol_pod_locations(utilization, self.transform_tau_to_pol,
+                                                                 self.transform_tau_to_pod)
+        agg_pol_location, agg_pod_location = aggregate_pol_pod_location(pol_locations, pod_locations, self.float_type)
+
+        # Compute total loaded
+        sum_action = action.sum(dim=(-3, -2, -1)).unsqueeze(-1)
+
+        # Compute reward & cost
+        revenue = self._compute_revenue(sum_action, demand_state, t)
+
+        # todo: check extra here
+        profit, cost = self._compute_block_cost(
+            revenue, utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge, moves,
+            ac_transport, t)
+
+        # Transition to next step
+        is_done = done.any()
+        t = th.where(is_done, t, t + 1)
+        # todo: check extra here
+        next_state_dict = self._update_next_state_block(
+            utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge, demand_state, t,
+            batch_size)
+
+        if not is_done:
+            # Update feasibility constraints
+            lhs_A = self.create_lhs_A(self.block_A, t, )
+            rhs = self.create_block_rhs(next_state_dict["utilization"], next_state_dict["current_demand"], batch_size)
+        else:
+            # Compute crane excess at last port (only discharging)
+            lc_moves_last_port = compute_long_crane_block(utilization, moves, self.T)
+            lc_excess_last_port = th.clamp(lc_moves_last_port - next_state_dict["target_long_crane"].view(-1, 1), min=0)
+
+            # Update cost and profit
+            lc_cost_ = lc_excess_last_port.sum(dim=-1, keepdim=True) * self.cm_costs
+            profit -= lc_cost_
+            cost += lc_cost_
+
+        # Update td output
+        reward = self._compute_final_reward(revenue, cost, demand_state, t, batch_size)
+        residual_capacity = self._compute_residual_capacity(next_state_dict["utilization"]) if not is_done else \
+            torch.zeros_like(td["observation"]["residual_capacity"], dtype=self.float_type).view(*batch_size, self.B,self.D,self.BL )
+        clip_max = self._compute_clip_max(residual_capacity, next_state_dict, batch_size, t)
+        out = TensorDict({
+            "observation": {
+                # Vessel
+                "utilization": next_state_dict["utilization"].view(*batch_size, self.B * self.D * self.BL * self.T * self.K),
+                "target_long_crane": next_state_dict["target_long_crane"],
+                "long_crane_moves_discharge": next_state_dict["long_crane_moves_discharge"].view(*batch_size, self.B - 1),
+                # Demand
+                "observed_demand": next_state_dict["observed_demand"].view(*batch_size, self.T * self.K),
+                "realized_demand": td["observation", "realized_demand"].view(*batch_size, self.T * self.K),
+                "expected_demand": next_state_dict["expected_demand"].view(*batch_size, self.T * self.K),
+                "std_demand": next_state_dict["std_demand"].view(*batch_size, self.T * self.K),
+                "real_expected_demand": td["observation", "real_expected_demand"].view(*batch_size, self.T * self.K),
+                "real_std_demand": td["observation", "real_std_demand"].view(*batch_size, self.T * self.K),
+                "init_expected_demand": td["observation", "init_expected_demand"].view(*batch_size, self.T * self.K),
+                "batch_updates": td["observation", "batch_updates"],
+                # Vessel
+                "lcg": next_state_dict["lcg"].view(*batch_size, 1),
+                "vcg": next_state_dict["vcg"].view(*batch_size, 1),
+                "residual_capacity": residual_capacity.view(*batch_size, self.B * self.D * self.BL),
+                "residual_lc_capacity": next_state_dict["residual_lc_capacity"].view(*batch_size, self.B - 1),
+                "agg_pol_location": agg_pol_location.view(*batch_size, self.B * self.D * self.BL),
+                "agg_pod_location": agg_pod_location.view(*batch_size, self.B * self.D * self.BL),
+                "timestep": t,
+            },
+
+            # # Feasibility and constraints
+            "lhs_A": lhs_A.view(*batch_size, self.n_block_constraints, self.B * self.D * self.BL),
+            "rhs": rhs.view(*batch_size, self.n_block_constraints),
+            "violation": violation.view(*batch_size, self.n_block_constraints),
+            # in containers
+            "clip_min": th.zeros_like(residual_capacity, dtype=self.float_type).view(*batch_size, self.B * self.D * self.BL),
+            "clip_max": clip_max.view(*batch_size, self.B * self.D * self.BL),
+            # Profit metrics
+            "profit": profit,
+            "revenue": revenue,
+            "cost": cost,
+            # Action, reward, done and step
+            "action": action.view(*batch_size, self.B * self.D * self.BL),
+            "reward": reward,
+            "done": done,
+        }, td.shape)
+        return out
 
     def _reset(self,  td: Optional[TensorDict] = None, seed:Optional=None) -> TensorDict:
         """Reset the environment to the initial state."""
@@ -778,7 +885,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             "revenue": th.zeros_like(t, dtype=self.float_type).view(*batch_size, 1),
             "cost": th.zeros_like(t, dtype=self.float_type).view(*batch_size, 1),
             # Reward, done and step
-            "done": th.zeros_like(t, dtype=th.bool),
+            "done": th.zeros_like(t, dtype=th.bool).view(*batch_size, 1),
         }, batch_size=batch_size, device=device,)
         return out
 
@@ -834,6 +941,85 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         )
         self.reward_spec = Unbounded(shape=(*batch_size,1,))
         self.done_spec = Unbounded(shape=(*batch_size,1,), dtype=th.bool)
+
+    def _extract_from_block_td(self, td, batch_size) -> Tuple:
+        """Extract action, reward and step from the TensorDict."""
+        # Must clone to avoid in-place operations!
+        action = td["action"].view(*batch_size, self.B, self.D, self.BL).clone()
+        # action_mask = td["action_mask"].clone()
+        timestep = td["observation", "timestep"].view(-1).clone()
+
+        # Demand-related variables
+        demand = {
+            # clones are needed to prevent in-place
+            "expected_demand": td["observation", "expected_demand"].view(*batch_size, self.T, self.K).clone(),
+            "std_demand": td["observation", "std_demand"].view(*batch_size, self.T, self.K).clone(),
+            "real_expected_demand": td["observation", "real_expected_demand"].view(*batch_size, self.T, self.K).clone(),
+            "real_std_demand": td["observation", "real_std_demand"].view(*batch_size, self.T, self.K).clone(),
+            "realized_demand": td["observation", "realized_demand"].view(*batch_size, self.T, self.K).clone(),
+            "observed_demand": td["observation", "observed_demand"].view(*batch_size, self.T, self.K).clone(),
+            "current_demand": td["observation", "realized_demand"].clone()[..., timestep[0]].view(*batch_size, 1),
+        }
+        # Vessel-related variables
+        utilization = td["observation", "utilization"].view(*batch_size, self.B, self.D, self.BL, self.T, self.K).clone()
+        target_long_crane = td["observation", "target_long_crane"].view(*batch_size, 1).clone()
+        long_crane_moves_discharge = td["observation", "long_crane_moves_discharge"].view(*batch_size, self.B-1).clone()
+
+        # Constraints
+        lhs_A = td["lhs_A"].clone()
+        rhs = td["rhs"].clone()
+        # return
+        return action, lhs_A, rhs, demand, utilization, target_long_crane, long_crane_moves_discharge, timestep
+
+    # Update state
+    def _update_next_state_block(self, utilization: Tensor, target_long_crane:Tensor,
+                                 long_crane_moves_load:Tensor, long_crane_moves_discharge:Tensor,
+                                 demand_state:Dict, t:Tensor, batch_size) -> Dict[str, Tensor]:
+        """Update next state, following options:
+        - Next step moves to new port POL+1
+        - Next step moves to new transport (POL, POD-1)
+        - Last step of episode; compute excess crane moves at last port
+        """
+        # Get cargo parameters
+        pol, pod, tau, k, rev = self._extract_cargo_parameters_for_step(t[0])
+
+        # Check next port with t - 1
+        load_idx, disc_idx, moves_idx = self._precompute_for_step(pol)
+        # Next port with discharging; Update utilization, observed demand and target long crane
+        if self.next_port_mask[t-1].any():
+            # todo: check inside here
+            long_crane_moves_load = torch.zeros_like(long_crane_moves_load)
+            long_crane_moves_discharge = compute_long_crane_block(utilization, moves_idx, self.T)
+            utilization = update_state_discharge(utilization, disc_idx)
+            target_long_crane = compute_target_long_crane(
+                demand_state["realized_demand"], moves_idx, self.capacity, self.B, self.CI_target).view(*batch_size, 1)
+            if self.demand_uncertainty:
+                demand_state["observed_demand"][..., load_idx, :] = demand_state["realized_demand"][..., load_idx, :]
+
+        # Update residual lc capacity: target - actual load and discharge moves
+        long_crane_moves = long_crane_moves_load + long_crane_moves_discharge
+        residual_lc_capacity = (target_long_crane - long_crane_moves).clamp(min=0)
+
+        # Compute stability
+        location_weight = (utilization * self.weights.view(1,1,1,1,1,-1)).sum(dim=(-2,-1))
+        total_weight = location_weight.sum(dim=(1,2,3))
+        lcg = (location_weight * self.longitudinal_position.view(1, -1, 1, 1)).sum(dim=(1,2,3)) / total_weight
+        vcg = (location_weight * self.vertical_position.view(1, 1, -1, 1)).sum(dim=(1,2,3)) / total_weight
+        # Get output
+        return {
+            "current_demand": demand_state["realized_demand"][..., tau, k],
+            "observed_demand": demand_state["observed_demand"],
+            "expected_demand": demand_state["expected_demand"],
+            "std_demand":demand_state["std_demand"],
+            "realized_demand": demand_state["realized_demand"],
+            "utilization": utilization,
+            "location_utilization": (utilization * self.teus.view(1,1,1,1,-1)).sum(dim=(-2,-1)),
+            "lcg": lcg,
+            "vcg": vcg,
+            "target_long_crane": target_long_crane,
+            "residual_lc_capacity": residual_lc_capacity,
+            "long_crane_moves_discharge": long_crane_moves_discharge,
+        }
 
     # Constraints
     def _compact_form_block_shapes(self, ):
@@ -894,6 +1080,25 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
 
         # Create constraint matrix
         self.block_A = self._create_constraint_matrix_block(shape=(self.n_block_constraints, self.n_block_locations, self.T, self.K))
+
+    # Computes
+    def _compute_block_cost(self, revenue, utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge,
+                            moves, ac_transport, t):
+        """Compute profit based on revenue and cost, where cost = overstowage costs + excess_crane_moves costs.
+        Costs are based on utilization, long crane moves and target long crane"""
+        profit = revenue.clone()
+        if self.next_port_mask[t].any():
+            # Compute aggregated: overstowage and long crane excess
+            overstowage = compute_hatch_overstowage_block(utilization, moves, ac_transport)
+            excess_crane_moves = th.clamp(long_crane_moves_load + long_crane_moves_discharge - target_long_crane.view(-1, 1), min=0)
+            # Compute costs
+            ho_costs = overstowage.sum(dim=-1, keepdim=True) * self.ho_costs
+            cm_costs = excess_crane_moves.sum(dim=-1, keepdim=True) * self.cm_costs
+            cost = ho_costs + cm_costs
+            profit -= cost
+        else:
+            cost = th.zeros_like(profit)
+        return profit, cost
 
     # Precomputes
     def _precompute_block_stability_parameters(self,):
