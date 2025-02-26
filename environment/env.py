@@ -163,7 +163,7 @@ class MasterPlanningEnv(EnvBase):
 
         if not is_done:
             # Update feasibility constraints
-            lhs_A = self.create_lhs_A(t,)
+            lhs_A = self.create_lhs_A(self.A, t,)
             rhs = self.create_rhs(next_state_dict["utilization"], next_state_dict["current_demand"], batch_size)
         else:
             # Compute crane excess at last port (only discharging)
@@ -262,7 +262,7 @@ class MasterPlanningEnv(EnvBase):
         locations_utilization = th.zeros_like(action_mask, dtype=self.float_type)
 
         # Constraints
-        lhs_A = self.create_lhs_A(t,)
+        lhs_A = self.create_lhs_A(self.A, t,)
         rhs = self.create_rhs(utilization.to(self.float_type), current_demand, batch_size)
 
         # Init tds - state: internal state
@@ -467,9 +467,9 @@ class MasterPlanningEnv(EnvBase):
         A[self.n_locations + self.n_demand:self.n_locations + self.n_demand + self.n_stability] *= self.stability_params_lhs.view(self.n_stability, self.B*self.D, 1, self.K,)
         return A.view(self.n_constraints, self.B*self.D, -1)
 
-    def create_lhs_A(self, t:Tensor) -> Tensor:
+    def create_lhs_A(self, A, t:Tensor) -> Tensor:
         """Get A_t based on ordered timestep"""
-        lhs_A = self.A[..., t].permute((2, 0, 1,)).contiguous()
+        lhs_A = A[..., t].permute((2, 0, 1,)).contiguous()
         return lhs_A
 
     def create_rhs(self, utilization:Tensor, current_demand:Tensor, batch_size) -> Tensor:
@@ -488,7 +488,8 @@ class MasterPlanningEnv(EnvBase):
         rhs[..., :self.n_demand] = current_demand.view(-1, 1)
         rhs[..., self.n_demand:self.n_locations + self.n_demand] = \
             torch.clamp(rhs[..., self.n_demand:self.n_locations + self.n_demand] + self.capacity.view(1, -1),
-                        min=0, max=self.capacity[0,0].item())
+                        min=th.zeros_like(self.capacity.view(1, -1)), max=self.capacity.view(1, -1)) # todo: check if this works
+        #                min=0, max=self.capacity[0,0].item())
         return rhs
 
     # Initializations
@@ -684,14 +685,102 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
 
         ## Sets and Parameters:
         self._initialize_block_capacity(*kwargs.get("capacity"))
-        print("Capacity initialized")
         self._initialize_block_stability()
-        print("Stability initialized")
-        self._initialize_block_constraints() # todo: add constraints
-        print("Constraints initialized")
+        self._initialize_block_constraints()
 
 
-    # todo: add step and reset functions
+    # todo: add step function
+    def _step(self, td: TensorDict) -> TensorDict:
+        raise NotImplementedError("Step function not implemented yet.")
+
+
+    def _reset(self,  td: Optional[TensorDict] = None, seed:Optional=None) -> TensorDict:
+        """Reset the environment to the initial state."""
+        # Extract batch_size from td if it exists
+        if td is None: td = self.td_gen
+        batch_size = getattr(td, 'batch_size', self.batch_size)
+        td = self.generator(batch_size=batch_size, td=td)
+
+        # Initialize
+        # Parameters
+        device = td.device
+        if batch_size == torch.Size([]): t = th.zeros(1, dtype=th.int64, device=device)
+        else: t = th.zeros(*batch_size, dtype=th.int64, device=device)
+        pol, pod, tau, k, rev = self._extract_cargo_parameters_for_step(t[0])
+
+        # Demand:
+        realized_demand = td["observation", "realized_demand"].view(*batch_size, self.T, self.K).clone()
+        if self.demand_uncertainty:
+            observed_demand = th.zeros_like(realized_demand)
+            load_idx = self.load_transport[pol]
+            observed_demand[..., load_idx, :] = realized_demand[..., load_idx, :]
+            expected_demand = td["observation", "expected_demand"].clone()
+            std_demand = td["observation", "std_demand"].clone()
+        else:
+            observed_demand = realized_demand.clone()
+            expected_demand = td["observation", "expected_demand"].clone()
+            std_demand = td["observation", "std_demand"].clone()
+        current_demand = observed_demand[..., tau, k].view(*batch_size, 1).clone() # clone to prevent in-place!
+
+        # State and mask
+        action_mask = th.ones((*batch_size, self.B*self.D*self.BL), dtype=th.bool, device=device)
+        # Vessel
+        utilization = th.zeros((*batch_size, self.B, self.D, self.BL, self.T, self.K), device=device, dtype=self.float_type)
+        residual_capacity = th.clamp(self.capacity - utilization.sum(dim=-2) @ self.teus, min=self.zero)
+        target_long_crane = compute_target_long_crane(realized_demand.to(self.float_type), self.moves_idx[t[0]],
+                                                        self.capacity, self.B, self.CI_target).view(*batch_size, 1)
+        residual_lc_capacity = target_long_crane.repeat(1, self.B - 1)
+        locations_utilization = th.zeros_like(action_mask, dtype=self.float_type)
+
+        # Constraints
+        lhs_A = self.create_lhs_A(self.block_A,t)
+        rhs = self.create_block_rhs(utilization.to(self.float_type), current_demand, batch_size)
+
+        # Init tds - state: internal state
+        initial_state = TensorDict({
+            "timestep": t,
+            # Demand
+            "observed_demand": observed_demand.view(*batch_size, self.T * self.K),
+            "realized_demand": td["observation", "realized_demand"].view(*batch_size, self.T * self.K),
+            "real_expected_demand": td["observation", "expected_demand"].view(*batch_size, self.T * self.K),
+            "real_std_demand": td["observation", "std_demand"].view(*batch_size, self.T * self.K),
+            "expected_demand": expected_demand.view(*batch_size, self.T * self.K),
+            "std_demand": std_demand.view(*batch_size, self.T * self.K),
+            "init_expected_demand": td["observation", "init_expected_demand"].view(*batch_size, self.T * self.K),
+            "batch_updates": td["observation", "batch_updates"],
+            # Vessel
+            "utilization": utilization.view(*batch_size, self.B * self.D * self.BL * self.T * self.K),
+            "target_long_crane": target_long_crane,
+            "long_crane_moves_discharge": th.zeros_like(residual_lc_capacity).view(*batch_size, self.B - 1),
+            "residual_capacity": residual_capacity.view(*batch_size, self.B * self.D * self.BL),
+            "lcg": th.ones_like(t, dtype=self.float_type).view(*batch_size, 1),
+            "vcg": th.ones_like(t, dtype=self.float_type).view(*batch_size, 1),
+            "residual_lc_capacity": residual_lc_capacity.view(*batch_size, self.B - 1),
+            "agg_pol_location": th.zeros_like(locations_utilization),
+            "agg_pod_location": th.zeros_like(locations_utilization),
+        }, batch_size=batch_size, device=device,)
+
+        # Init tds - full td
+        out = TensorDict({
+            # State
+            "observation": initial_state,
+            # # Action mask
+            "action": th.zeros_like(action_mask, dtype=self.float_type),
+            # "action_mask": action_mask.view(*batch_size, -1),
+            # # Constraints
+            "clip_min": th.zeros_like(residual_capacity, dtype=self.float_type).view(*batch_size, self.B * self.D * self.BL, ),
+            "clip_max": residual_capacity.view(*batch_size, self.B * self.D * self.BL),
+            "lhs_A": lhs_A.view(*batch_size, self.n_block_constraints, self.B * self.D * self.BL),
+            "rhs":  rhs.view(*batch_size, self.n_block_constraints),
+            "violation": th.zeros_like(rhs, dtype=self.float_type),
+            # Performance
+            "profit": th.zeros_like(t, dtype=self.float_type).view(*batch_size, 1),
+            "revenue": th.zeros_like(t, dtype=self.float_type).view(*batch_size, 1),
+            "cost": th.zeros_like(t, dtype=self.float_type).view(*batch_size, 1),
+            # Reward, done and step
+            "done": th.zeros_like(t, dtype=th.bool),
+        }, batch_size=batch_size, device=device,)
+        return out
 
     def _make_block_spec(self, td:TensorDict = None) -> None:
         """Define the specs for observations, actions, rewards, and done flags."""
@@ -763,6 +852,25 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         A[self.n_locations + self.n_demand:self.n_locations + self.n_demand + self.n_stability] *= self.block_stability_params_lhs.view(self.n_stability, self.B*self.D*self.BL, 1, self.K,)
         return A.view(self.n_block_constraints, self.B*self.D*self.BL, -1)
 
+    def create_block_rhs(self, utilization:Tensor, current_demand:Tensor, batch_size) -> Tensor:
+        """Create b_t based on current utilization:
+        - b_t = [current_demand, capacity, LM_ub, LM_lb, VM_ub, VM_lb]
+        - demand -> stepwise current demand [#]
+        - capacity -> residual capacity [TEUs]
+        - stability -> lower and upper bounds for LCG, VCG
+        """
+        # Perform matmul to get initial rhs, including:
+        # note: utilization, A, teus_episode have static shapes
+        A = self.swap_signs_block_stability.view(-1, 1, 1,) * self.block_A.clone() # Swap signs for constraints
+        rhs = utilization.view(*batch_size, -1) @ A.view(self.n_block_constraints, -1).T
+
+        # Update rhs with current demand and add teu capacity to the rhs
+        rhs[..., :self.n_demand] = current_demand.view(-1, 1)
+        rhs[..., self.n_demand:self.n_block_locations + self.n_demand] = \
+            torch.clamp(rhs[..., self.n_demand:self.n_block_locations + self.n_demand] + self.capacity.view(1, -1),
+                        min=th.zeros_like(self.capacity.view(1, -1)), max=self.capacity.view(1, -1))
+        return rhs
+
     # Initialize
     def _initialize_block_capacity(self, capacity):
         """Initialize capacity parameters for block environment"""
@@ -776,7 +884,6 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         self.block_stability_params_lhs = self._precompute_block_stability_parameters()
 
     def _initialize_block_constraints(self, ):
-        # todo: update
         """Initialize constraint-related parameters."""
         self.block_constraint_signs = th.ones(self.n_block_constraints, device=self.device, dtype=self.float_type)
         self.block_constraint_signs[th.tensor([-3, -1], device=self.device)] *= -1  # Flip signs for specific constraints
