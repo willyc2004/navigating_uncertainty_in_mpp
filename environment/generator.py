@@ -121,7 +121,8 @@ class MPP_Generator(Generator):
         """Generate demand matrix for voyage with GBM process"""
         # Get initial demand if not provided
         if td is None or td.is_empty():
-            e_x_init_demand, _ = self._initial_contract_demand(batch_size)
+            bound = self._initialize_demand_bound_on_capacity(batch_size)
+            e_x_init_demand, _ = self._generate_initial_moments(batch_size, bound, self.cv)
             batch_updates = th.zeros(batch_size, device=self.device).view(*batch_size, 1)
             self.train_max_demand = self._get_ub_demand_normalization(e_x_init_demand)
         else:
@@ -150,13 +151,8 @@ class MPP_Generator(Generator):
                                 "batch_updates":batch_updates.clone(),}}, batch_size=batch_size, device=self.device,)
 
     ## Initial demand
-    def _initial_contract_demand(self, batch_size,) -> Tuple[th.Tensor,th.Tensor]:
-        """Get initial E[X], V[X] for spot and longterm contracts; cv: <0.1 is low, 0.3<x<0.5 is moderate, >0.5 is high
-        :param utilization_rate: Average utilization of vessel capacity; 2*0.9 to get 90% utilization in uniform distribution
-        :param spot_percentage: Percentage of spot demand; longterm demand is 1-spot_percentage
-        :param cv_spot: Coefficient of variation for spot demand
-        :param cv_longterm: Coefficient of variation for longterm demand
-        :return: E[X], V[X]
+    def _initialize_demand_bound_on_capacity(self, batch_size,):
+        """Get initial demand bound based on capacity
 
         Bound without wave:
         f(x) = (2*utilization_rate * th.sum(self.c)) / (self.K *  num_load (1-num_ac/num_ob))
@@ -178,18 +174,24 @@ class MPP_Generator(Generator):
         num_cargo = (self.K * self.tr_loads / (1 - self.tr_ac / self.tr_ob))
         utilization_bound /= num_cargo
         # Get bound with spot, lc using self.spot_lc_percentage
-        self.bound = th.ger(utilization_bound, self.spot_lc_percentage) / self.teus.view(1, -1,)
-        # Get expected demand and variance
-        expected_demand, variance = self._generate_initial_moments(batch_size, self.bound, self.cv)
-        return expected_demand, variance
+        return th.ger(utilization_bound, self.spot_lc_percentage) / self.teus.view(1, -1,)
+
+    def _random_perturbation(self, input, perturb_factor=0.1):
+        """Apply a random perturbation to bound while keeping it close to the original value."""
+        perturbation = 1 + (th.rand_like(input) * 2 - 1) * perturb_factor  # U(1-α, 1+α)
+        return th.clamp(input * perturbation, min=1.0)  # Ensure positive output
 
     def _generate_initial_moments(self, batch_size, bound, cv, eps=1e-2) -> Tuple[th.Tensor, th.Tensor]:
         """Generate initial E[X] and V[X] for spot and longterm contracts.
         - E[X] = Uniform sample * bound
         - V[X] = (E[X] * cv)^2"""
+        # shape of bound: [batch_size, T, K]
+        if len(bound.shape) == 2:
+            bound = bound.unsqueeze(0)
+
         # Sample uniformly from 0 to bound (inclusive) using torch.rand
         expected = th.rand(*batch_size, self.T, self.K, dtype=bound.dtype, device=self.device,
-                           generator=self.rng) * bound.unsqueeze(0)
+                           generator=self.rng) * bound
         variance = (expected * cv.view(1, 1, self.K,)) ** 2
         return th.where(expected < eps, eps, expected), variance
 
@@ -236,12 +238,17 @@ class UniformMPP_Generator(MPP_Generator):
         """Generate demand matrix for voyage with uniform distribution"""
         # Get initial demand if not provided
         if td is None or td.is_empty():
-            demand, _ = self._initial_contract_demand(batch_size)
-            e_x = (self.bound * 0.5).expand_as(demand)
+            bound = self._initialize_demand_bound_on_capacity(batch_size)
+            # Expand for perturbation
+            if batch_size != []:
+                bound = bound.unsqueeze(0).expand(*batch_size, -1, -1) # Expands to (batch_size, 6, 12)
+            bound = self._random_perturbation(bound, 0.1)
+            demand, _ = self._generate_initial_moments(batch_size, bound, self.cv)
+            e_x = (bound * 0.5).expand_as(demand)
             init_e_x = e_x.clone()
-            std_x = self.bound / th.sqrt(th.tensor(12, device=self.device)).expand_as(demand)
+            std_x = bound / th.sqrt(th.tensor(12, device=self.device)).expand_as(demand)
             batch_updates = th.zeros(batch_size, device=self.device).view(*batch_size, 1)
-            self.train_max_demand = self._get_ub_demand_normalization(self.bound/2)
+            self.train_max_demand = self._get_ub_demand_normalization(bound/2)
         else:
             demand = td["observation", "realized_demand"].view(-1, self.T, self.K)
             e_x = td["observation", "expected_demand"].view(-1, self.T, self.K)
