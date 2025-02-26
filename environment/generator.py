@@ -123,7 +123,7 @@ class MPP_Generator(Generator):
         if td is None or td.is_empty():
             e_x_init_demand, _ = self._initial_contract_demand(batch_size)
             batch_updates = th.zeros(batch_size, device=self.device).view(*batch_size, 1)
-            self.train_max_demand = (e_x_init_demand + 4 * (e_x_init_demand*0.5)).max() # add fixed ub for demand normalization
+            self.train_max_demand = self._get_ub_demand_normalization(e_x_init_demand)
         else:
             e_x_init_demand = td["observation", "init_expected_demand"].view(-1, self.T, self.K)
             batch_updates = td["observation", "batch_updates"].clone() + 1
@@ -178,9 +178,9 @@ class MPP_Generator(Generator):
         num_cargo = (self.K * self.tr_loads / (1 - self.tr_ac / self.tr_ob))
         utilization_bound /= num_cargo
         # Get bound with spot, lc using self.spot_lc_percentage
-        bound = th.ger(utilization_bound, self.spot_lc_percentage) / self.teus.view(1, -1,)
+        self.bound = th.ger(utilization_bound, self.spot_lc_percentage) / self.teus.view(1, -1,)
         # Get expected demand and variance
-        expected_demand, variance = self._generate_initial_moments(batch_size, bound, self.cv)
+        expected_demand, variance = self._generate_initial_moments(batch_size, self.bound, self.cv)
         return expected_demand, variance
 
     def _generate_initial_moments(self, batch_size, bound, cv, eps=1e-2) -> Tuple[th.Tensor, th.Tensor]:
@@ -220,6 +220,43 @@ class MPP_Generator(Generator):
         """Get number of transports in onbord per POL"""
         mask = (transport_idx[:, 0] <= POL) & (transport_idx[:, 1] > POL)
         return mask.sum(dim=-1).squeeze()  # Shape: [num_POL]
+
+    def _get_ub_demand_normalization(self, bound, eps=1e-2):
+        """Get upper bound for demand normalization"""
+        return (bound + 4 * (bound / 2 * 0.5)).max()
+
+class UniformMPP_Generator(MPP_Generator):
+    """Class for generating demand for stowage plans using uniform distribution."""
+
+    def __call__(self, batch_size, td: Optional[TensorDict] = None, rng:Optional=None) -> TensorDict:
+        batch_size = [batch_size] if isinstance(batch_size, int) else batch_size
+        return self._generate(batch_size, td)
+
+    def _generate(self, batch_size, td: Optional = None, ) -> TensorDict:
+        """Generate demand matrix for voyage with uniform distribution"""
+        # Get initial demand if not provided
+        if td is None or td.is_empty():
+            demand, _ = self._initial_contract_demand(batch_size)
+            e_x = (self.bound * 0.5).expand_as(demand)
+            init_e_x = e_x.clone()
+            std_x = self.bound / th.sqrt(th.tensor(12, device=self.device)).expand_as(demand)
+            batch_updates = th.zeros(batch_size, device=self.device).view(*batch_size, 1)
+            self.train_max_demand = self._get_ub_demand_normalization(self.bound/2)
+        else:
+            demand = td["observation", "realized_demand"].view(-1, self.T, self.K)
+            e_x = td["observation", "expected_demand"].view(-1, self.T, self.K)
+            init_e_x = td["observation", "init_expected_demand"].view(-1, self.T, self.K)
+            std_x = td["observation", "std_demand"].view(-1, self.T, self.K)
+            batch_updates = td["observation", "batch_updates"].clone() + 1
+
+        # Return demand matrix
+        return TensorDict({"observation":
+                               {"realized_demand": demand.view(*batch_size, self.T * self.K),
+                                "expected_demand": e_x.view(*batch_size, self.T * self.K),
+                                "std_demand": std_x.view(*batch_size, self.T * self.K),
+                                "init_expected_demand": init_e_x.view(*batch_size, self.T * self.K),
+                                "batch_updates": batch_updates.clone(), }}, batch_size=batch_size,
+                          device=self.device, )
 
 def plot_demand_history(demand_history, updates,
                         y_label="Containers", title="Container Demand History",
