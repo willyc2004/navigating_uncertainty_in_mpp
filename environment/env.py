@@ -17,7 +17,7 @@ from environment.generator import MPP_Generator, UniformMPP_Generator
 from environment.utils import *
 
 class MasterPlanningEnv(EnvBase):
-    """Master Planning Problem environment.
+    """Master Planning Problem environment for locations with coordinates (Bay, Deck).
     # todo: add problem description with citations for camera-ready paper
     """
     name = "mpp"
@@ -455,7 +455,6 @@ class MasterPlanningEnv(EnvBase):
         """Define shapes for compact form"""
         self.n_demand = 1
         self.n_stability = 4
-        self.n_action = self.B * self.D
         self.n_locations = self.B * self.D
         self.n_constraints = self.n_demand + self.n_locations + self.n_stability
 
@@ -532,7 +531,7 @@ class MasterPlanningEnv(EnvBase):
         self.swap_signs_stability[0] = 1
 
         # Create constraint matrix
-        self.A = self._create_constraint_matrix(shape=(self.n_constraints, self.n_action, self.T, self.K))
+        self.A = self._create_constraint_matrix(shape=(self.n_constraints, self.n_locations, self.T, self.K))
 
     # Precomputes
     def _precompute_order_standard(self):
@@ -666,3 +665,138 @@ class MasterPlanningEnv(EnvBase):
         """Compute clip max based on residual capacity and next state"""
         clip_max = (residual_capacity / self.teus_episode[t].view(*batch_size, 1, 1)).view(*batch_size, self.B*self.D)
         return clip_max.clamp(max=next_state_dict["current_demand"].view(*batch_size, 1))
+
+class BlockMasterPlanningEnv(MasterPlanningEnv):
+    """Master Planning Problem environment for locations with coordinates (Bay, Deck, Block).
+    # todo: add problem description with citations
+    """
+    name = "block_mpp"
+    batch_locked = False
+
+    def __init__(self, device="cuda", batch_size=[], td_gen=None, **kwargs):
+        # Kwargs and super
+        self.BL = kwargs.get("BL", 2)  # Number of paired blocks: 2 (wings + center), 3 (wings + center1 + center2)
+        super().__init__(device=device, batch_size=batch_size, **kwargs)
+
+        # Shapes
+        self._compact_form_block_shapes()
+        self._make_block_spec(self.td_gen)
+
+        ## Sets and Parameters:
+        self._initialize_block_capacity(*kwargs.get("capacity"))
+        print("Capacity initialized")
+        self._initialize_block_stability()
+        print("Stability initialized")
+        self._initialize_block_constraints() # todo: add constraints
+        print("Constraints initialized")
+
+
+    # todo: add step and reset functions
+
+    def _make_block_spec(self, td:TensorDict = None) -> None:
+        """Define the specs for observations, actions, rewards, and done flags."""
+        batch_size = td.batch_size
+        state_spec = Composite(
+            # Demand
+            observed_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
+            realized_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
+            expected_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
+            std_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
+            real_expected_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
+            real_std_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
+            init_expected_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
+            batch_updates=Unbounded(shape=(*batch_size, 1), dtype=torch.float32),
+            # Vessel
+            utilization=Unbounded(shape=(*batch_size,self.B*self.D*self.BL*self.T*self.K), dtype=self.float_type),
+            target_long_crane=Unbounded(shape=(*batch_size,1), dtype=self.float_type),
+            long_crane_moves_discharge=Unbounded(shape=(*batch_size,self.B-1), dtype=self.float_type),
+            lcg=Unbounded(shape=(*batch_size, 1), dtype=self.float_type),
+            vcg=Unbounded(shape=(*batch_size, 1), dtype=self.float_type),
+            residual_capacity=Unbounded(shape=(*batch_size, self.B * self.D * self.BL),  dtype=self.float_type),
+            residual_lc_capacity=Unbounded(shape=(*batch_size, self.B - 1), dtype=self.float_type),
+            agg_pol_location=Unbounded(shape=(*batch_size, self.B * self.D * self.BL), dtype=self.float_type),
+            agg_pod_location=Unbounded(shape=(*batch_size, self.B * self.D * self.BL), dtype=self.float_type),
+            timestep=Unbounded(shape=(*batch_size, 1), dtype=th.int64),
+            shape=batch_size,
+        )
+        self.observation_spec = Composite(
+            # State, action, generator
+            observation=state_spec,
+            action=Unbounded(shape=(*batch_size, self.B * self.D * self.BL), dtype=self.float_type),
+
+            # Performance
+            profit=Unbounded(shape=(*batch_size, 1), dtype=torch.float32),
+            revenue=Unbounded(shape=(*batch_size, 1), dtype=torch.float32),
+            cost=Unbounded(shape=(*batch_size, 1), dtype=torch.float32),
+
+            # Constraints
+            clip_min=Unbounded(shape=(*batch_size,self.B*self.D*self.BL),dtype=self.float_type),
+            clip_max=Unbounded(shape=(*batch_size,self.B*self.D*self.BL),dtype=self.float_type),
+            lhs_A=Unbounded(shape=(*batch_size,self.n_block_constraints,self.B*self.D*self.BL),dtype=self.float_type),
+            rhs=Unbounded(shape=(*batch_size,self.n_block_constraints),dtype=self.float_type),
+            violation=Unbounded(shape=(*batch_size,self.n_block_constraints),dtype=self.float_type),
+            shape=batch_size,
+        )
+        self.action_spec = Bounded(
+            shape=(*batch_size, self.B*self.D*self.BL),  # Define shape as needed
+            low=0.0,
+            high=50.0,  # Define high value as needed
+            dtype=self.float_type,
+        )
+        self.reward_spec = Unbounded(shape=(*batch_size,1,))
+        self.done_spec = Unbounded(shape=(*batch_size,1,), dtype=th.bool)
+
+    # Constraints
+    def _compact_form_block_shapes(self, ):
+        """Define shapes for compact form"""
+        self.n_demand = 1
+        self.n_stability = 4
+        self.n_block_locations = self.B * self.D * self.BL
+        self.n_block_constraints = self.n_demand + self.n_block_locations + self.n_stability
+
+    def _create_constraint_matrix_block(self, shape: Tuple[int, int, int, int], ):
+        """Create constraint matrix A for compact constraints Au <= b"""
+        # [1, LM-TW, TW-LM, VM-TW, TW-VM]
+        A = th.ones(shape, device=self.device, dtype=self.float_type)
+        A[self.n_demand:self.n_block_locations + self.n_demand,] *= self.teus.view(1, 1, 1, -1) * th.eye(self.n_block_locations, device=self.device, dtype=self.float_type).view(self.n_block_locations, self.B*self.D*self.BL, 1, 1)
+        A *= self.block_constraint_signs.view(-1, 1, 1, 1)
+        A[self.n_locations + self.n_demand:self.n_locations + self.n_demand + self.n_stability] *= self.block_stability_params_lhs.view(self.n_stability, self.B*self.D*self.BL, 1, self.K,)
+        return A.view(self.n_block_constraints, self.B*self.D*self.BL, -1)
+
+    # Initialize
+    def _initialize_block_capacity(self, capacity):
+        """Initialize capacity parameters for block environment"""
+        self.capacity = th.zeros((self.B, self.D, self.BL), device=self.device, dtype=self.float_type)
+        block_ratios = [2 / (self.BL + 1)] + [1 / (self.BL + 1)] * (self.BL - 1)
+        for i, ratio in enumerate(block_ratios):
+            self.capacity[..., i] = th.full((self.B, self.D), capacity * ratio, device=self.device, dtype=self.float_type)
+
+    def _initialize_block_stability(self, ):
+        """Initialize stability parameters"""
+        self.block_stability_params_lhs = self._precompute_block_stability_parameters()
+
+    def _initialize_block_constraints(self, ):
+        # todo: update
+        """Initialize constraint-related parameters."""
+        self.block_constraint_signs = th.ones(self.n_block_constraints, device=self.device, dtype=self.float_type)
+        self.block_constraint_signs[th.tensor([-3, -1], device=self.device)] *= -1  # Flip signs for specific constraints
+
+        # Swap signs for stability constraints, only the first one remains positive
+        self.swap_signs_block_stability = -th.ones_like(self.block_constraint_signs)
+        self.swap_signs_block_stability[0] = 1
+
+        # Create constraint matrix
+        self.block_A = self._create_constraint_matrix_block(shape=(self.n_block_constraints, self.n_block_locations, self.T, self.K))
+
+    # Precomputes
+    def _precompute_block_stability_parameters(self,):
+        """Precompute lhs block stability parameters for compact constraints. Get rhs by negating lhs."""
+        lp_weight = self.lp_weight.view(-1, self.B, 1, 1, self.K).expand(-1,-1,self.D,self.BL,-1)
+        vp_weight = self.vp_weight.view(-1, 1, self.D, 1, self.K).expand(-1,self.B,-1,self.BL,-1)
+        p_weight = th.cat([lp_weight, lp_weight, vp_weight, vp_weight], dim=0)
+        target = torch.tensor([self.LCG_target, self.LCG_target, self.VCG_target, self.VCG_target],
+                              device=self.device, dtype=self.float_type).view(-1,1,1,1,1)
+        delta = torch.tensor([self.stab_delta, -self.stab_delta, self.stab_delta, -self.stab_delta],
+                             device=self.device, dtype=self.float_type).view(-1,1,1,1,1)
+        output = p_weight - self.weights.view(1,1,1,1,self.K) * (target + delta)
+        return output.view(-1, self.B*self.D*self.BL, self.K,)
