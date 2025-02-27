@@ -121,12 +121,16 @@ def compute_target_long_crane(realized_demand: th.Tensor, moves: th.Tensor,
     optimal_crane_moves_per_adj_bay = 2 * total_crane_moves / B
     return CI_target * th.minimum(optimal_crane_moves_per_adj_bay, max_capacity)
 
-def compute_long_crane(utilization: th.Tensor, moves:th.Tensor, T:int) -> th.Tensor:
-    """Compute long crane moves based on utilization"""
-    moves_idx = moves.to(utilization.dtype).view(1, 1, 1, T, 1)
-    moves_per_bay = (utilization * moves_idx).sum(dim=(-3, -2, -1))
+def compute_long_crane(utilization: th.Tensor, moves: th.Tensor, T: int, block=False) -> th.Tensor:
+    """Compute long crane moves based on utilization, automatically handling both standard and block environments."""
+    # Dynamically determine sum_dim and shape based on number of dimensions
+    dims = utilization.dim()
+    moves_shape = (1,) * (dims - 2) + (T, 1)
+    sum_dims = tuple(range(-4, 0)) if block else tuple(range(-3, 0))
+    # Compute moves per bay and long crane moves
+    moves_idx = moves.to(utilization.dtype).view(moves_shape)
+    moves_per_bay = (utilization * moves_idx).sum(dim=sum_dims)
     return moves_per_bay[..., :-1] + moves_per_bay[..., 1:]
-
 
 def compute_pol_pod_locations(utilization: th.Tensor, transform_tau_to_pol, transform_tau_to_pod) -> Tuple[th.Tensor, th.Tensor]:
     """Compute POL and POD locations based on utilization"""
@@ -134,6 +138,8 @@ def compute_pol_pod_locations(utilization: th.Tensor, transform_tau_to_pol, tran
         util = utilization.permute(0, 1, 3, 2)
     elif utilization.dim() == 5:
         util = utilization.permute(0, 1, 2, 4, 3)
+    elif utilization.dim() == 6:
+        util = utilization.permute(0, 1, 2, 3, 5, 4)
     else:
         raise ValueError("Utilization tensor has wrong dimensions.")
     pol_locations = (util @ transform_tau_to_pol).sum(dim=-2) != 0
@@ -188,13 +194,21 @@ def aggregate_pol_pod_location(pol_locations: th.Tensor, pod_locations: th.Tenso
     # Return indicators
     return agg_pol_locations.to(float_type), agg_pod_locations.to(float_type)
 
-
-def compute_hatch_overstowage(utilization: th.Tensor, moves: th.Tensor, ac_transport:th.Tensor) -> th.Tensor:
+def compute_hatch_overstowage(utilization: th.Tensor, moves: th.Tensor, ac_transport:th.Tensor, block=False) -> th.Tensor:
     """Get hatch overstowage based on ac_transport and moves"""
+    # Dynamic dependence of dims, sum_dims and indices
+    if block:
+        sum_dims = tuple(range(-4, 0))
+        index_hatch_open = (..., slice(1, None), slice(None), moves, slice(None))
+        index_hatch_overstowage = (..., slice(None, 1), slice(None), ac_transport, slice(None))
+    else:
+        sum_dims = tuple(range(-3, 0))
+        index_hatch_open = (..., slice(1, None), moves, slice(None))
+        index_hatch_overstowage = (..., slice(None, 1), ac_transport, slice(None))
+
     # Compute hatch overstowage
-    hatch_open = utilization[..., 1:, moves, :].sum(dim=(-3, -2, -1)) > 0
-    hatch_overstowage = utilization[..., :1, ac_transport, :].sum(dim=(-3, -2, -1)) * hatch_open
-    return hatch_overstowage
+    hatch_open = utilization[index_hatch_open].sum(dim=sum_dims) > 0
+    return utilization[index_hatch_overstowage].sum(dim=sum_dims) * hatch_open
 
 def compute_min_pod(pod_locations: th.Tensor, P:int, dtype:th.dtype) -> th.Tensor:
     """Compute min_pod based on utilization"""
