@@ -633,13 +633,13 @@ class MasterPlanningEnv(EnvBase):
         return sum_action * self.revenues[t[0]]
 
     def _compute_cost(self, revenue, utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge,
-                      moves, ac_transport, t):
+                      moves, ac_transport, t, block=False):
         """Compute profit based on revenue and cost, where cost = overstowage costs + excess_crane_moves costs.
         Costs are based on utilization, long crane moves and target long crane"""
         profit = revenue.clone()
         if self.next_port_mask[t].any():
             # Compute aggregated: overstowage and long crane excess
-            overstowage = compute_hatch_overstowage(utilization, moves, ac_transport)
+            overstowage = compute_hatch_overstowage(utilization, moves, ac_transport, block)
             excess_crane_moves = th.clamp(long_crane_moves_load + long_crane_moves_discharge - target_long_crane.view(-1, 1), min=0)
             # Compute costs
             ho_costs = overstowage.sum(dim=-1, keepdim=True) * self.ho_costs
@@ -667,8 +667,9 @@ class MasterPlanningEnv(EnvBase):
 
     def _compute_clip_max(self, residual_capacity, next_state_dict, batch_size, t):
         """Compute clip max based on residual capacity and next state"""
-        # todo: check if expanded shape of self.teus_episode[t] works for non-block env
-        clip_max = (residual_capacity / self.teus_episode[t].view(*batch_size, 1, 1, 1)).view(*batch_size, self.action_spec.shape[-1])
+        dims = residual_capacity.dim() if residual_capacity.dim() > 3 else 2 # if dim <= 3, then 2D locations
+        teu = self.teus_episode[t].view(*batch_size, *((1,) * dims))
+        clip_max = (residual_capacity / teu).view(*batch_size, self.action_spec.shape[-1])
         return clip_max.clamp(max=next_state_dict["current_demand"].view(*batch_size, 1))
 
 class BlockMasterPlanningEnv(MasterPlanningEnv):
@@ -715,7 +716,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         violation = self._compute_violation(lhs_A, rhs, action, batch_size)
 
         # Compute long crane moves & od-pairs
-        long_crane_moves_load = compute_long_crane_block(utilization, moves, self.T)
+        long_crane_moves_load = compute_long_crane(utilization, moves, self.T, block=True)
         pol_locations, pod_locations = compute_pol_pod_locations(utilization, self.transform_tau_to_pol,
                                                                  self.transform_tau_to_pod)
         agg_pol_location, agg_pod_location = aggregate_pol_pod_location(pol_locations, pod_locations, self.float_type)
@@ -725,11 +726,9 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
 
         # Compute reward & cost
         revenue = self._compute_revenue(sum_action, demand_state, t)
-
-        # todo: check extra here
-        profit, cost = self._compute_block_cost(
+        profit, cost = self._compute_cost(
             revenue, utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge, moves,
-            ac_transport, t)
+            ac_transport, t, block=True)
 
         # Transition to next step
         is_done = done.any()
@@ -745,7 +744,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             rhs = self.create_block_rhs(next_state_dict["utilization"], next_state_dict["current_demand"], batch_size)
         else:
             # Compute crane excess at last port (only discharging)
-            lc_moves_last_port = compute_long_crane_block(utilization, moves, self.T)
+            lc_moves_last_port = compute_long_crane(utilization, moves, self.T, block=True)
             lc_excess_last_port = th.clamp(lc_moves_last_port - next_state_dict["target_long_crane"].view(-1, 1), min=0)
 
             # Update cost and profit
@@ -989,7 +988,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         if self.next_port_mask[t-1].any():
             # todo: check inside here
             long_crane_moves_load = torch.zeros_like(long_crane_moves_load)
-            long_crane_moves_discharge = compute_long_crane_block(utilization, moves_idx, self.T)
+            long_crane_moves_discharge = compute_long_crane(utilization, moves_idx, self.T, block=True)
             utilization = update_state_discharge(utilization, disc_idx)
             target_long_crane = compute_target_long_crane(
                 demand_state["realized_demand"], moves_idx, self.capacity, self.B, self.CI_target).view(*batch_size, 1)
@@ -1080,25 +1079,6 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
 
         # Create constraint matrix
         self.block_A = self._create_constraint_matrix_block(shape=(self.n_block_constraints, self.n_block_locations, self.T, self.K))
-
-    # Computes
-    def _compute_block_cost(self, revenue, utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge,
-                            moves, ac_transport, t):
-        """Compute profit based on revenue and cost, where cost = overstowage costs + excess_crane_moves costs.
-        Costs are based on utilization, long crane moves and target long crane"""
-        profit = revenue.clone()
-        if self.next_port_mask[t].any():
-            # Compute aggregated: overstowage and long crane excess
-            overstowage = compute_hatch_overstowage_block(utilization, moves, ac_transport)
-            excess_crane_moves = th.clamp(long_crane_moves_load + long_crane_moves_discharge - target_long_crane.view(-1, 1), min=0)
-            # Compute costs
-            ho_costs = overstowage.sum(dim=-1, keepdim=True) * self.ho_costs
-            cm_costs = excess_crane_moves.sum(dim=-1, keepdim=True) * self.cm_costs
-            cost = ho_costs + cm_costs
-            profit -= cost
-        else:
-            cost = th.zeros_like(profit)
-        return profit, cost
 
     # Precomputes
     def _precompute_block_stability_parameters(self,):
