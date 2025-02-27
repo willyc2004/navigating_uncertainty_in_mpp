@@ -164,7 +164,9 @@ class MasterPlanningEnv(EnvBase):
         if not is_done:
             # Update feasibility constraints
             lhs_A = self.create_lhs_A(self.A, t,)
-            rhs = self.create_rhs(next_state_dict["utilization"], next_state_dict["current_demand"], batch_size)
+            rhs = self.create_rhs(
+                next_state_dict["utilization"], next_state_dict["current_demand"], self.swap_signs_stability, self.A,
+                self.n_constraints, self.n_demand, self.n_locations,batch_size)
         else:
             # Compute crane excess at last port (only discharging)
             lc_moves_last_port = compute_long_crane(utilization, moves, self.T)
@@ -265,8 +267,8 @@ class MasterPlanningEnv(EnvBase):
 
         # Constraints
         lhs_A = self.create_lhs_A(self.A, t,)
-        rhs = self.create_rhs(utilization.to(self.float_type), current_demand, batch_size)
-
+        rhs = self.create_rhs(utilization.to(self.float_type), current_demand, self.swap_signs_stability, self.A,
+            self.n_constraints, self.n_demand, self.n_locations, batch_size)
         # Init tds - state: internal state
         # todo: hardcoded shapes; use spec instead
         initial_state = TensorDict({
@@ -475,7 +477,9 @@ class MasterPlanningEnv(EnvBase):
         lhs_A = A[..., t].permute((2, 0, 1,)).contiguous()
         return lhs_A
 
-    def create_rhs(self, utilization:Tensor, current_demand:Tensor, batch_size) -> Tensor:
+    def create_rhs(self, utilization:Tensor, current_demand:Tensor,
+                   swap_signs_stability:Tensor, input_A:Tensor,
+                   n_constraints:int, n_demand:int, n_locations:int, batch_size:tuple) -> Tensor:
         """Create b_t based on current utilization:
         - b_t = [current_demand, capacity, LM_ub, LM_lb, VM_ub, VM_lb]
         - demand -> stepwise current demand [#]
@@ -484,14 +488,14 @@ class MasterPlanningEnv(EnvBase):
         """
         # Perform matmul to get initial rhs, including:
         # note: utilization, A, teus_episode have static shapes
-        A = self.swap_signs_stability.view(-1, 1, 1,) * self.A.clone() # Swap signs for constraints
-        rhs = utilization.view(*batch_size, -1) @ A.view(self.n_constraints, -1).T
+        A = swap_signs_stability.view(-1, 1, 1,) * input_A.clone() # Swap signs for constraints
+        rhs = utilization.view(*batch_size, -1) @ A.view(n_constraints, -1).T
 
         # Update rhs with current demand and add teu capacity to the rhs
-        rhs[..., :self.n_demand] = current_demand.view(-1, 1)
-        rhs[..., self.n_demand:self.n_locations + self.n_demand] = \
-            torch.clamp(rhs[..., self.n_demand:self.n_locations + self.n_demand] + self.capacity.view(1, -1),
-                        min=th.zeros_like(self.capacity.view(1, -1)), max=self.capacity.view(1, -1)) # todo: check if this works
+        rhs[..., :n_demand] = current_demand.view(-1, 1)
+        rhs[..., n_demand:n_locations + n_demand] = \
+            torch.clamp(rhs[..., n_demand:n_locations + n_demand] + self.capacity.view(1, -1),
+                        min=th.zeros_like(self.capacity.view(1, -1)), max=self.capacity.view(1, -1))
         #                min=0, max=self.capacity[0,0].item())
         return rhs
 
@@ -667,7 +671,7 @@ class MasterPlanningEnv(EnvBase):
 
     def _compute_clip_max(self, residual_capacity, next_state_dict, batch_size, t):
         """Compute clip max based on residual capacity and next state"""
-        dims = residual_capacity.dim() if residual_capacity.dim() > 3 else 2 # if dim <= 3, then 2D locations
+        dims = residual_capacity.dim()-1 if residual_capacity.dim() > 3 else 2 # if dim <= 3, then 2D locations
         teu = self.teus_episode[t].view(*batch_size, *((1,) * dims))
         clip_max = (residual_capacity / teu).view(*batch_size, self.action_spec.shape[-1])
         return clip_max.clamp(max=next_state_dict["current_demand"].view(*batch_size, 1))
@@ -741,7 +745,9 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         if not is_done:
             # Update feasibility constraints
             lhs_A = self.create_lhs_A(self.block_A, t, )
-            rhs = self.create_block_rhs(next_state_dict["utilization"], next_state_dict["current_demand"], batch_size)
+            rhs = self.create_rhs(
+                next_state_dict["utilization"], next_state_dict["current_demand"], self.swap_signs_block_stability,
+                self.block_A, self.n_block_constraints, self.n_demand, self.n_block_locations, batch_size)
         else:
             # Compute crane excess at last port (only discharging)
             lc_moves_last_port = compute_long_crane(utilization, moves, self.T, block=True)
@@ -840,7 +846,9 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
 
         # Constraints
         lhs_A = self.create_lhs_A(self.block_A,t)
-        rhs = self.create_block_rhs(utilization.to(self.float_type), current_demand, batch_size)
+        rhs = self.create_rhs(
+            utilization.to(self.float_type), current_demand, self.swap_signs_block_stability,
+            self.block_A, self.n_block_constraints, self.n_demand, self.n_block_locations, batch_size)
 
         # Init tds - state: internal state
         initial_state = TensorDict({
@@ -1036,25 +1044,6 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         A *= self.block_constraint_signs.view(-1, 1, 1, 1)
         A[self.n_locations + self.n_demand:self.n_locations + self.n_demand + self.n_stability] *= self.block_stability_params_lhs.view(self.n_stability, self.B*self.D*self.BL, 1, self.K,)
         return A.view(self.n_block_constraints, self.B*self.D*self.BL, -1)
-
-    def create_block_rhs(self, utilization:Tensor, current_demand:Tensor, batch_size) -> Tensor:
-        """Create b_t based on current utilization:
-        - b_t = [current_demand, capacity, LM_ub, LM_lb, VM_ub, VM_lb]
-        - demand -> stepwise current demand [#]
-        - capacity -> residual capacity [TEUs]
-        - stability -> lower and upper bounds for LCG, VCG
-        """
-        # Perform matmul to get initial rhs, including:
-        # note: utilization, A, teus_episode have static shapes
-        A = self.swap_signs_block_stability.view(-1, 1, 1,) * self.block_A.clone() # Swap signs for constraints
-        rhs = utilization.view(*batch_size, -1) @ A.view(self.n_block_constraints, -1).T
-
-        # Update rhs with current demand and add teu capacity to the rhs
-        rhs[..., :self.n_demand] = current_demand.view(-1, 1)
-        rhs[..., self.n_demand:self.n_block_locations + self.n_demand] = \
-            torch.clamp(rhs[..., self.n_demand:self.n_block_locations + self.n_demand] + self.capacity.view(1, -1),
-                        min=th.zeros_like(self.capacity.view(1, -1)), max=self.capacity.view(1, -1))
-        return rhs
 
     # Initialize
     def _initialize_block_capacity(self, capacity):
