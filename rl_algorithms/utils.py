@@ -4,12 +4,15 @@ from tensordict import TensorDict
 import numpy as np
 import random
 import torch
-from environment.env import MasterPlanningEnv
+from environment.env import MasterPlanningEnv, BlockMasterPlanningEnv
 from environment.utils import compute_violation
 
 def make_env(env_kwargs:DotMap, batch_size:Optional[list] = [], device: torch.device = torch.device("cuda")):
     """Setup and transform the Pendulum environment."""
-    return MasterPlanningEnv(batch_size=batch_size, device=device, **env_kwargs).to(device)
+    if env_kwargs.env_name == "mpp":
+        return MasterPlanningEnv(batch_size=batch_size, device=device, **env_kwargs).to(device)
+    elif env_kwargs.env_name == "block_mpp":
+        return BlockMasterPlanningEnv(batch_size=batch_size, device=device, **env_kwargs).to(device)
 
 def adapt_env_kwargs(config):
     """Adapt environment kwargs based on configuration"""
