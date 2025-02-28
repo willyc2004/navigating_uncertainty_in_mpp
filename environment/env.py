@@ -488,13 +488,11 @@ class MasterPlanningEnv(EnvBase):
         # note: utilization, A, teus_episode have static shapes
         A = swap_signs_stability.view(-1, 1, 1,) * input_A.clone() # Swap signs for constraints
         rhs = utilization.view(*batch_size, -1) @ A.view(n_constraints, -1).T
-
         # Update rhs with current demand and add teu capacity to the rhs
         rhs[..., :n_demand] = current_demand.view(-1, 1)
         rhs[..., n_demand:n_locations + n_demand] = \
             torch.clamp(rhs[..., n_demand:n_locations + n_demand] + self.capacity.view(1, -1),
                         min=th.zeros_like(self.capacity.view(1, -1)), max=self.capacity.view(1, -1))
-        #                min=0, max=self.capacity[0,0].item())
         return rhs
 
     # Initializations
@@ -734,7 +732,6 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         # Transition to next step
         is_done = done.any()
         t = th.where(is_done, t, t + 1)
-        # todo: check extra here
         next_state_dict = self._update_next_state(
             utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge, demand_state, t,
             batch_size, block=True)
@@ -989,7 +986,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         A = th.ones(shape, device=self.device, dtype=self.float_type)
         A[self.n_demand:self.n_block_locations + self.n_demand,] *= self.teus.view(1, 1, 1, -1) * th.eye(self.n_block_locations, device=self.device, dtype=self.float_type).view(self.n_block_locations, self.B*self.D*self.BL, 1, 1)
         A *= self.block_constraint_signs.view(-1, 1, 1, 1)
-        A[self.n_locations + self.n_demand:self.n_locations + self.n_demand + self.n_stability] *= self.block_stability_params_lhs.view(self.n_stability, self.B*self.D*self.BL, 1, self.K,)
+        A[self.n_block_locations + self.n_demand:self.n_block_locations + self.n_demand + self.n_stability] *= self.block_stability_params_lhs.view(self.n_stability, self.B*self.D*self.BL, 1, self.K,)
         return A.view(self.n_block_constraints, self.B*self.D*self.BL, -1)
 
     # Initialize
