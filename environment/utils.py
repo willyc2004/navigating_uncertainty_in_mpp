@@ -104,6 +104,31 @@ def update_state_loading(action: th.Tensor, utilization: th.Tensor, tau:th.Tenso
     new_utilization[..., tau, k] = action
     return new_utilization
 
+def compute_stability(utilization: th.Tensor, weights: th.Tensor, longitudinal_position: th.Tensor,
+                      vertical_position: th.Tensor, block=False) -> Tuple[th.Tensor, th.Tensor]:
+    """Compute the LCG and VCG based on utilization, weights, longitudinal and vertical position"""
+    # Dynamically determine sum_dim and shape based on number of dimensions
+    sum_dims = tuple(range(-3, 0)) if block else tuple(range(-2, 0))
+    u_dims = utilization.dim()
+    w_shape = (1,) * (u_dims - 1) + (-1,)
+    location_weight = (utilization * weights.view(w_shape)).sum(dim=(-2, -1))
+    # Get shapes
+    lw_dims = location_weight.dim()
+    if lw_dims < 2:
+        raise ValueError("lw_dims must be at least 2.")
+    lp_shape = [1] * lw_dims
+    vp_shape = [1] * lw_dims
+    axis = 0 if (block and lw_dims == 3) or (not block and lw_dims == 2) else 1
+    lp_shape[axis] = -1
+    vp_shape[axis + 1] = -1
+    lp_shape, vp_shape = tuple(lp_shape), tuple(vp_shape)
+
+    # Compute LCG and VCG
+    total_weight = location_weight.sum(dim=(sum_dims))
+    lcg = (location_weight * longitudinal_position.view(lp_shape)).sum(dim=(sum_dims)) / total_weight
+    vcg = (location_weight * vertical_position.view(vp_shape)).sum(dim=(sum_dims)) / total_weight
+    return lcg, vcg
+
 def compute_target_long_crane(realized_demand: th.Tensor, moves: th.Tensor,
                               capacity:th.Tensor, B:int, CI_target:float) -> th.Tensor:
     """Compute target crane moves per port:
