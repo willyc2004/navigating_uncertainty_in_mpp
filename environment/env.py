@@ -334,7 +334,7 @@ class MasterPlanningEnv(EnvBase):
         return seed
 
     # Extraction functions
-    def _extract_from_td(self, td, batch_size) -> Tuple:
+    def _extract_from_td(self, td, batch_size:Tuple) -> Tuple:
         """Extract action, reward and step from the TensorDict."""
         # Must clone to avoid in-place operations!
         action = td["action"].view(*batch_size, self.B, self.D,).clone()
@@ -374,7 +374,7 @@ class MasterPlanningEnv(EnvBase):
 
 
     def _get_observation(self, next_state_dict, residual_capacity,
-                         agg_pol_location, agg_pod_location, t, batch_size) -> Tensor:
+                         agg_pol_location, agg_pod_location, t, batch_size:Tuple) -> Tensor:
         """Get observation from the TensorDict."""
         if self.normalize_obs:
             # Normalize demand and clip max demand based on train range
@@ -409,7 +409,7 @@ class MasterPlanningEnv(EnvBase):
     # Update state
     def _update_next_state(self, utilization: Tensor, target_long_crane:Tensor,
                            long_crane_moves_load:Tensor, long_crane_moves_discharge:Tensor,
-                           demand_state:Dict, t:Tensor, batch_size) -> Dict[str, Tensor]:
+                           demand_state:Dict, t:Tensor, batch_size:Tuple, block:bool=False) -> Dict[str, Tensor]:
         """Update next state, following options:
         - Next step moves to new port POL+1
         - Next step moves to new transport (POL, POD-1)
@@ -423,7 +423,7 @@ class MasterPlanningEnv(EnvBase):
         # Next port with discharging; Update utilization, observed demand and target long crane
         if self.next_port_mask[t-1].any():
             long_crane_moves_load = torch.zeros_like(long_crane_moves_load)
-            long_crane_moves_discharge = compute_long_crane(utilization, moves_idx, self.T)
+            long_crane_moves_discharge = compute_long_crane(utilization, moves_idx, self.T, block=block)
             utilization = update_state_discharge(utilization, disc_idx)
             target_long_crane = compute_target_long_crane(
                 demand_state["realized_demand"], moves_idx, self.capacity, self.B, self.CI_target).view(*batch_size, 1)
@@ -435,10 +435,8 @@ class MasterPlanningEnv(EnvBase):
         residual_lc_capacity = (target_long_crane - long_crane_moves).clamp(min=0)
 
         # Compute stability
-        location_weight = (utilization * self.weights.view(1,1,1,1,-1)).sum(dim=(-2,-1))
-        total_weight = location_weight.sum(dim=(1,2))
-        lcg = (location_weight * self.longitudinal_position.view(1, -1, 1)).sum(dim=(1,2)) / total_weight
-        vcg = (location_weight * self.vertical_position.view(1, 1, -1)).sum(dim=(1,2)) / total_weight
+        lcg, vcg = compute_stability(utilization, self.weights, self.longitudinal_position, self.vertical_position, block=block)
+
         # Get output
         return {
             "current_demand": demand_state["realized_demand"][..., tau, k],
@@ -479,7 +477,7 @@ class MasterPlanningEnv(EnvBase):
 
     def create_rhs(self, utilization:Tensor, current_demand:Tensor,
                    swap_signs_stability:Tensor, input_A:Tensor,
-                   n_constraints:int, n_demand:int, n_locations:int, batch_size:tuple) -> Tensor:
+                   n_constraints:int, n_demand:int, n_locations:int, batch_size:Tuple) -> Tensor:
         """Create b_t based on current utilization:
         - b_t = [current_demand, capacity, LM_ub, LM_lb, VM_ub, VM_lb]
         - demand -> stepwise current demand [#]
@@ -621,7 +619,7 @@ class MasterPlanningEnv(EnvBase):
         return output.view(-1, self.B*self.D, self.K,)
 
     # Compute functions
-    def _compute_violation(self, lhs_A, rhs, action, batch_size):
+    def _compute_violation(self, lhs_A, rhs, action, batch_size:Tuple):
         if lhs_A.dim() == 2:
             violation = lhs_A @ action.view(*batch_size, -1) - rhs
         elif lhs_A.dim() == 3:
@@ -654,7 +652,7 @@ class MasterPlanningEnv(EnvBase):
             cost = th.zeros_like(profit)
         return profit, cost
 
-    def _compute_final_reward(self, revenue, cost, demand_state, t, batch_size):
+    def _compute_final_reward(self, revenue, cost, demand_state, t, batch_size:Tuple):
         """Compute final reward based on normalized revenue and cost."""
         # Normalize revenue \in [0,1]: revenue_norm = rev_t / max(rev_t) * min(q_t, sum(x_t)) / q_t
         norm_revenue = self.revenues.max() * demand_state["current_demand"]
@@ -698,7 +696,6 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         self._initialize_block_constraints()
 
 
-    # todo: add step function
     def _step(self, td: TensorDict) -> TensorDict:
         """Perform a step in the environment and return the next state."""
         # Extraction
@@ -738,9 +735,9 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         is_done = done.any()
         t = th.where(is_done, t, t + 1)
         # todo: check extra here
-        next_state_dict = self._update_next_state_block(
+        next_state_dict = self._update_next_state(
             utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge, demand_state, t,
-            batch_size)
+            batch_size, block=True)
 
         if not is_done:
             # Update feasibility constraints
@@ -949,7 +946,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         self.reward_spec = Unbounded(shape=(*batch_size,1,))
         self.done_spec = Unbounded(shape=(*batch_size,1,), dtype=th.bool)
 
-    def _extract_from_block_td(self, td, batch_size) -> Tuple:
+    def _extract_from_block_td(self, td, batch_size:Tuple) -> Tuple:
         """Extract action, reward and step from the TensorDict."""
         # Must clone to avoid in-place operations!
         action = td["action"].view(*batch_size, self.B, self.D, self.BL).clone()
@@ -977,56 +974,6 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         rhs = td["rhs"].clone()
         # return
         return action, lhs_A, rhs, demand, utilization, target_long_crane, long_crane_moves_discharge, timestep
-
-    # Update state
-    def _update_next_state_block(self, utilization: Tensor, target_long_crane:Tensor,
-                                 long_crane_moves_load:Tensor, long_crane_moves_discharge:Tensor,
-                                 demand_state:Dict, t:Tensor, batch_size) -> Dict[str, Tensor]:
-        """Update next state, following options:
-        - Next step moves to new port POL+1
-        - Next step moves to new transport (POL, POD-1)
-        - Last step of episode; compute excess crane moves at last port
-        """
-        # Get cargo parameters
-        pol, pod, tau, k, rev = self._extract_cargo_parameters_for_step(t[0])
-
-        # Check next port with t - 1
-        load_idx, disc_idx, moves_idx = self._precompute_for_step(pol)
-        # Next port with discharging; Update utilization, observed demand and target long crane
-        if self.next_port_mask[t-1].any():
-            # todo: check inside here
-            long_crane_moves_load = torch.zeros_like(long_crane_moves_load)
-            long_crane_moves_discharge = compute_long_crane(utilization, moves_idx, self.T, block=True)
-            utilization = update_state_discharge(utilization, disc_idx)
-            target_long_crane = compute_target_long_crane(
-                demand_state["realized_demand"], moves_idx, self.capacity, self.B, self.CI_target).view(*batch_size, 1)
-            if self.demand_uncertainty:
-                demand_state["observed_demand"][..., load_idx, :] = demand_state["realized_demand"][..., load_idx, :]
-
-        # Update residual lc capacity: target - actual load and discharge moves
-        long_crane_moves = long_crane_moves_load + long_crane_moves_discharge
-        residual_lc_capacity = (target_long_crane - long_crane_moves).clamp(min=0)
-
-        # Compute stability
-        location_weight = (utilization * self.weights.view(1,1,1,1,1,-1)).sum(dim=(-2,-1))
-        total_weight = location_weight.sum(dim=(1,2,3))
-        lcg = (location_weight * self.longitudinal_position.view(1, -1, 1, 1)).sum(dim=(1,2,3)) / total_weight
-        vcg = (location_weight * self.vertical_position.view(1, 1, -1, 1)).sum(dim=(1,2,3)) / total_weight
-        # Get output
-        return {
-            "current_demand": demand_state["realized_demand"][..., tau, k],
-            "observed_demand": demand_state["observed_demand"],
-            "expected_demand": demand_state["expected_demand"],
-            "std_demand":demand_state["std_demand"],
-            "realized_demand": demand_state["realized_demand"],
-            "utilization": utilization,
-            "location_utilization": (utilization * self.teus.view(1,1,1,1,-1)).sum(dim=(-2,-1)),
-            "lcg": lcg,
-            "vcg": vcg,
-            "target_long_crane": target_long_crane,
-            "residual_lc_capacity": residual_lc_capacity,
-            "long_crane_moves_discharge": long_crane_moves_discharge,
-        }
 
     # Constraints
     def _compact_form_block_shapes(self, ):
