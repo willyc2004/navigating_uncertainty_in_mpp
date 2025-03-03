@@ -185,7 +185,11 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
 
         # Apply log_prob clamp for numerical stability
         out["log_prob"] = torch.clamp(out["log_prob"], min=-10.0, max=0.0)
-        # todo: infeasible action masking (where masked out values get log prob -inf)
+
+        # Apply log_prob adjustment for infeasible actions
+        if "action_mask" in out:
+            print("Applying action mask")
+            out["log_prob"] = torch.where(out["action_mask"], out["log_prob"], torch.tensor(-float("inf"), device=out["log_prob"].device))
 
         # Get sample log probabilities for loss computations
         out["sample_log_prob"] = out["log_prob"].sum(dim=-1)
