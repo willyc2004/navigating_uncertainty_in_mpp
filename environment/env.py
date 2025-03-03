@@ -19,6 +19,12 @@ from environment.utils import *
 class MasterPlanningEnv(EnvBase):
     """Master Planning Problem environment for locations with coordinates (Bay, Deck).
     # todo: add problem description with citations for camera-ready paper
+
+    Explanation of episode parameters:
+    - Time: The discrete time step, ranging from 0 to (T*K - 1).
+    - Step: A specific ordering of (tau, k)-pairs, extracted from ordered_steps.
+    - Pol: The port of load at a given time t.
+
     """
     name = "mpp"
     batch_locked = False
@@ -692,6 +698,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         self._make_block_spec(self.td_gen)
 
         ## Sets and Parameters:
+        self.block_stowage_mask = kwargs.get("block_stowage_mask", False)
         self._initialize_block_capacity(*kwargs.get("capacity"))
         self._initialize_block_stability()
         self._initialize_block_constraints()
@@ -732,7 +739,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             revenue, utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge, moves,
             ac_transport, step, block=True)
 
-        # Transition to next step todo: clarify difference time, step and pol
+        # Transition to next step
         is_done = done.any()
         time = th.where(is_done, time, time + 1)
         next_state_dict = self._update_next_state(
@@ -741,7 +748,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
 
         if not is_done:
             # Update feasibility constraints
-            lhs_A = self.create_lhs_A(self.block_A, step, )
+            lhs_A = self.create_lhs_A(self.block_A, time)
             rhs = self.create_rhs(
                 next_state_dict["utilization"], next_state_dict["current_demand"], self.swap_signs_block_stability,
                 self.block_A, self.n_block_constraints, self.n_demand, self.n_block_locations, batch_size)
@@ -842,7 +849,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         locations_utilization = th.zeros_like(action_mask, dtype=self.float_type)
 
         # Constraints
-        lhs_A = self.create_lhs_A(self.block_A, step)
+        lhs_A = self.create_lhs_A(self.block_A, time)
         rhs = self.create_rhs(
             utilization.to(self.float_type), current_demand, self.swap_signs_block_stability,
             self.block_A, self.n_block_constraints, self.n_demand, self.n_block_locations, batch_size)
