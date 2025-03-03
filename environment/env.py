@@ -742,6 +742,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         # Transition to next step
         is_done = done.any()
         time = th.where(is_done, time, time + 1)
+        action_mask = compute_strict_BS_mask(pod, pod_locations, self.B, self.D, self.BL)
         next_state_dict = self._update_next_state(
             utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge, demand_state, time,
             batch_size, block=True)
@@ -805,6 +806,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             "cost": cost,
             # Action, reward, done and step
             "action": action.view(*batch_size, self.B * self.D * self.BL),
+            "action_mask": action_mask.view(*batch_size, self.B * self.D * self.BL),
             "reward": reward,
             "done": done,
         }, td.shape)
@@ -884,7 +886,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             "observation": initial_state,
             # # Action mask
             "action": th.zeros_like(action_mask, dtype=self.float_type),
-            # "action_mask": action_mask.view(*batch_size, -1),
+            "action_mask": action_mask.view(*batch_size, -1),
             # # Constraints
             "clip_min": th.zeros_like(residual_capacity, dtype=self.float_type).view(*batch_size, self.B * self.D * self.BL, ),
             "clip_max": residual_capacity.view(*batch_size, self.B * self.D * self.BL),
@@ -930,6 +932,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             # State, action, generator
             observation=state_spec,
             action=Unbounded(shape=(*batch_size, self.B * self.D * self.BL), dtype=self.float_type),
+            action_mask=Bounded(shape=(*batch_size, self.B * self.D * self.BL), low=0, high=1, dtype=th.bool),
 
             # Performance
             profit=Unbounded(shape=(*batch_size, 1), dtype=torch.float32),
@@ -957,7 +960,6 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         """Extract action, reward and step from the TensorDict."""
         # Must clone to avoid in-place operations!
         action = td["action"].view(*batch_size, self.B, self.D, self.BL).clone()
-        # action_mask = td["action_mask"].clone()
         timestep = td["observation", "timestep"].view(-1).clone()
 
         # Demand-related variables

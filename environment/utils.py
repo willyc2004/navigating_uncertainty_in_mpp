@@ -277,6 +277,22 @@ def compute_HO_mask(mask:th.Tensor, pod: th.Tensor,pod_locations:th.Tensor, min_
     mask[..., 0] = pod.unsqueeze(-1) <= min_pod[..., 1]
     return mask.view(-1, B*D)
 
+def compute_strict_BS_mask(pod:th.Tensor, pod_locations:th.Tensor, B:int, D:int, BL:int) -> th.Tensor:
+    """
+    Mask actions to enforce strict block stowage: only a single POD per block.
+
+    Conditional:
+    - If pod is X and pod_location is empty, then True
+    - If pod and pod_location are the exclusive, then True
+    - If pod and pod_location are different, then False
+    """
+    # Condition 1: Check if pod_location is empty at that (B, D, BL) position
+    is_empty = pod_locations.sum(dim=-1) == 0  # Shape (B, D, BL), True if no pods are present
+    # Condition 2: Check if pod index is the ONLY active pod at that location
+    is_exclusive = (pod_locations.sum(dim=-1)  == 1) & pod_locations[..., pod]
+    # Final mask: True if location is empty OR `pod` is the only one present
+    return is_empty | is_exclusive  # Shape (B, D, BL)
+
 def compute_violation(action, lhs_A, rhs, ) -> th.Tensor:
     """Compute violations and loss of compact form"""
     # If dimension lhs_A is one more than action, unsqueeze action
