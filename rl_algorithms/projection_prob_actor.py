@@ -183,13 +183,14 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
             self.clipped_gaussian.high = out["clip_max"]
             out["log_prob"] = self.clipped_gaussian.log_prob(out["action"])
 
+        # Apply log_prob adjustment for infeasible actions
+        if "action_mask" in out:
+            out["action"] = torch.where(out["action_mask"], out["action"], torch.zeros_like(out["action"]))
+            out["log_prob"] = torch.where(out["action_mask"], out["log_prob"], torch.tensor(-10, device=out["log_prob"].device))
+
         # Apply log_prob clamp for numerical stability
         out["log_prob"] = torch.clamp(out["log_prob"], min=-10.0, max=0.0)
 
-        # Apply log_prob adjustment for infeasible actions
-        if "action_mask" in out:
-            out["log_prob"] = torch.where(out["action_mask"], out["log_prob"], torch.tensor(-float("inf"), device=out["log_prob"].device))
-
-        # Get sample log probabilities for loss computations
-        out["sample_log_prob"] = out["log_prob"].sum(dim=-1)
+        # Get sample log probabilities for loss computations -> add clamping for numerical stability
+        out["sample_log_prob"] = out["log_prob"].sum(dim=-1).clamp(min=-50.0, max=0.0)
         return out
