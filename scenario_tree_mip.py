@@ -21,12 +21,13 @@ from rl_algorithms.utils import set_unique_seed
 
 
 # Precompute functions
-def precompute_node_list(stages, scenarios_per_stage):
+def precompute_node_list(stages, scenarios_per_stage, deterministic=False):
     """Precompute the list of nodes and their coordinates in the scenario tree"""
     node_list = []  # List to store the coordinates of all nodes
     # Loop over each stage, starting from stage 1 (root is stage 1)
     for stage in range(stages):
-        nodes_in_current_stage = scenarios_per_stage ** (stage)  # Number of nodes at this stage
+        # Number of nodes at this stage
+        nodes_in_current_stage = scenarios_per_stage ** (stage) if not deterministic else 1
 
         # For each node in the current stage
         for node_id in range(nodes_in_current_stage):
@@ -111,8 +112,8 @@ def onboard_groups(ports:int, pol:int, transport_indices:list) -> np.array:
     return np.array(on_board), port_moves, load
 
 # Main function
-def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784,
-         seed=42, perfect_information=False, deterministic=False, warm_start=None):
+def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
+         perfect_information=False, deterministic=False, warm_start=None):
     # Scenario tree parameters
     M = 10 ** 3 # Big M
     num_nodes_per_stage = [1*scenarios_per_stage**stage for stage in range(stages)]
@@ -139,12 +140,13 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784,
 
     # Decision variable dictionaries
     x = {} # Cargo allocation
+    PD = {} # Binary POD
+    excess_PD = {} # Excess POD
     HO = {} # Hatch overstowage
     HM = {} # Hatch move
     CI = {} # Crane intensity
     CI_target = {} # Crane intensity target
     CM = {} # Crane move
-    spread_moves_bay = {} # Spread moves bay
     LM = {} # Longitudinal moment
     VM = {} # Vertical moment
     TW = {} # Total weight
@@ -160,10 +162,9 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784,
         for stage in range(stages):
             for node_id in range(num_nodes_per_stage[stage]):
                 # Crane intensity:
-                CI[stage, node_id] = mdl.continuous_var(name=f'CI_{stage}_{node_id}')
+                CI[stage, node_id] = mdl.integer_var(name=f'CI_{stage}_{node_id}')
                 CI_target[stage, node_id] = mdl.continuous_var(name=f'CI_target_{stage}_{node_id}')
-                CM[stage, node_id] = mdl.continuous_var(name=f'CM_{stage}_{node_id}')
-                spread_moves_bay[stage, node_id] = mdl.continuous_var(name=f'spread_moves_bay_{stage}_{node_id}')
+                CM[stage, node_id] = mdl.integer_var(name=f'CM_{stage}_{node_id}')
 
                 # Stability:
                 LM[stage, node_id] = mdl.continuous_var(name=f'LM_{stage}_{node_id}')
@@ -172,7 +173,7 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784,
 
                 for bay in range(B):
                     # Hatch overstowage:
-                    HO[stage, node_id, bay] = mdl.continuous_var(name=f'HO_{stage}_{node_id}_{bay}')
+                    HO[stage, node_id, bay] = mdl.integer_var(name=f'HO_{stage}_{node_id}_{bay}')
                     HM[stage, node_id, bay] = mdl.binary_var(name=f'HM_{stage}_{node_id}_{bay}')
 
                     for deck in range(D):
@@ -181,7 +182,15 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784,
                                 for pod in range(pol + 1, P):
                                     # Cargo allocation:
                                     x[stage, node_id, bay, deck, cargo_class, pol, pod] = \
-                                            mdl.continuous_var(name=f'x_{stage}_{node_id}_{bay}_{deck}_{cargo_class}_{pol}_{pod}')
+                                        mdl.integer_var(name=f'x_{stage}_{node_id}_{bay}_{deck}_{cargo_class}_{pol}_{pod}', lb=0)
+                                            # mdl.continuous_var(name=f'x_{stage}_{node_id}_{bay}_{deck}_{cargo_class}_{pol}_{pod}')
+
+                        for pod in range(P):
+                            # PODs in locations
+                            PD[stage, node_id, bay, deck, pod] = mdl.binary_var(name=f'PD_{stage}_{node_id}_{bay}_{deck}_{pod}')
+                    # Excess PODs
+                    excess_PD[stage, node_id, bay,] = mdl.integer_var(name=f'excess_PD_{stage}_{node_id}_{bay}', lb=0)
+
 
             # Define sets
             # Current port
@@ -233,7 +242,7 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784,
                     # Vessel is empty before stage 0, hence no overstows
                     if stage > 0:
                         mdl.add_constraint(
-                            mdl.sum(x[stage, node_id, b, 0, k, i, j]for (i, j) in on_boards[stage - 1]
+                            mdl.sum(x[stage, node_id, b, 0, k, i, j] for (i, j) in on_boards[stage - 1]
                                     for k in range(K) if j > stage) - M * (1 - HM[stage, node_id, b] )
                             <= HO[stage, node_id, b]
                         )
@@ -241,22 +250,22 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784,
                 # Stability
                 mdl.add_constraint(
                     TW[stage, node_id] == mdl.sum(weights[k] * mdl.sum(x[stage, node_id, b, d, k, i, j]
-                                                                               for (i, j) in on_board for d in range(D))
-                                                          for k in range(K) for b in range(B))
+                                                                       for (i, j) in on_board for d in range(D))
+                                                  for k in range(K) for b in range(B))
                 )
 
                 # LCG
                 mdl.add_constraint(
                     LM[stage, node_id] == mdl.sum(longitudinal_position[b] * mdl.sum(
-                    weights[k] * mdl.sum(x[stage, node_id, b, d, k, i, j] for (i, j) in on_board for d in range(D))
-                    for k in range(K)) for b in range(B)))
+                        weights[k] * mdl.sum(x[stage, node_id, b, d, k, i, j] for (i, j) in on_board for d in range(D))
+                        for k in range(K)) for b in range(B)))
                 mdl.add_constraint(
                     stab_delta * mdl.sum(weights[k] * mdl.sum(x[stage, node_id, b, d, k, i, j] for (i, j) in on_board for d in range(D))
-                    for k in range(K) for b in range(B)) >= mdl.sum(longitudinal_position[b] * mdl.sum(
-                    weights[k] * mdl.sum(x[stage, node_id, b, d, k, i, j] for (i, j) in on_board for d in range(D)) for k in
-                    range(K)) for b in range(B)) - LCG_target * mdl.sum(
-                    weights[k] * mdl.sum(x[stage, node_id, b, d, k, i, j] for (i, j) in on_board for d in range(D)) for k in
-                    range(K) for b in range(B)))
+                                         for k in range(K) for b in range(B)) >= mdl.sum(longitudinal_position[b] * mdl.sum(
+                        weights[k] * mdl.sum(x[stage, node_id, b, d, k, i, j] for (i, j) in on_board for d in range(D)) for k in
+                        range(K)) for b in range(B)) - LCG_target * mdl.sum(
+                        weights[k] * mdl.sum(x[stage, node_id, b, d, k, i, j] for (i, j) in on_board for d in range(D)) for k in
+                        range(K) for b in range(B)))
                 mdl.add_constraint(stab_delta * mdl.sum(
                     weights[k] * mdl.sum(x[stage, node_id, b, d, k, i, j] for (i, j) in on_board for d in range(D)) for k in
                     range(K) for b in range(B)) >= - mdl.sum(longitudinal_position[b] * mdl.sum(
@@ -297,13 +306,20 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784,
                     CI_target_parameter * 2 / B * mdl.sum(demand[stage, node_id][k, j]
                                                           for (i, j) in all_port_moves[stage] for k in range(K))
                 )
-                mdl.add_constraint(
-                    spread_moves_bay[stage, node_id] ==
-                    2 / B * mdl.sum(demand[stage, node_id][k, j]
-                                    for (i, j) in all_port_moves[stage] for k in range(K))
-                )
                 # mdl.add_constraint(CI[stage, node_id] <= CI_target[stage, node_id])
                 mdl.add_constraint(CI[stage, node_id] - CI_target[stage, node_id] <= CM[stage, node_id])
+
+                # Binary j in each b,d
+                for b in range(B):
+                    for d in range(D):
+                        for j in range(stage+1, P):
+                            mdl.add_constraint(
+                                mdl.sum(x[stage, node_id, b, d, k, stage, j] for k in range(K)) <= M * PD[stage, node_id, b, d, j]
+                            )
+                    for j in range(stage+1, P):
+                        mdl.add_constraint(
+                            mdl.sum(PD[stage, node_id, b, d, j] for j in range(stage+1, P) for d in range(D)) - 1 <= excess_PD[stage, node_id, b,]
+                        )
 
         # Add mip start
         if mip_start:
@@ -336,7 +352,8 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784,
                 for k in range(K)  # Loop over cargo classes
             )
             - mdl.sum(env.ho_costs * HO[stage, node_id, b] for b in range(B))
-            - env.lc_costs * CM[stage, node_id]
+            - env.cm_costs * CM[stage, node_id]
+            - mdl.sum(excess_PD[stage, node_id, b] for b in range(B))
         )
         for stage in range(stages)  # Iterate over all stages
         for node_id in range(num_nodes_per_stage[stage])  # Iterate over nodes at each stage
@@ -357,11 +374,12 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784,
 
         # Analyze the solution
         x_ = np.zeros((stages, max_paths, B, D, K, P, P))
+        PD_ = np.zeros((stages, max_paths, B, D, P,))
+        excess_PD_ = np.zeros((stages, max_paths, B,))
         HO_ = np.zeros((stages, max_paths, B,))
         HM_ = np.zeros((stages, max_paths, B,))
         CI_ = np.zeros((stages, max_paths,))
         CI_target_ = np.zeros((stages, max_paths,))
-        spread_moves_bay_ = np.zeros((stages, max_paths,))
         LM_ = np.zeros((stages, max_paths,))
         VM_ = np.zeros((stages, max_paths,))
         TW_ = np.zeros((stages, max_paths,))
@@ -379,13 +397,16 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784,
                                     revenue_[stage, node_id,] += revenues_[stage, cargo_class, pod] * x[stage, node_id, bay, deck, cargo_class, pol, pod].solution_value
                                     demand_[stage, node_id, cargo_class, pod] = demand[stage, node_id][cargo_class, pod]
 
+                        for pod in range(stage + 1, P):
+                            PD_[stage, node_id, bay, deck, pod] = PD[stage, node_id, bay, deck, pod].solution_value
+                    excess_PD_[stage, node_id, bay] = excess_PD[stage, node_id, bay].solution_value
+
                     HO_[stage, node_id, bay] = HO[stage, node_id, bay].solution_value
                     HM_[stage, node_id, bay] = HM[stage, node_id, bay].solution_value
                     cost_[stage,node_id,] += env.ho_costs * HO[stage, node_id, bay].solution_value
 
                 CI_[stage, node_id] = CI[stage, node_id].solution_value
                 CI_target_[stage, node_id] = CI_target[stage, node_id].solution_value
-                spread_moves_bay_[stage, node_id] = spread_moves_bay[stage, node_id].solution_value
 
                 LM_[stage, node_id] = LM[stage, node_id].solution_value
                 VM_[stage, node_id] = VM[stage, node_id].solution_value
@@ -397,6 +418,11 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784,
         mean_load_per_location = np.sum(x_, axis=(1, 4, 5, 6)) / num_nodes_per_stage.reshape(-1, 1, 1) # Shape (stages, B, D)
         mean_hatch_overstowage = np.sum(HO_, axis=(1, 2)) / num_nodes_per_stage # Shape (stages,)
         mean_ci = np.sum(CI_, axis=1) / num_nodes_per_stage # Shape (stages,)
+        mean_pd = np.sum(PD_, axis=(1, 2, 3, 4)) / num_nodes_per_stage # Shape (stages,)
+        mean_excess_pd = np.sum(excess_PD_, axis=(1, 2)) / num_nodes_per_stage # Shape (stages,)
+        print(mean_load_per_location.sum(axis=(1,2)))
+        print(mean_excess_pd)
+        breakpoint()
         # Auxiliary metrics
         mean_demand = np.sum(demand_, axis=(1, 2, 3)) / num_nodes_per_stage # Shape (stages,)
         mean_revenue = np.sum(revenue_, axis=1) / num_nodes_per_stage # Shape (stages,)
@@ -419,17 +445,20 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784,
             "mean_demand":mean_demand.tolist(),
             "mean_revenue":mean_revenue.tolist(),
             "mean_cost":mean_cost.tolist(),
+            "mean_pd":mean_pd.tolist(),
+            "mean_excess_pd":mean_excess_pd.tolist(),
         }
         vars = {
             "seed": seed,
             "ports": P,
             "scenarios": scenarios_per_stage,
             "x": x_.tolist(),
+            "PD": PD_.tolist(),
+            "excess_PD": excess_PD_.tolist(),
             "HO_": HO_.tolist(),
             "HM_": HM_.tolist(),
             "CI_": CI_.tolist(),
             "CI_target_": CI_target_.tolist(),
-            "spread_moves_bay_": spread_moves_bay_.tolist(),
             "LM_": LM_.tolist(),
             "VM_": VM_.tolist(),
             "TW_": TW_.tolist(),
@@ -448,23 +477,19 @@ if __name__ == "__main__":
         config = adapt_env_kwargs(config)
 
     # Run main for different seeds and number of scenarios
-    perfect_information = False
-    deterministic = False
+    perfect_information = True
+    deterministic = True
     debug = False
     generalization = config.env.generalization
     num_episodes = config.testing.num_episodes
-
-    if not deterministic:
-        num_scenarios = [4,8,12,16,20,24,28] if not generalization else [28]
-    else:
-        num_scenarios = [1]
+    num_scenarios = [1] if deterministic else ([28] if generalization else [4, 8, 12, 16, 20, 24, 28])
 
     # Precompute largest scenario tree
     stages = config.env.ports - 1  # Number of load ports (P-1)
     max_scenarios_per_stage = max(num_scenarios) if max(num_scenarios) >= 28 else 28
     # Number of scenarios per stage
-    max_paths = max_scenarios_per_stage ** (stages-1) + 1
-    node_list = precompute_node_list(stages, max_scenarios_per_stage)
+    max_paths = max_scenarios_per_stage ** (stages-1) + 1 if not deterministic else 1
+    node_list = precompute_node_list(stages, max_scenarios_per_stage, deterministic)
 
     for x in range(num_episodes):  # Iterate over episodes
         # Create the environment on cpu
