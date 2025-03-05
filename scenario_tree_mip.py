@@ -113,7 +113,7 @@ def onboard_groups(ports:int, pol:int, transport_indices:list) -> np.array:
 
 # Main function
 def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
-         perfect_information=False, deterministic=False, warm_start=None):
+         perfect_information=False, deterministic=False, warm_start=None, bay_mix=0.1):
     # Scenario tree parameters
     M = 10 ** 3 # Big M
     num_nodes_per_stage = [1*scenarios_per_stage**stage for stage in range(stages)]
@@ -124,6 +124,7 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
     D = env.D
     K = env.K
     T = env.T
+    BL = env.BL if hasattr(env, 'BL') else 1
     stab_delta = env.stab_delta
     LCG_target = env.LCG_target
     VCG_target = env.VCG_target
@@ -141,7 +142,7 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
     # Decision variable dictionaries
     x = {} # Cargo allocation
     PD = {} # Binary POD
-    excess_PD = {} # Excess POD
+    mixing = {} # Mixing
     HO = {} # Hatch overstowage
     HM = {} # Hatch move
     CI = {} # Crane intensity
@@ -157,14 +158,14 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
     all_load_moves = []
     transport_indices = [(i, j) for i in range(P) for j in range(P) if i < j]
 
-    def build_tree(stages, demand, mip_start=None):
+    def build_tree_mpp(stages, demand, mip_start=None):
         """Function to build the scenario tree; with decisions and constraints for each node"""
         for stage in range(stages):
             for node_id in range(num_nodes_per_stage[stage]):
                 # Crane intensity:
-                CI[stage, node_id] = mdl.integer_var(name=f'CI_{stage}_{node_id}')
+                CI[stage, node_id] = mdl.continuous_var(name=f'CI_{stage}_{node_id}')
                 CI_target[stage, node_id] = mdl.continuous_var(name=f'CI_target_{stage}_{node_id}')
-                CM[stage, node_id] = mdl.integer_var(name=f'CM_{stage}_{node_id}')
+                CM[stage, node_id] = mdl.continuous_var(name=f'CM_{stage}_{node_id}')
 
                 # Stability:
                 LM[stage, node_id] = mdl.continuous_var(name=f'LM_{stage}_{node_id}')
@@ -182,15 +183,8 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
                                 for pod in range(pol + 1, P):
                                     # Cargo allocation:
                                     x[stage, node_id, bay, deck, cargo_class, pol, pod] = \
-                                        mdl.integer_var(name=f'x_{stage}_{node_id}_{bay}_{deck}_{cargo_class}_{pol}_{pod}', lb=0)
+                                        mdl.continuous_var(name=f'x_{stage}_{node_id}_{bay}_{deck}_{cargo_class}_{pol}_{pod}', lb=0)
                                             # mdl.continuous_var(name=f'x_{stage}_{node_id}_{bay}_{deck}_{cargo_class}_{pol}_{pod}')
-
-                        for pod in range(P):
-                            # PODs in locations
-                            PD[stage, node_id, bay, deck, pod] = mdl.binary_var(name=f'PD_{stage}_{node_id}_{bay}_{deck}_{pod}')
-                    # Excess PODs
-                    excess_PD[stage, node_id, bay,] = mdl.integer_var(name=f'excess_PD_{stage}_{node_id}_{bay}', lb=0)
-
 
             # Define sets
             # Current port
@@ -309,24 +303,199 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
                 # mdl.add_constraint(CI[stage, node_id] <= CI_target[stage, node_id])
                 mdl.add_constraint(CI[stage, node_id] - CI_target[stage, node_id] <= CM[stage, node_id])
 
+
+        # Add mip start
+        if mip_start:
+            mdl.add_mip_start({x[key]: value for key, value in mip_start.items()}, write_level=1)
+
+    def build_tree_block_mpp(stages, demand, mip_start=None):
+        """Function to build the scenario tree; with decisions and constraints for each node"""
+        for stage in range(stages):
+            for node_id in range(num_nodes_per_stage[stage]):
+                # Crane intensity:
+                CI[stage, node_id] = mdl.continuous_var(name=f'CI_{stage}_{node_id}')
+                CI_target[stage, node_id] = mdl.continuous_var(name=f'CI_target_{stage}_{node_id}')
+                CM[stage, node_id] = mdl.continuous_var(name=f'CM_{stage}_{node_id}')
+
+                # Stability:
+                LM[stage, node_id] = mdl.continuous_var(name=f'LM_{stage}_{node_id}')
+                VM[stage, node_id] = mdl.continuous_var(name=f'VM_{stage}_{node_id}')
+                TW[stage, node_id] = mdl.continuous_var(name=f'TW_{stage}_{node_id}')
+
+                for bay in range(B):
+                    for block in range(BL):
+                        # Hatch overstowage:
+                        HO[stage, node_id, bay, block] = mdl.integer_var(name=f'HO_{stage}_{node_id}_{bay}_{block}')
+                        HM[stage, node_id, bay, block] = mdl.binary_var(name=f'HM_{stage}_{node_id}_{bay}_{block}')
+                        for deck in range(D):
+                            for cargo_class in range(K):
+                                for pol in range(stage + 1):
+                                    for pod in range(pol + 1, P):
+                                        # Cargo allocation:
+                                        x[stage, node_id, bay, deck, block, cargo_class, pol, pod] = \
+                                            mdl.continuous_var(name=f'x_{stage}_{node_id}_{bay}_{deck}_{block}'
+                                                                    f'_{cargo_class}_{pol}_{pod}', lb=0)
+
+                        for pod in range(P):
+                            # PODs in locations
+                            PD[stage, node_id, bay, block, pod] = \
+                                mdl.binary_var(name=f'PD_{stage}_{node_id}_{bay}_{block}_{pod}')
+                        # Excess PODs
+                        mixing[stage, node_id, bay, block] = \
+                            mdl.binary_var(name=f'mixing_{stage}_{node_id}_{bay}_{block}')
+
+
+            # Define sets
+            # Current port
+            on_board, port_moves, load_moves = onboard_groups(P, stage, transport_indices)
+            on_boards.append(on_board)
+            all_port_moves.append(port_moves)
+            all_load_moves.append(load_moves)
+
+            # todo: capacity of shape (B,D,BL)
+            # constraints for the current stage and node
+            for node_id in range(num_nodes_per_stage[stage]):
+                print(f"Stage {stage}, Node {node_id}")
+                for (i, j) in on_board:
+                    for k in range(K):
+                        # Demand satisfaction
+                        mdl.add_constraint(
+                            mdl.sum(x[stage, node_id, b, d, bl, k, i, j] for b in range(B) for d in range(D) for bl in range(BL))
+                            <= demand[stage, node_id][k, j]
+                        )
+
+                for b in range(B):
+                    for bl in range(BL):
+                        for d in range(D):
+                            # TEU capacity
+                            mdl.add_constraint(
+                                mdl.sum(teus[k] * mdl.sum(x[stage, node_id, b, d, bl, k, i, j]
+                                                          for (i, j) in on_board) for k in range(K))
+                                <= capacity[b, d, bl]
+                            )
+
+                            if not perfect_information:
+                                demand_history1 = get_demand_history(stage, demand, num_nodes_per_stage)
+                                for node_id2 in range(node_id + 1, num_nodes_per_stage[stage]):
+                                    demand_history2 = get_demand_history(stage, demand, num_nodes_per_stage)
+                                    if np.allclose(demand_history1, demand_history2, atol=1e-5):  # Use a tolerance if floats
+                                        for k in range(K):
+                                            for (i, j) in load_moves:
+                                                # Non-anticipation at stage, provided demand history is similar
+                                                mdl.add_constraint(
+                                                    x[stage, node_id, b, d, bl, k, i, j] == x[stage, node_id2, b, d, bl, k, i, j]
+                                                )
+
+                        # Open hatch (d=1 is below deck)
+                        mdl.add_constraint(
+                            mdl.sum(x[stage, node_id, b, 1, bl, k, i, j] for (i, j) in all_port_moves[stage] for k in range(K))
+                            <= M * HM[stage, node_id, b, bl]
+                        )
+
+                        # Hatch overstows (d=0 is on deck)
+                        # Overstowage is arrival condition of previous port: on_boards[stage - 1]
+                        # Vessel is empty before stage 0, hence no overstows
+                        if stage > 0:
+                            mdl.add_constraint(
+                                mdl.sum(x[stage, node_id, b, 0, bl, k, i, j] for (i, j) in on_boards[stage - 1]
+                                        for k in range(K) if j > stage) - M * (1 - HM[stage, node_id, b, bl] )
+                                <= HO[stage, node_id, b, bl]
+                            )
+
+                # Stability
+                mdl.add_constraint(
+                    TW[stage, node_id] == mdl.sum(weights[k] * mdl.sum(x[stage, node_id, b, d, bl, k, i, j]
+                                                                       for (i, j) in on_board for d in range(D))
+                                                  for k in range(K) for b in range(B) for bl in range(BL))
+                )
+
+                # LCG
+                mdl.add_constraint(
+                    LM[stage, node_id] == mdl.sum(longitudinal_position[b] * mdl.sum(
+                        weights[k] * mdl.sum(x[stage, node_id, b, d, bl, k, i, j] for (i, j) in on_board for d in range(D) for bl in range(BL))
+                        for k in range(K)) for b in range(B)))
+                mdl.add_constraint(
+                    stab_delta * mdl.sum(weights[k] * mdl.sum(x[stage, node_id, b, d, bl, k, i, j] for (i, j) in on_board for d in range(D) for bl in range(BL))
+                                         for k in range(K) for b in range(B)) >= mdl.sum(longitudinal_position[b] * mdl.sum(
+                        weights[k] * mdl.sum(x[stage, node_id, b, d, bl, k, i, j] for (i, j) in on_board for d in range(D) for bl in range(BL)) for k in
+                        range(K)) for b in range(B)) - LCG_target * mdl.sum(
+                        weights[k] * mdl.sum(x[stage, node_id, b, d, bl, k, i, j] for (i, j) in on_board for d in range(D) for bl in range(BL)) for k in
+                        range(K) for b in range(B)))
+                mdl.add_constraint(stab_delta * mdl.sum(
+                    weights[k] * mdl.sum(x[stage, node_id, b, d, bl, k, i, j] for (i, j) in on_board for d in range(D) for bl in range(BL)) for k in
+                    range(K) for b in range(B)) >= - mdl.sum(longitudinal_position[b] * mdl.sum(
+                    weights[k] * mdl.sum(x[stage, node_id, b, d, bl, k, i, j] for (i, j) in on_board for d in range(D) for bl in range(BL)) for k in
+                    range(K)) for b in range(B)) + LCG_target * mdl.sum(
+                    weights[k] * mdl.sum(x[stage, node_id, b, d, bl, k, i, j] for (i, j) in on_board for d in range(D) for bl in range(BL)) for k in
+                    range(K) for b in range(B)))
+
+                # VCG
+                mdl.add_constraint(VM[stage, node_id] == mdl.sum(vertical_position[d] * mdl.sum(
+                    weights[k] * mdl.sum(x[stage, node_id, b, d, bl, k, i, j] for (i, j) in on_board for b in range(B) for bl in range(BL))
+                    for k in range(K)) for d in range(D)))
+                mdl.add_constraint(stab_delta * mdl.sum(
+                    weights[k] * mdl.sum(x[stage, node_id, b, d, bl, k, i, j] for (i, j) in on_board for b in range(B) for bl in range(BL)) for k in
+                    range(K) for d in range(D)) >= mdl.sum(vertical_position[d] * mdl.sum(
+                    weights[k] * mdl.sum(x[stage, node_id, b, d, bl, k, i, j] for (i, j) in on_board for b in range(B) for bl in range(BL)) for k in
+                    range(K)) for d in range(D)) - VCG_target * mdl.sum(
+                    weights[k] * mdl.sum(x[stage, node_id, b, d, bl, k, i, j] for (i, j) in on_board for b in range(B) for bl in range(BL)) for k in
+                    range(K) for d in range(D)))
+                mdl.add_constraint(stab_delta * mdl.sum(
+                    weights[k] * mdl.sum(x[stage, node_id, b, d, bl, k, i, j] for (i, j) in on_board for b in range(B) for bl in range(BL)) for k in
+                    range(K) for d in range(D)) >= - mdl.sum(vertical_position[d] * mdl.sum(
+                    weights[k] * mdl.sum(x[stage, node_id, b, d, bl, k, i, j] for (i, j) in on_board for b in range(B) for bl in range(BL)) for k in
+                    range(K)) for d in range(D))  + VCG_target * mdl.sum(
+                    weights[k] * mdl.sum(x[stage, node_id, b, d, bl, k, i, j] for (i, j) in on_board for b in range(B) for bl in range(BL)) for k in
+                    range(K) for d in range(D)))
+
+                # Compute lower bound on long crane
+                for adj_bay in range(B - 1):
+                    mdl.add_constraint(
+                        mdl.sum(x[stage, node_id, b, d, bl, k, i, j] for (i, j) in all_port_moves[stage]
+                                for k in range(K) for bl in range(BL) for d in range(D) for b in [adj_bay, adj_bay + 1])
+                        <= CI[stage, node_id]
+                    )
+                # Ensure CI[stage] is bounded by CI_target
+                mdl.add_constraint(
+                    CI_target[stage, node_id] ==
+                    CI_target_parameter * 2 / B * mdl.sum(demand[stage, node_id][k, j]
+                                                          for (i, j) in all_port_moves[stage] for k in range(K))
+                )
+                # mdl.add_constraint(CI[stage, node_id] <= CI_target[stage, node_id])
+                mdl.add_constraint(CI[stage, node_id] - CI_target[stage, node_id] <= CM[stage, node_id])
+
                 # Binary j in each b,d
                 for b in range(B):
-                    for d in range(D):
-                        for j in range(stage+1, P):
-                            mdl.add_constraint(
-                                mdl.sum(x[stage, node_id, b, d, k, stage, j] for k in range(K)) <= M * PD[stage, node_id, b, d, j]
-                            )
-                    for j in range(stage+1, P):
+                    for bl in range(BL):
+                        for d in range(D):
+                            for j in range(stage+1, P):
+                                # Get POD indicator
+                                mdl.add_constraint(
+                                    mdl.sum(x[stage, node_id, b, d, bl, k, stage, j] for k in range(K)) <= M * PD[stage, node_id, b, bl, j]
+                                )
+                        # Max PODs per bay/block
                         mdl.add_constraint(
-                            mdl.sum(PD[stage, node_id, b, d, j] for j in range(stage+1, P) for d in range(D)) - 1 <= excess_PD[stage, node_id, b,]
+                            mdl.sum(PD[stage, node_id, b, bl, j] for j in range(P)) <= 1
                         )
+                #         # Get mixing bay
+                #         mdl.add_constraint(
+                #             mdl.sum(PD[stage, node_id, b, bl, j] for j in range(P)) <= 1 + M*mixing[stage, node_id, b, bl]
+                #         )
+                #
+                # # Maximum number of mixing bays
+                # mdl.add_constraint(
+                #     mdl.sum(mixing[stage, node_id, b, bl,] for b in range(B) for bl in range(BL)) <= int(BL * B * bay_mix)
+                # )
 
         # Add mip start
         if mip_start:
             mdl.add_mip_start({x[key]: value for key, value in mip_start.items()}, write_level=1)
 
     # Build the scenario tree
-    build_tree(stages, demand, warm_start)
+    if config.env.env_name == "mpp":
+        build_tree_mpp(stages, demand, warm_start)
+    elif config.env.env_name == "block_mpp":
+        build_tree_block_mpp(stages, demand, warm_start)
 
     # Define the objective function
     # Reshape revenues to match the shape of x
@@ -342,22 +511,39 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
     for (stage, node_id) in node_list:
         probabilities[stage, node_id] = 1 / num_nodes_per_stage[stage]
 
-    objective = mdl.sum(
-        probabilities[stage, node_id] * (
-            mdl.sum(
-                revenues_[stage, k, j] * x[stage, node_id, b, d, k, stage, j]
-                for j in range(stage + 1, P) # Loop over discharge ports
-                for b in range(B)  # Loop over bays
-                for d in range(D)  # Loop over decks
-                for k in range(K)  # Loop over cargo classes
+    if config.env.env_name == "mpp":
+        objective = mdl.sum(
+            probabilities[stage, node_id] * (
+                mdl.sum(
+                    revenues_[stage, k, j] * x[stage, node_id, b, d, k, stage, j]
+                    for j in range(stage + 1, P) # Loop over discharge ports
+                    for b in range(B)  # Loop over bays
+                    for d in range(D)  # Loop over decks
+                    for k in range(K)  # Loop over cargo classes
+                )
+                - mdl.sum(env.ho_costs * HO[stage, node_id, b] for b in range(B))
+                - env.cm_costs * CM[stage, node_id]
             )
-            - mdl.sum(env.ho_costs * HO[stage, node_id, b] for b in range(B))
-            - env.cm_costs * CM[stage, node_id]
-            - mdl.sum(excess_PD[stage, node_id, b] for b in range(B))
+            for stage in range(stages)  # Iterate over all stages
+            for node_id in range(num_nodes_per_stage[stage])  # Iterate over nodes at each stage
         )
-        for stage in range(stages)  # Iterate over all stages
-        for node_id in range(num_nodes_per_stage[stage])  # Iterate over nodes at each stage
-    )
+    elif config.env.env_name == "block_mpp":
+        objective = mdl.sum(
+            probabilities[stage, node_id] * (
+                mdl.sum(
+                    revenues_[stage, k, j] * x[stage, node_id, b, d, bl, k, stage, j]
+                    for j in range(stage + 1, P) # Loop over discharge ports
+                    for b in range(B)  # Loop over bays
+                    for d in range(D)  # Loop over decks
+                    for k in range(K)  # Loop over cargo classes
+                    for bl in range(BL)  # Loop over blocks
+                )
+                - mdl.sum(env.ho_costs * HO[stage, node_id, b, bl] for b in range(B) for bl in range(BL))
+                - env.cm_costs * CM[stage, node_id]
+            )
+            for stage in range(stages)  # Iterate over all stages
+            for node_id in range(num_nodes_per_stage[stage])  # Iterate over nodes at each stage
+        )
     mdl.maximize(objective)
     mdl.context.cplex_parameters.read.datacheck = 2
     mdl.parameters.mip.strategy.file = 3
@@ -368,16 +554,17 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
     # Solve the model
     solution = mdl.solve(log_output=True)
 
-    # Print the solution
+    # Print the solution # todo: fix this properly for mpp and block_mpp; now set to block_mpp
     if solution:
         print(f"Objective value: {solution.objective_value}")
 
         # Analyze the solution
-        x_ = np.zeros((stages, max_paths, B, D, K, P, P))
-        PD_ = np.zeros((stages, max_paths, B, D, P,))
-        excess_PD_ = np.zeros((stages, max_paths, B,))
-        HO_ = np.zeros((stages, max_paths, B,))
-        HM_ = np.zeros((stages, max_paths, B,))
+        x_ = np.zeros((stages, max_paths, B, D, BL, K, P, P))
+        ob_demand = np.zeros((stages, max_paths, K, P))
+        PD_ = np.zeros((stages, max_paths, B, BL, P,))
+        mixing_ = np.zeros((stages, max_paths, B, BL,))
+        HO_ = np.zeros((stages, max_paths, B, BL,))
+        HM_ = np.zeros((stages, max_paths, B, BL,))
         CI_ = np.zeros((stages, max_paths,))
         CI_target_ = np.zeros((stages, max_paths,))
         LM_ = np.zeros((stages, max_paths,))
@@ -389,21 +576,24 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
         for stage in range(stages):
             for node_id in range(num_nodes_per_stage[stage]):
                 for bay in range(B):
-                    for deck in range(D):
-                        for cargo_class in range(K):
-                            for pol in range(stage + 1):
-                                for pod in range(pol + 1, P):
-                                    x_[stage, node_id, bay, deck, cargo_class, pol, pod] = x[stage, node_id, bay, deck, cargo_class, pol, pod].solution_value
-                                    revenue_[stage, node_id,] += revenues_[stage, cargo_class, pod] * x[stage, node_id, bay, deck, cargo_class, pol, pod].solution_value
-                                    demand_[stage, node_id, cargo_class, pod] = demand[stage, node_id][cargo_class, pod]
+                    for block in range(BL):
+                        for deck in range(D):
+                            for cargo_class in range(K):
+                                for pol in range(stage + 1):
+                                    for pod in range(pol + 1, P):
+                                        x_[stage, node_id, bay, deck, block, cargo_class, pol, pod] = x[stage, node_id, bay, deck, block, cargo_class, pol, pod].solution_value
+                                        revenue_[stage, node_id,] += revenues_[stage, cargo_class, pod] * x[stage, node_id, bay, deck, block, cargo_class, pol, pod].solution_value
+                                        demand_[stage, node_id, cargo_class, pod] = demand[stage, node_id][cargo_class, pod]
 
                         for pod in range(stage + 1, P):
-                            PD_[stage, node_id, bay, deck, pod] = PD[stage, node_id, bay, deck, pod].solution_value
-                    excess_PD_[stage, node_id, bay] = excess_PD[stage, node_id, bay].solution_value
+                            PD_[stage, node_id, bay, block, pod] = PD[stage, node_id, bay, block, pod].solution_value
+                            for k in range(K):
+                               ob_demand[stage, node_id, k, pod] = demand[stage, node_id][k, pod]
+                        mixing_[stage, node_id, bay, block,] = mixing[stage, node_id, bay, block,].solution_value
 
-                    HO_[stage, node_id, bay] = HO[stage, node_id, bay].solution_value
-                    HM_[stage, node_id, bay] = HM[stage, node_id, bay].solution_value
-                    cost_[stage,node_id,] += env.ho_costs * HO[stage, node_id, bay].solution_value
+                        HO_[stage, node_id, bay, block,] = HO[stage, node_id, bay, block,].solution_value
+                        HM_[stage, node_id, bay, block,] = HM[stage, node_id, bay, block,].solution_value
+                        cost_[stage,node_id,] += env.ho_costs * HO[stage, node_id, bay, block].solution_value
 
                 CI_[stage, node_id] = CI[stage, node_id].solution_value
                 CI_target_[stage, node_id] = CI_target[stage, node_id].solution_value
@@ -414,15 +604,24 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
 
         # Get metrics from the solution
         num_nodes_per_stage = np.array(num_nodes_per_stage)
-        mean_load_per_port = np.sum(x_, axis=(1, 2, 3, 4, 5, 6)) / num_nodes_per_stage # Shape (stages,)
-        mean_load_per_location = np.sum(x_, axis=(1, 4, 5, 6)) / num_nodes_per_stage.reshape(-1, 1, 1) # Shape (stages, B, D)
-        mean_hatch_overstowage = np.sum(HO_, axis=(1, 2)) / num_nodes_per_stage # Shape (stages,)
+        mean_load_per_port = np.sum(x_, axis=(1, 2, 3, 4, 5, 6, 7)) / num_nodes_per_stage # Shape (stages,)
+        mean_teu_load_per_port = (x_ * teus.reshape(1, 1, 1, 1, 1, K, 1, 1)).sum(axis=(1,2, 3, 4, 5, 6, 7)) # Shape (stages,)
+        mean_load_per_location = np.sum(x_, axis=(1, 4, 5, 6)) / num_nodes_per_stage.reshape(-1, 1, 1, 1) # Shape (stages, B, D, BL)
+        mean_hatch_overstowage = np.sum(HO_, axis=(1, 2, 3)) / num_nodes_per_stage # Shape (stages,)
         mean_ci = np.sum(CI_, axis=1) / num_nodes_per_stage # Shape (stages,)
         mean_pd = np.sum(PD_, axis=(1, 2, 3, 4)) / num_nodes_per_stage # Shape (stages,)
-        mean_excess_pd = np.sum(excess_PD_, axis=(1, 2)) / num_nodes_per_stage # Shape (stages,)
-        print(mean_load_per_location.sum(axis=(1,2)))
-        print(mean_excess_pd)
-        breakpoint()
+        mean_mixing = np.sum(mixing_, axis=(1, 2, 3)) / num_nodes_per_stage # Shape (stages,)
+
+        # todo: on board demand works well for P=4,5,6; B=10 -> check B=20
+        # for pol in range(P):
+        #     ob_dem = 0
+        #     on_boards = onboard_groups(P, pol, transport_indices)[0]
+        #     print(f"on_boards p{pol}:{on_boards}")
+        #     for (i,j) in on_boards:
+        #         for k in range(K):
+        #             ob_dem += demand[pol, 0][k, j]
+        #     print(f"ob_demand p{pol}:{ob_dem}")
+
         # Auxiliary metrics
         mean_demand = np.sum(demand_, axis=(1, 2, 3)) / num_nodes_per_stage # Shape (stages,)
         mean_revenue = np.sum(revenue_, axis=1) / num_nodes_per_stage # Shape (stages,)
@@ -439,6 +638,7 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
             "gap":mdl.solve_details.mip_relative_gap,
             # Solution metrics
             "mean_load_per_port":mean_load_per_port.tolist(),
+            "mean_teu_load_per_port":mean_teu_load_per_port.tolist(),
             "mean_load_per_location":mean_load_per_location.tolist(),
             "mean_hatch_overstowage":mean_hatch_overstowage.tolist(),
             "mean_ci":mean_ci.tolist(),
@@ -446,7 +646,7 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
             "mean_revenue":mean_revenue.tolist(),
             "mean_cost":mean_cost.tolist(),
             "mean_pd":mean_pd.tolist(),
-            "mean_excess_pd":mean_excess_pd.tolist(),
+            "mean_mixing":mean_mixing.tolist(),
         }
         vars = {
             "seed": seed,
@@ -454,7 +654,6 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
             "scenarios": scenarios_per_stage,
             "x": x_.tolist(),
             "PD": PD_.tolist(),
-            "excess_PD": excess_PD_.tolist(),
             "HO_": HO_.tolist(),
             "HM_": HM_.tolist(),
             "CI_": CI_.tolist(),
@@ -507,13 +706,14 @@ if __name__ == "__main__":
             # Run the main logic and get results and variables
             result, var = main(env, demand_sub_tree, scen, stages, max_paths, seed, perfect_information, deterministic)
 
-            # Save results for this episode and scenario
-            if debug:
-                # Save debug results
-                with open(f"./test_results/scenario_tree/results_scenario_tree_e{x}_s{scen}_debug.json","w") as json_file:
-                    json.dump(result, json_file, indent=4)
-            else:
-                # Save regular results
-                with open(f"./test_results/scenario_tree/results_scenario_tree_e{x}_s{scen}_pi{perfect_information}"
-                        f"_gen{generalization}.json", "w") as json_file:
-                    json.dump(result, json_file, indent=4)
+            # todo: save results properly
+            # # Save results for this episode and scenario
+            # if debug:
+            #     # Save debug results
+            #     with open(f"./test_results/scenario_tree/results_scenario_tree_e{x}_s{scen}_debug.json","w") as json_file:
+            #         json.dump(result, json_file, indent=4)
+            # else:
+            #     # Save regular results
+            #     with open(f"./test_results/scenario_tree/results_scenario_tree_e{x}_s{scen}_pi{perfect_information}"
+            #             f"_gen{generalization}.json", "w") as json_file:
+            #         json.dump(result, json_file, indent=4)
