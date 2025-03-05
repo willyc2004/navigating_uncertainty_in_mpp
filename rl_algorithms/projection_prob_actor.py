@@ -156,8 +156,10 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         # This is appropriate for our projection functions, as the actions are transformed globally rather than per element
         return logprob_ # Apply reduction for loss computations. Shape: [Batch]
 
-    def forward(self, *args, **kwargs):
+    def forward(self, *args, **kwargs,):
         out = super().forward(*args, **kwargs)
+        # out["action"] = torch.where(out["observation", "gate"], out["action"], 1e-6)
+        # out["action"] = torch.where(out["action"] >= 5, out["action"], 1e-6)
         # Get distribution and full log probabilities
         dist = self.get_dist(out)
         out["log_prob"] = self.get_logprobs(out["action"], dist)
@@ -183,10 +185,9 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
             self.clipped_gaussian.high = out["clip_max"]
             out["log_prob"] = self.clipped_gaussian.log_prob(out["action"])
 
-        # Apply log_prob adjustment for infeasible actions
-        if "action_mask" in out:
-            out["action"] = torch.where(out["action_mask"], out["action"], torch.zeros_like(out["action"]))
-            out["log_prob"] = torch.where(out["action_mask"], out["log_prob"], torch.tensor(-10, device=out["log_prob"].device))
+        if "action_mask" in out["observation"]:
+            out["action"] = torch.where(out["observation", "action_mask"], out["action"], torch.zeros_like(out["action"]))
+            out["log_prob"] = torch.where(out["observation", "action_mask"], out["log_prob"], torch.tensor(-10, device=out["log_prob"].device))
 
         # Apply log_prob clamp for numerical stability
         out["log_prob"] = torch.clamp(out["log_prob"], min=-10.0, max=0.0)

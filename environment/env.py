@@ -53,7 +53,7 @@ class MasterPlanningEnv(EnvBase):
         # Seed and generator
         self._set_seed(kwargs.get("seed"))
         self.demand_uncertainty = kwargs.get("demand_uncertainty", False)
-        self.generator = UniformMPP_Generator(device=device, **kwargs) #MPP_Generator(device=device,**kwargs)
+        self.generator = MPP_Generator(device=device,**kwargs) # UniformMPP_Generator(device=device, **kwargs)
         if td_gen == None:
             self.td_gen = self.generator(batch_size=batch_size,)
         # Data type and shapes
@@ -165,7 +165,8 @@ class MasterPlanningEnv(EnvBase):
         is_done = done.any()
         time = th.where(is_done, time, time+1)
         next_state_dict = self._update_next_state(
-            utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge, demand_state, time, batch_size)
+            utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge, demand_state,
+            pod_locations, time, batch_size)
 
         if not is_done:
             # Update feasibility constraints
@@ -344,7 +345,6 @@ class MasterPlanningEnv(EnvBase):
         """Extract action, reward and step from the TensorDict."""
         # Must clone to avoid in-place operations!
         action = td["action"].view(*batch_size, self.B, self.D,).clone()
-        # action_mask = td["action_mask"].clone()
         timestep = td["observation", "timestep"].view(-1).clone()
 
         # Demand-related variables
@@ -414,9 +414,9 @@ class MasterPlanningEnv(EnvBase):
         return out
 
     # Update state
-    def _update_next_state(self, utilization: Tensor, target_long_crane:Tensor,
-                           long_crane_moves_load:Tensor, long_crane_moves_discharge:Tensor,
-                           demand_state:Dict, time:Tensor, batch_size:Tuple, block:bool=False) -> Dict[str, Tensor]:
+    def _update_next_state(self, utilization: Tensor, target_long_crane:Tensor, long_crane_moves_load:Tensor,
+                           long_crane_moves_discharge:Tensor, demand_state:Dict, pod_locations:Tensor,
+                           time:Tensor, batch_size:Tuple, block:bool=False) -> Dict[str, Tensor]:
         """Update next state, following options:
         - Next step moves to new port POL+1
         - Next step moves to new transport (POL, POD-1)
@@ -436,6 +436,12 @@ class MasterPlanningEnv(EnvBase):
                 demand_state["realized_demand"], moves_idx, self.capacity, self.B, self.CI_target).view(*batch_size, 1)
             if self.demand_uncertainty:
                 demand_state["observed_demand"][..., load_idx, :] = demand_state["realized_demand"][..., load_idx, :]
+
+        if k == 0:
+            num_blocks = compute_num_blocks(pod_demand=demand_state["realized_demand"][..., tau, :].sum(dim=-1),
+                                            port_demand=demand_state["realized_demand"][..., load_idx, :].sum(dim=(-1, -2)),
+                                            B=self.B, BL=self.BL)
+            demand_state["gate"] = generate_gate(num_blocks, pod_locations, self.B, self.BL, self.D, batch_size)
 
         # Update residual lc capacity: target - actual load and discharge moves
         long_crane_moves = long_crane_moves_load + long_crane_moves_discharge
@@ -458,6 +464,7 @@ class MasterPlanningEnv(EnvBase):
             "target_long_crane": target_long_crane,
             "residual_lc_capacity": residual_lc_capacity,
             "long_crane_moves_discharge": long_crane_moves_discharge,
+            "gate": demand_state["gate"],
         }
 
     # Compact formulation
@@ -690,7 +697,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
 
     def __init__(self, device="cuda", batch_size=[], td_gen=None, **kwargs):
         # Kwargs and super
-        self.BL = kwargs.get("BL", 2)  # Number of paired blocks: 2 (wings + center), 3 (wings + center1 + center2)
+        self.BL = kwargs.get("blocks", 2)  # Number of paired blocks: 2 (wings + center), 3 (wings + center1 + center2)
         super().__init__(device=device, batch_size=batch_size, **kwargs)
 
         # Shapes
@@ -742,10 +749,15 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         # Transition to next step
         is_done = done.any()
         time = th.where(is_done, time, time + 1)
-        action_mask = compute_strict_BS_mask(pod, pod_locations, self.B, self.D, self.BL)
+
+        if self.block_stowage_mask:
+            block_mask = compute_strict_BS_mask(pod, pod_locations)
+            action_mask = block_mask.view(*batch_size, self.B, 1, self.BL).expand(*batch_size, self.B, self.D, self.BL)
+        else:
+            action_mask = th.ones_like(action, dtype=bool)
         next_state_dict = self._update_next_state(
-            utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge, demand_state, time,
-            batch_size, block=True)
+            utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge, demand_state,
+            pod_locations, time, batch_size, block=True)
 
         if not is_done:
             # Update feasibility constraints
@@ -791,6 +803,8 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
                 "agg_pol_location": agg_pol_location.view(*batch_size, self.B * self.D * self.BL),
                 "agg_pod_location": agg_pod_location.view(*batch_size, self.B * self.D * self.BL),
                 "timestep": time,
+                "action_mask": action_mask.reshape(*batch_size, self.B * self.D * self.BL),
+                "gate": demand_state["gate"].reshape(*batch_size, self.B * self.D * self.BL),
             },
 
             # # Feasibility and constraints
@@ -806,7 +820,6 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             "cost": cost,
             # Action, reward, done and step
             "action": action.view(*batch_size, self.B * self.D * self.BL),
-            "action_mask": action_mask.view(*batch_size, self.B * self.D * self.BL),
             "reward": reward,
             "done": done,
         }, td.shape)
@@ -828,9 +841,9 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
 
         # Demand:
         realized_demand = td["observation", "realized_demand"].view(*batch_size, self.T, self.K).clone()
+        load_idx = self.load_transport[pol]
         if self.demand_uncertainty:
             observed_demand = th.zeros_like(realized_demand)
-            load_idx = self.load_transport[pol]
             observed_demand[..., load_idx, :] = realized_demand[..., load_idx, :]
             expected_demand = td["observation", "expected_demand"].clone()
             std_demand = td["observation", "std_demand"].clone()
@@ -855,6 +868,10 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         rhs = self.create_rhs(
             utilization.to(self.float_type), current_demand, self.swap_signs_block_stability,
             self.block_A, self.n_block_constraints, self.n_demand, self.n_block_locations, batch_size)
+        # Action gate
+        num_blocks = compute_num_blocks(pod_demand=realized_demand[..., tau, :].sum(dim=-1),
+                                         port_demand=realized_demand[...,load_idx,:].sum(dim=(-1,-2)), B=self.B, BL=self.BL)
+        gate = generate_gate(num_blocks, None, self.B, self.BL, self.D, batch_size)
 
         # Init tds - state: internal state
         initial_state = TensorDict({
@@ -878,6 +895,9 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             "residual_lc_capacity": residual_lc_capacity.view(*batch_size, self.B - 1),
             "agg_pol_location": th.zeros_like(locations_utilization),
             "agg_pod_location": th.zeros_like(locations_utilization),
+            # "excess_pod_locations": th.zeros_like(locations_utilization),
+            "action_mask": action_mask.view(*batch_size, -1),
+            "gate": gate.reshape(*batch_size, -1),
         }, batch_size=batch_size, device=device,)
 
         # Init tds - full td
@@ -886,7 +906,6 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             "observation": initial_state,
             # # Action mask
             "action": th.zeros_like(action_mask, dtype=self.float_type),
-            "action_mask": action_mask.view(*batch_size, -1),
             # # Constraints
             "clip_min": th.zeros_like(residual_capacity, dtype=self.float_type).view(*batch_size, self.B * self.D * self.BL, ),
             "clip_max": residual_capacity.view(*batch_size, self.B * self.D * self.BL),
@@ -926,13 +945,14 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             agg_pol_location=Unbounded(shape=(*batch_size, self.B * self.D * self.BL), dtype=self.float_type),
             agg_pod_location=Unbounded(shape=(*batch_size, self.B * self.D * self.BL), dtype=self.float_type),
             timestep=Unbounded(shape=(*batch_size, 1), dtype=th.int64),
+            action_mask=Bounded(shape=(*batch_size, self.B * self.D * self.BL), low=0, high=1, dtype=th.bool),\
+            gate=Bounded(shape=(*batch_size, self.B * self.D * self.BL), low=0, high=1, dtype=th.bool),
             shape=batch_size,
         )
         self.observation_spec = Composite(
             # State, action, generator
             observation=state_spec,
             action=Unbounded(shape=(*batch_size, self.B * self.D * self.BL), dtype=self.float_type),
-            action_mask=Bounded(shape=(*batch_size, self.B * self.D * self.BL), low=0, high=1, dtype=th.bool),
 
             # Performance
             profit=Unbounded(shape=(*batch_size, 1), dtype=torch.float32),
@@ -972,6 +992,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             "realized_demand": td["observation", "realized_demand"].view(*batch_size, self.T, self.K).clone(),
             "observed_demand": td["observation", "observed_demand"].view(*batch_size, self.T, self.K).clone(),
             "current_demand": td["observation", "realized_demand"].clone()[..., timestep[0]].view(*batch_size, 1),
+            "gate": td["observation", "gate"].view(*batch_size, self.B, self.D, self.BL).clone(),
         }
         # Vessel-related variables
         utilization = td["observation", "utilization"].view(*batch_size, self.B, self.D, self.BL, self.T, self.K).clone()
@@ -1008,6 +1029,10 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         block_ratios = [2 / (self.BL + 1)] + [1 / (self.BL + 1)] * (self.BL - 1)
         for i, ratio in enumerate(block_ratios):
             self.capacity[..., i] = th.full((self.B, self.D), capacity * ratio, device=self.device, dtype=self.float_type)
+        # Needed for 1000 TEU vessel, 20k TEU works fine
+        if self.total_capacity == 1000:
+            self.capacity[...,0] = th.ceil(self.capacity[...,0]/2)*2
+            self.capacity[...,1] = th.floor(self.capacity[...,1]/2)*2
 
     def _initialize_block_stability(self, ):
         """Initialize stability parameters"""
