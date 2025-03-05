@@ -18,6 +18,7 @@ env:
   TEU: 1000
   VCG_target: 1.05
   bays: 10
+  blocks: 2
   capacity:
   - 50
   cargo_classes: 6
