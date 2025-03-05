@@ -221,7 +221,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
                 critic_optim.zero_grad()
 
                 # Actor Update
-                loss_out["loss_actor"] = loss_out["loss_actor"].clone() + feasibility_lambda * (loss_out["loss_feasibility"] + loss_out["loss_pod"])
+                loss_out["loss_actor"] = loss_out["loss_actor"].clone() + feasibility_lambda * (loss_out["loss_feasibility"])
                 loss_out["loss_actor"].backward()
                 loss_out["gn_actor"] = torch.nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
                 actor_optim.step()
@@ -241,7 +241,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
                 for _ in range(num_epochs):
                     loss_out = loss_module(subdata.to(device))
                     loss_out["total_loss"] = (loss_out["loss_objective"] + loss_out["loss_critic"]
-                                              + loss_out["loss_entropy"] + feasibility_lambda * (loss_out["loss_feasibility"] + loss_out["loss_pod"]))
+                                              + loss_out["loss_entropy"] + feasibility_lambda * (loss_out["loss_feasibility"]))
 
                     # Optimization: backward, grad clipping and optimization step
                     loss_out["total_loss"].backward()
@@ -259,8 +259,6 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
             "loss_critic": loss_out.get("loss_qvalue", 0) or loss_out.get("loss_critic", 0),
             "loss_feasibility":loss_out.get("loss_feasibility", 0),
             "violation": loss_out.get("violation", 0),
-            "loss_pod": loss_out.get("loss_pod", 0),
-            "pod_violation": loss_out.get("pod_violation", 0),
             "loss_entropy": loss_out.get("loss_alpha", 0) or loss_out.get("loss_entropy", 0),
             # Supporting metrics
             "step": step,
@@ -280,7 +278,6 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
             f"loss_critic:  {log['loss_critic']: 4.4f}, "
             f"feasibility_loss: {log['loss_feasibility']: 4.4f}, "
             f"mean_violation: {log['mean_total_violation']: 4.4f}, "  
-            f"pod_violation: {log['pod_violation']: 4.4f}, "
             # Prediction
             f"x: {log['x']: 4.4f}, "
             f"loc(x): {log['loc(x)']: 4.4f}, "

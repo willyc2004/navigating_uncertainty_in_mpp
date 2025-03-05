@@ -59,11 +59,6 @@ def loss_feasibility(td, action, lagrange_multiplier=None, aggregate_feasibility
     elif aggregate_feasibility == "mean":
         return lagrange_multiplier.mean(), violations
 
-def loss_pod_violation(td, lagrange_multiplier=100,):
-    pod_violation = td["observation"]["excess_pod_locations"].sum(dim=(-1, -2)).mean()
-    pod_loss = pod_violation * lagrange_multiplier
-    return pod_loss, pod_violation
-
 class FeasibilitySACLoss(SACLoss):
     """TorchRL implementation of the SAC loss with feasibility constraints.
 
@@ -166,7 +161,6 @@ class FeasibilitySACLoss(SACLoss):
         action = metadata_actor["action"]
         if "lhs_A" in tensordict and "rhs" in tensordict:
             feasibility_loss, mean_violation = loss_feasibility(tensordict, action, self.lagrangian_multiplier)
-            pod_loss, pod_violation = loss_pod_violation(tensordict)
         else:
             raise ValueError("Feasibility loss requires 'lhs_A' and 'rhs' in tensordict.")
 
@@ -183,8 +177,6 @@ class FeasibilitySACLoss(SACLoss):
             "entropy": entropy.detach().mean(),
             "loss_feasibility": feasibility_loss,
             "violation": mean_violation,
-            "loss_pod": pod_loss,
-            "pod_violation": pod_violation,
         }
 
         # Reduce outputs based on reduction mode
@@ -412,12 +404,8 @@ class FeasibilityClipPPOLoss(PPOLoss):
         # Feasibility loss based on policy mean
         loc = dist.loc if hasattr(dist, 'loc') else dist.base_dist.loc
         feasibility_loss, mean_violation = loss_feasibility(tensordict, loc, self.lagrangian_multiplier)
-        pod_loss, pod_violation = loss_pod_violation(tensordict)
-
         td_out.set("loss_feasibility", feasibility_loss)
         td_out.set("violation", mean_violation)
-        td_out.set("loss_pod", pod_loss)
-        td_out.set("pod_violation", pod_violation)
 
         td_out.set("ESS", _reduce(ess, self.reduction) / batch)
         td_out = td_out.named_apply(
