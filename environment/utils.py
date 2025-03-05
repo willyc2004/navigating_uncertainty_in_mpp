@@ -157,7 +157,7 @@ def compute_long_crane(utilization: th.Tensor, moves: th.Tensor, T: int, block=F
     moves_per_bay = (utilization * moves_idx).sum(dim=sum_dims)
     return moves_per_bay[..., :-1] + moves_per_bay[..., 1:]
 
-def compute_pol_pod_locations(utilization: th.Tensor, transform_tau_to_pol, transform_tau_to_pod) -> Tuple[th.Tensor, th.Tensor]:
+def compute_pol_pod_locations(utilization: th.Tensor, transform_tau_to_pol, transform_tau_to_pod, eps=1e-4) -> Tuple[th.Tensor, th.Tensor]:
     """Compute POL and POD locations based on utilization"""
     if utilization.dim() == 4:
         util = utilization.permute(0, 1, 3, 2)
@@ -167,9 +167,64 @@ def compute_pol_pod_locations(utilization: th.Tensor, transform_tau_to_pol, tran
         util = utilization.permute(0, 1, 2, 3, 5, 4)
     else:
         raise ValueError("Utilization tensor has wrong dimensions.")
-    pol_locations = (util @ transform_tau_to_pol).sum(dim=-2) != 0
-    pod_locations = (util @ transform_tau_to_pod).sum(dim=-2) != 0
+    pol_locations = (util @ transform_tau_to_pol).sum(dim=-2) > eps
+    pod_locations = (util @ transform_tau_to_pod).sum(dim=-2) > eps
     return pol_locations, pod_locations
+
+def compute_excess_pod_blocks(pod_locations: th.Tensor, BL:int,) -> th.Tensor:
+    # todo: implement this function
+    """Compute excess POD locations based on PODs in blocks"""
+    # shape [B, D, BL, P]
+    # for each bay, block:
+        # first check if there are differences between d=0, d=1
+        # then check if there are more than 1 pod in a block
+    raise NotImplementedError("Function not implemented yet.")
+
+    # print(pod_locations[:, 0, ], pod_locations[:, 1, ])
+    # # for each bay, block: sum of pod locations if not the same above and below deck, or num pods > 1
+    # excess_pod_blocks = ((pod_locations[:, 0, ] != pod_locations[:, 1, ]) | (pod_locations.sum(dim=-2) > 1)).any(dim=-1)
+    #
+    # # now check if there are any excess pod blocks
+    # print(excess_pod_blocks.shape, excess_pod_blocks)
+    # breakpoint()
+
+def compute_num_blocks(pod_demand: th.Tensor, port_demand: th.Tensor, B: int, BL: int, margin=0.2) -> th.Tensor:
+    """Compute the number of blocks based on POD demand proportion at the port."""
+    return th.ceil(((pod_demand / port_demand)+margin) * BL * B)
+
+def generate_gate(x: th.Tensor, pod_locations: th.Tensor,
+                  B: int, BL: int, D:int, batch_size:tuple) -> th.Tensor:
+    """
+    Generates a boolean gate tensor of shape (B, BL) with exactly x elements set to True.
+    The True values are randomly placed, and the rest are False.
+    """
+    device = x.device
+
+    # Generate mirrored random scores for each bay
+    half_B = B // 2 + (B % 2)
+    random_scores_half = th.rand((*batch_size, half_B, BL), device=device)
+    random_scores = th.cat([random_scores_half, random_scores_half.flip(dims=[-2])], dim=-2).view(*batch_size, B*BL)
+    # Mask out unavailable blocks
+    if pod_locations is not None:
+        # shape POD LOC: [batch, B, D, BL, P]
+        used_blocks = pod_locations.any(dim=(-1,-3)).view(*batch_size, B*BL)
+        random_scores = ~used_blocks * random_scores
+
+    # Sort indices in descending order
+    # why do we need to sort the indices?
+    # get top-k indices
+    sorted_indices = random_scores.argsort(dim=-1, descending=True)
+    mask = th.arange(B * BL, device=device).expand(*batch_size, -1) < x.unsqueeze(-1)
+    # Initialize gate with False values
+    gate = th.zeros((*batch_size, B*BL), dtype=th.bool, device=device)
+
+    # Scatter True values into the gate tensor at the correct positions
+    gate.scatter_(-1, sorted_indices, mask)
+
+    # Reshape to final shape
+    out = gate.view(*batch_size, B, 1, BL).expand(*batch_size, -1, D, -1)
+    return out
+
 
 def aggregate_indices(binary_matrix, get_highest=True):
     # Shape: [bays, ports]
@@ -277,7 +332,7 @@ def compute_HO_mask(mask:th.Tensor, pod: th.Tensor,pod_locations:th.Tensor, min_
     mask[..., 0] = pod.unsqueeze(-1) <= min_pod[..., 1]
     return mask.view(-1, B*D)
 
-def compute_strict_BS_mask(pod:th.Tensor, pod_locations:th.Tensor, B:int, D:int, BL:int) -> th.Tensor:
+def compute_strict_BS_mask(pod:th.Tensor, pod_locations:th.Tensor,) -> th.Tensor:
     """
     Mask actions to enforce strict block stowage: only a single POD per block.
 
@@ -286,12 +341,12 @@ def compute_strict_BS_mask(pod:th.Tensor, pod_locations:th.Tensor, B:int, D:int,
     - If pod and pod_location are the exclusive, then True
     - If pod and pod_location are different, then False
     """
-    # Condition 1: Check if pod_location is empty at that (B, D, BL) position
-    is_empty = pod_locations.sum(dim=-1) == 0  # Shape (B, D, BL), True if no pods are present
-    # Condition 2: Check if pod index is the ONLY active pod at that location
-    is_exclusive = (pod_locations.sum(dim=-1)  == 1) & pod_locations[..., pod]
-    # Final mask: True if location is empty OR `pod` is the only one present
-    return is_empty | is_exclusive  # Shape (B, D, BL)
+    # Get number of pods per block
+    pod_block = pod_locations.any(dim=-3).sum(dim=(-1))
+    # Set to true if pod is empty or exclusive
+    is_empty = pod_block == 0
+    is_exclusive = (pod_block == 1) & pod_locations.any(dim=-3)[..., pod]
+    return is_empty | is_exclusive
 
 def compute_violation(action, lhs_A, rhs, ) -> th.Tensor:
     """Compute violations and loss of compact form"""
