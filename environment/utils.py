@@ -296,7 +296,7 @@ def compute_min_pod(pod_locations: th.Tensor, P:int, dtype:th.dtype) -> th.Tenso
     min_pod[min_pod == 0] = P
     return min_pod
 
-def compute_HO_mask(mask:th.Tensor, pod: th.Tensor,pod_locations:th.Tensor, min_pod:th.Tensor, B:int, D:int) -> th.Tensor:
+def compute_HO_mask(mask:th.Tensor, pod: th.Tensor,pod_locations:th.Tensor, min_pod:th.Tensor) -> th.Tensor:
     """
     Mask action to prevent hatch overstowage. Deck indices: 0 is above-deck, 1 is below-deck.
 
@@ -325,12 +325,12 @@ def compute_HO_mask(mask:th.Tensor, pod: th.Tensor,pod_locations:th.Tensor, min_
                 | 1 | 2 | 3 |   , where int is min_pod of location, x is blocked location, o is open location
     """
     # Create mask:
-    mask = mask.view(-1, B, D)
+    mask = mask.view(min_pod.shape)
     # Action below-deck (d=1) allowed if above-deck (d=0) is empty
-    mask[..., 1] = pod_locations[..., 0, :].sum(dim=-1) == 0
+    mask[..., 1, :] = pod_locations[..., 0, :, :].sum(dim=-1) == 0
     # Action above-deck (d=0) allowed if POD <= min_pod below deck (d=1)
-    mask[..., 0] = pod.unsqueeze(-1) <= min_pod[..., 1]
-    return mask.view(-1, B*D)
+    mask[..., 0, :] = pod.unsqueeze(-1) <= min_pod[..., 1, :]
+    return mask
 
 def compute_strict_BS_mask(pod:th.Tensor, pod_locations:th.Tensor,) -> th.Tensor:
     """
