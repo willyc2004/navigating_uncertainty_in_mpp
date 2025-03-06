@@ -132,8 +132,7 @@ class MasterPlanningEnv(EnvBase):
         """Perform a step in the environment and return the next state."""
         # Extraction
         batch_size = td.batch_size
-        action, lhs_A, rhs, demand_state, utilization, \
-            target_long_crane, long_crane_moves_discharge, time = self._extract_from_td(td, batch_size)
+        action_state, demand_state, vessel_state, time = self._extract_from_td(td, batch_size)
         pol, pod, tau, k, rev, step = self._extract_cargo_parameters_for_step(time[0])
 
         # Get indices
@@ -143,40 +142,40 @@ class MasterPlanningEnv(EnvBase):
         done = self._check_done(time)
 
         # Update utilization
-        utilization = update_state_loading(action, utilization, tau, k,)
+        vessel_state["utilization"] = update_state_loading(action_state["action"], vessel_state["utilization"], tau, k,)
 
         # Compute violation
-        violation = self._compute_violation(lhs_A, rhs, action,  batch_size)
+        action_state["violation"] = self._compute_violation(
+            action_state["lhs_A"], action_state["rhs"], action_state["action"],  batch_size)
 
         # Compute long crane moves & od-pairs
-        long_crane_moves_load = compute_long_crane(utilization, moves, self.T)
-        pol_locations, pod_locations = compute_pol_pod_locations(utilization, self.transform_tau_to_pol, self.transform_tau_to_pod)
-        agg_pol_location, agg_pod_location = aggregate_pol_pod_location(pol_locations, pod_locations, self.float_type)
+        vessel_state["long_crane_moves_load"] = compute_long_crane(vessel_state["utilization"], moves, self.T)
+        vessel_state["pol_locations"], vessel_state["pod_locations"] = compute_pol_pod_locations(
+            vessel_state["utilization"], self.transform_tau_to_pol, self.transform_tau_to_pod)
+        vessel_state["agg_pol_location"], vessel_state["agg_pod_location"] = aggregate_pol_pod_location(
+            vessel_state["pol_locations"], vessel_state["pod_locations"], self.float_type)
 
         # Compute total loaded
-        sum_action = action.sum(dim=(-2, -1)).unsqueeze(-1)
+        sum_action = action_state["action"].sum(dim=(-2, -1)).unsqueeze(-1)
 
         # Compute reward & cost
         revenue = self._compute_revenue(sum_action, demand_state, rev)
-        profit, cost = self._compute_cost(
-            revenue, utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge, moves, ac_transport, step)
+        profit, cost = self._compute_cost(revenue, vessel_state, moves, ac_transport, step)
 
         # Transition to next step
         is_done = done.any()
         time = th.where(is_done, time, time+1)
-        next_state_dict = self._update_next_state(
-            utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge, demand_state,
-            pod_locations, time, batch_size)
+        next_state_dict = self._update_next_state(vessel_state, demand_state, time, batch_size)
 
         if not is_done:
             # Update feasibility constraints
-            lhs_A = self.create_lhs_A(self.A, time,)
-            rhs = self.create_rhs(
+            action_state["lhs_A"] = self.create_lhs_A(self.A, time,)
+            action_state["rhs"] = self.create_rhs(
                 next_state_dict["utilization"], next_state_dict["current_demand"], self.swap_signs_stability, self.A,
                 self.n_constraints, self.n_demand, self.n_locations,batch_size)
         else:
             # Compute crane excess at last port (only discharging)
-            lc_moves_last_port = compute_long_crane(utilization, moves, self.T)
+            lc_moves_last_port = compute_long_crane(vessel_state["utilization"], moves, self.T)
             lc_excess_last_port = th.clamp(lc_moves_last_port - next_state_dict["target_long_crane"].view(-1,1), min=0)
 
             # Update cost and profit
@@ -211,15 +210,15 @@ class MasterPlanningEnv(EnvBase):
                 "vcg": next_state_dict["vcg"].view(*batch_size, 1),
                 "residual_capacity": residual_capacity.view(*batch_size, self.B * self.D),
                 "residual_lc_capacity": next_state_dict["residual_lc_capacity"].view(*batch_size, self.B - 1),
-                "agg_pol_location": agg_pol_location.view(*batch_size, self.B * self.D),
-                "agg_pod_location": agg_pod_location.view(*batch_size, self.B * self.D),
+                "agg_pol_location": vessel_state["agg_pol_location"].view(*batch_size, self.B * self.D),
+                "agg_pod_location": vessel_state["agg_pod_location"].view(*batch_size, self.B * self.D),
                 "timestep": time,
             },
 
             # # Feasibility and constraints
-            "lhs_A": lhs_A.view(*batch_size, self.n_constraints, self.B*self.D),
-            "rhs": rhs.view(*batch_size, self.n_constraints),
-            "violation": violation.view(*batch_size, self.n_constraints),
+            "lhs_A": action_state["lhs_A"].view(*batch_size, self.n_constraints, self.B*self.D),
+            "rhs": action_state["rhs"].view(*batch_size, self.n_constraints),
+            "violation": action_state["violation"].view(*batch_size, self.n_constraints),
             # in containers
             "clip_min": th.zeros_like(residual_capacity, dtype=self.float_type).view(*batch_size, self.B*self.D),
             "clip_max": clip_max.view(*batch_size, self.B*self.D),
@@ -228,7 +227,7 @@ class MasterPlanningEnv(EnvBase):
             "revenue": revenue,
             "cost": cost,
             # Action, reward, done and step
-            "action": action.view(*batch_size, self.B*self.D),
+            "action": action_state["action"].view(*batch_size, self.B*self.D),
             "reward": reward,
             "done": done,
         }, td.shape)
@@ -344,8 +343,15 @@ class MasterPlanningEnv(EnvBase):
     def _extract_from_td(self, td, batch_size:Tuple) -> Tuple:
         """Extract action, reward and step from the TensorDict."""
         # Must clone to avoid in-place operations!
-        action = td["action"].view(*batch_size, self.B, self.D,).clone()
         timestep = td["observation", "timestep"].view(-1).clone()
+
+        # Action-related variables
+        action = {
+            "action": td["action"].view(*batch_size, self.B, self.D,).clone(),
+            # "action_mask": td["action_mask"].view(*batch_size, self.B, self.D,).clone(),
+            "lhs_A": td["lhs_A"].view(*batch_size, self.n_constraints, self.B*self.D,).clone(),
+            "rhs": td["rhs"].view(*batch_size, self.n_constraints,).clone(),
+        }
 
         # Demand-related variables
         demand = {
@@ -359,15 +365,12 @@ class MasterPlanningEnv(EnvBase):
             "current_demand": td["observation", "realized_demand"].clone()[..., timestep[0]].view(*batch_size, 1),
         }
         # Vessel-related variables
-        utilization = td["observation", "utilization"].view(*batch_size, self.B, self.D, self.T, self.K).clone()
-        target_long_crane = td["observation", "target_long_crane"].view(*batch_size, 1).clone()
-        long_crane_moves_discharge = td["observation", "long_crane_moves_discharge"].view(*batch_size, self.B-1).clone()
-
-        # Constraints
-        lhs_A = td["lhs_A"].clone()
-        rhs = td["rhs"].clone()
-        # return
-        return action, lhs_A, rhs, demand, utilization, target_long_crane, long_crane_moves_discharge, timestep
+        vessel = {
+            "utilization": td["observation", "utilization"].view(*batch_size, self.B, self.D, self.T, self.K).clone(),
+            "target_long_crane": td["observation", "target_long_crane"].view(*batch_size, 1).clone(),
+            "long_crane_moves_discharge": td["observation", "long_crane_moves_discharge"].view(*batch_size, self.B - 1).clone(),
+        }
+        return action, demand, vessel, timestep
 
     def _extract_cargo_parameters_for_step(self, time) -> Tuple:
         """Extract cargo-related parameters"""
@@ -414,8 +417,7 @@ class MasterPlanningEnv(EnvBase):
         return out
 
     # Update state
-    def _update_next_state(self, utilization: Tensor, target_long_crane:Tensor, long_crane_moves_load:Tensor,
-                           long_crane_moves_discharge:Tensor, demand_state:Dict, pod_locations:Tensor,
+    def _update_next_state(self, vessel_state:Dict, demand_state:Dict,
                            time:Tensor, batch_size:Tuple, block:bool=False) -> Dict[str, Tensor]:
         """Update next state, following options:
         - Next step moves to new port POL+1
@@ -429,26 +431,27 @@ class MasterPlanningEnv(EnvBase):
         load_idx, disc_idx, moves_idx = self._precompute_for_step(pol)
         # Next port with discharging; Update utilization, observed demand and target long crane
         if self.next_port_mask[time-1].any():
-            long_crane_moves_load = torch.zeros_like(long_crane_moves_load)
-            long_crane_moves_discharge = compute_long_crane(utilization, moves_idx, self.T, block=block)
-            utilization = update_state_discharge(utilization, disc_idx)
-            target_long_crane = compute_target_long_crane(
+            vessel_state["long_crane_moves_load"] = torch.zeros_like(vessel_state["long_crane_moves_load"])
+            vessel_state["long_crane_moves_discharge"] = compute_long_crane(
+                vessel_state["utilization"], moves_idx, self.T, block=block)
+            vessel_state["utilization"] = update_state_discharge(vessel_state["utilization"], disc_idx)
+            vessel_state["target_long_crane"] = compute_target_long_crane(
                 demand_state["realized_demand"], moves_idx, self.capacity, self.B, self.CI_target).view(*batch_size, 1)
             if self.demand_uncertainty:
                 demand_state["observed_demand"][..., load_idx, :] = demand_state["realized_demand"][..., load_idx, :]
 
-        if k == 0:
-            num_blocks = compute_num_blocks(pod_demand=demand_state["realized_demand"][..., tau, :].sum(dim=-1),
-                                            port_demand=demand_state["realized_demand"][..., load_idx, :].sum(dim=(-1, -2)),
-                                            B=self.B, BL=self.BL)
-            demand_state["gate"] = generate_gate(num_blocks, pod_locations, self.B, self.BL, self.D, batch_size)
+        # if k == 0:
+        #     num_blocks = compute_num_blocks(pod_demand=demand_state["realized_demand"][..., tau, :].sum(dim=-1),
+        #                                     port_demand=demand_state["realized_demand"][..., load_idx, :].sum(dim=(-1, -2)),
+        #                                     B=self.B, BL=self.BL)
+        #     demand_state["gate"] = generate_gate(num_blocks, vessel_state["pod_locations"], self.B, self.BL, self.D, batch_size)
 
         # Update residual lc capacity: target - actual load and discharge moves
-        long_crane_moves = long_crane_moves_load + long_crane_moves_discharge
-        residual_lc_capacity = (target_long_crane - long_crane_moves).clamp(min=0)
+        vessel_state["long_crane_moves"] = vessel_state["long_crane_moves_load"] + vessel_state["long_crane_moves_discharge"]
+        residual_lc_capacity = (vessel_state["target_long_crane"] - vessel_state["long_crane_moves"]).clamp(min=0)
 
         # Compute stability
-        lcg, vcg = compute_stability(utilization, self.weights, self.longitudinal_position, self.vertical_position, block=block)
+        lcg, vcg = compute_stability(vessel_state["utilization"], self.weights, self.longitudinal_position, self.vertical_position, block=block)
 
         # Get output
         return {
@@ -457,14 +460,14 @@ class MasterPlanningEnv(EnvBase):
             "expected_demand": demand_state["expected_demand"],
             "std_demand":demand_state["std_demand"],
             "realized_demand": demand_state["realized_demand"],
-            "utilization": utilization,
-            "location_utilization": (utilization * self.teus.view(1,1,1,1,-1)).sum(dim=(-2,-1)),
+            "utilization": vessel_state["utilization"],
+            "location_utilization": (vessel_state["utilization"] * self.teus.view(1,1,1,1,-1)).sum(dim=(-2,-1)),
             "lcg": lcg,
             "vcg": vcg,
-            "target_long_crane": target_long_crane,
+            "target_long_crane": vessel_state["target_long_crane"],
             "residual_lc_capacity": residual_lc_capacity,
-            "long_crane_moves_discharge": long_crane_moves_discharge,
-            "gate": demand_state["gate"],
+            "long_crane_moves_discharge": vessel_state["long_crane_moves_discharge"],
+            # "gate": demand_state["gate"],
         }
 
     # Compact formulation
@@ -647,15 +650,14 @@ class MasterPlanningEnv(EnvBase):
             return torch.clamp(sum_action, min=self.zero, max=demand_state["current_demand"]) * rev
         return sum_action * rev
 
-    def _compute_cost(self, revenue, utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge,
-                      moves, ac_transport, step, block=False):
+    def _compute_cost(self, revenue, vessel_state, moves, ac_transport, step, block=False):
         """Compute profit based on revenue and cost, where cost = overstowage costs + excess_crane_moves costs.
         Costs are based on utilization, long crane moves and target long crane"""
         profit = revenue.clone()
         if self.next_port_mask[step].any():
             # Compute aggregated: overstowage and long crane excess
-            overstowage = compute_hatch_overstowage(utilization, moves, ac_transport, block)
-            excess_crane_moves = th.clamp(long_crane_moves_load + long_crane_moves_discharge - target_long_crane.view(-1, 1), min=0)
+            overstowage = compute_hatch_overstowage(vessel_state["utilization"], moves, ac_transport, block)
+            excess_crane_moves = th.clamp(vessel_state["long_crane_moves_load"] + vessel_state["long_crane_moves_discharge"] - vessel_state["target_long_crane"].view(-1, 1), min=0)
             # Compute costs
             ho_costs = overstowage.sum(dim=-1, keepdim=True) * self.ho_costs
             cm_costs = excess_crane_moves.sum(dim=-1, keepdim=True) * self.cm_costs
@@ -715,8 +717,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         """Perform a step in the environment and return the next state."""
         # Extraction
         batch_size = td.batch_size
-        action, lhs_A, rhs, demand_state, utilization, \
-            target_long_crane, long_crane_moves_discharge, time = self._extract_from_block_td(td, batch_size)
+        action_state, demand_state, vessel_state, time = self._extract_from_block_td(td, batch_size)
         pol, pod, tau, k, rev, step = self._extract_cargo_parameters_for_step(time[0])
 
         # Get indices
@@ -726,48 +727,50 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         done = self._check_done(time)
 
         # Update utilization
-        utilization = update_state_loading(action, utilization, tau, k, )
+        vessel_state["utilization"] = update_state_loading(action_state["action"], vessel_state["utilization"], tau, k, )
 
         # Compute violation
-        violation = self._compute_violation(lhs_A, rhs, action, batch_size)
+        action_state["violation"] = self._compute_violation(action_state["lhs_A"], action_state["rhs"], action_state["action"], batch_size)
 
         # Compute long crane moves & od-pairs
-        long_crane_moves_load = compute_long_crane(utilization, moves, self.T, block=True)
-        pol_locations, pod_locations = compute_pol_pod_locations(utilization, self.transform_tau_to_pol,
-                                                                 self.transform_tau_to_pod)
-        agg_pol_location, agg_pod_location = aggregate_pol_pod_location(pol_locations, pod_locations, self.float_type)
+        vessel_state["long_crane_moves_load"] = compute_long_crane(vessel_state["utilization"], moves, self.T, block=True)
+        vessel_state["pol_locations"], vessel_state["pod_locations"] = compute_pol_pod_locations(
+            vessel_state["utilization"], self.transform_tau_to_pol, self.transform_tau_to_pod)
+        agg_pol_location, agg_pod_location = aggregate_pol_pod_location(
+            vessel_state["pol_locations"], vessel_state["pod_locations"] , self.float_type)
 
         # Compute total loaded
-        sum_action = action.sum(dim=(-3, -2, -1)).unsqueeze(-1)
+        sum_action = action_state["action"].sum(dim=(-3, -2, -1)).unsqueeze(-1)
 
         # Compute reward & cost
         revenue = self._compute_revenue(sum_action, demand_state, rev)
-        profit, cost = self._compute_cost(
-            revenue, utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge, moves,
-            ac_transport, step, block=True)
+        profit, cost = self._compute_cost(revenue, vessel_state, moves, ac_transport, step, block=True)
 
         # Transition to next step
         is_done = done.any()
         time = th.where(is_done, time, time + 1)
 
         if self.block_stowage_mask:
-            block_mask = compute_strict_BS_mask(pod, pod_locations)
+            block_mask = compute_strict_BS_mask(pod, vessel_state["pod_locations"])
             action_mask = block_mask.view(*batch_size, self.B, 1, self.BL).expand(*batch_size, self.B, self.D, self.BL)
+        elif self.ho_mask:
+            min_pod = compute_min_pod(vessel_state["pod_locations"], self.P, self.float_type)
+            ho_mask = compute_HO_mask(action_state["action_mask"], pod, vessel_state["pod_locations"], min_pod, self.B, self.D)
+            action_mask = ho_mask.view(*batch_size, self.B, 1, self.BL).expand(*batch_size, self.B, self.D, self.BL)
         else:
-            action_mask = th.ones_like(action, dtype=bool)
-        next_state_dict = self._update_next_state(
-            utilization, target_long_crane, long_crane_moves_load, long_crane_moves_discharge, demand_state,
-            pod_locations, time, batch_size, block=True)
+            action_mask = th.ones_like(action_state["action"], dtype=bool)
+        next_state_dict = self._update_next_state(vessel_state, demand_state, time, batch_size, block=True)
 
         if not is_done:
             # Update feasibility constraints
-            lhs_A = self.create_lhs_A(self.block_A, time)
-            rhs = self.create_rhs(
+            action_state["lhs_A"] = self.create_lhs_A(self.block_A, time)
+            action_state["rhs"] = self.create_rhs(
                 next_state_dict["utilization"], next_state_dict["current_demand"], self.swap_signs_block_stability,
                 self.block_A, self.n_block_constraints, self.n_demand, self.n_block_locations, batch_size)
         else:
+            # todo: make a fn for this:
             # Compute crane excess at last port (only discharging)
-            lc_moves_last_port = compute_long_crane(utilization, moves, self.T, block=True)
+            lc_moves_last_port = compute_long_crane(vessel_state["utilization"], moves, self.T, block=True)
             lc_excess_last_port = th.clamp(lc_moves_last_port - next_state_dict["target_long_crane"].view(-1, 1), min=0)
 
             # Update cost and profit
@@ -808,9 +811,9 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             },
 
             # # Feasibility and constraints
-            "lhs_A": lhs_A.view(*batch_size, self.n_block_constraints, self.B * self.D * self.BL),
-            "rhs": rhs.view(*batch_size, self.n_block_constraints),
-            "violation": violation.view(*batch_size, self.n_block_constraints),
+            "lhs_A": action_state["lhs_A"].view(*batch_size, self.n_block_constraints, self.B * self.D * self.BL),
+            "rhs": action_state["rhs"].view(*batch_size, self.n_block_constraints),
+            "violation": action_state["violation"].view(*batch_size, self.n_block_constraints),
             # in containers
             "clip_min": th.zeros_like(residual_capacity, dtype=self.float_type).view(*batch_size, self.B * self.D * self.BL),
             "clip_max": clip_max.view(*batch_size, self.B * self.D * self.BL),
@@ -819,7 +822,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             "revenue": revenue,
             "cost": cost,
             # Action, reward, done and step
-            "action": action.view(*batch_size, self.B * self.D * self.BL),
+            "action": action_state["action"].view(*batch_size, self.B * self.D * self.BL),
             "reward": reward,
             "done": done,
         }, td.shape)
@@ -978,9 +981,16 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
 
     def _extract_from_block_td(self, td, batch_size:Tuple) -> Tuple:
         """Extract action, reward and step from the TensorDict."""
-        # Must clone to avoid in-place operations!
-        action = td["action"].view(*batch_size, self.B, self.D, self.BL).clone()
+        # Environment-related parameters
         timestep = td["observation", "timestep"].view(-1).clone()
+
+        # Action-related variables
+        action = {
+            "action": td["action"].view(*batch_size, self.B, self.D, self.BL).clone(),
+            "action_mask": td["observation", "action_mask"].view(*batch_size, self.B, self.D, self.BL).clone(),
+            "lhs_A": td["lhs_A"].clone(),
+            "rhs": td["rhs"].clone(),
+        }
 
         # Demand-related variables
         demand = {
@@ -995,15 +1005,12 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             "gate": td["observation", "gate"].view(*batch_size, self.B, self.D, self.BL).clone(),
         }
         # Vessel-related variables
-        utilization = td["observation", "utilization"].view(*batch_size, self.B, self.D, self.BL, self.T, self.K).clone()
-        target_long_crane = td["observation", "target_long_crane"].view(*batch_size, 1).clone()
-        long_crane_moves_discharge = td["observation", "long_crane_moves_discharge"].view(*batch_size, self.B-1).clone()
-
-        # Constraints
-        lhs_A = td["lhs_A"].clone()
-        rhs = td["rhs"].clone()
-        # return
-        return action, lhs_A, rhs, demand, utilization, target_long_crane, long_crane_moves_discharge, timestep
+        vessel = {
+        "utilization": td["observation", "utilization"].view(*batch_size, self.B, self.D, self.BL, self.T, self.K).clone(),
+        "target_long_crane": td["observation", "target_long_crane"].view(*batch_size, 1).clone(),
+        "long_crane_moves_discharge":td["observation", "long_crane_moves_discharge"].view(*batch_size, self.B-1).clone(),
+        }
+        return action, demand, vessel, timestep
 
     # Constraints
     def _compact_form_block_shapes(self, ):
