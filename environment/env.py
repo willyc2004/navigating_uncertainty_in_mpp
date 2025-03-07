@@ -266,7 +266,7 @@ class MasterPlanningEnv(EnvBase):
         # Vessel
         utilization = th.zeros((*batch_size, self.B, self.D, self.T, self.K), device=device, dtype=self.float_type)
         residual_capacity = th.clamp(self.capacity - utilization.sum(dim=-2) @ self.teus, min=self.zero)
-        target_long_crane = compute_target_long_crane(realized_demand.to(self.float_type), self.moves_idx[step],
+        target_long_crane = compute_target_long_crane(realized_demand.to(self.float_type), self.moves_idx[time[0]],
                                                         self.capacity, self.B, self.CI_target).view(*batch_size, 1)
         residual_lc_capacity = target_long_crane.repeat(1, self.B - 1)
         locations_utilization = th.zeros_like(action_mask, dtype=self.float_type)
@@ -534,7 +534,8 @@ class MasterPlanningEnv(EnvBase):
 
     def _initialize_step_parameters(self, ):
         """Initialize step parameters"""
-        self.steps = self._precompute_order_standard()
+        # self.steps = self._precompute_order_standard()
+        self.steps = self._precompute_order_long_transport_first()
         self.k, self.tau = get_k_tau_pair(self.steps, self.K)
         self.pol, self.pod = get_pol_pod_pair(self.tau, self.P)
         self.revenues = self.revenues_matrix[self.k, self.tau]
@@ -561,6 +562,21 @@ class MasterPlanningEnv(EnvBase):
         - POL, POD are in ascending order
         - K is in ascending order but based on priority"""
         return th.arange(self.T*self.K, device=self.device, dtype=th.int64)
+
+    def _precompute_order_long_transport_first(self):
+        """Precompute order of steps by considering long-term transport first:
+        - For each POL, POD is descending order; K is based on priority"""
+        # todo: remove loops and do as pytorch operations
+        # Nested loops to generate (pol, pod, k) combinations
+        steps = th.zeros(self.K*self.T, dtype=th.int64, device=self.generator.device)
+        idx = 0
+        for pol in range(self.P - 1):
+            for pod in range(self.P - 1, pol, -1):
+                for k in range(self.K):
+                    tr = get_transport_from_pol_pod(pol, pod, self.transport_idx)
+                    steps[idx] = k + tr * self.K
+                    idx += 1
+        return steps
 
     def _precompute_for_step(self, pol:Tensor) -> Tuple[Tensor,Tensor,Tensor]:
         """Precompute variables and index masks for the current step"""
@@ -737,7 +753,10 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         vessel_state["pol_locations"], vessel_state["pod_locations"] = compute_pol_pod_locations(
             vessel_state["utilization"], self.transform_tau_to_pol, self.transform_tau_to_pod)
         agg_pol_location, agg_pod_location = aggregate_pol_pod_location(
-            vessel_state["pol_locations"], vessel_state["pod_locations"] , self.float_type)
+            vessel_state["pol_locations"], vessel_state["pod_locations"], self.float_type)
+
+        # compute unique number of pods at each bay,block
+        excess_pod_locations = th.clamp((vessel_state["pod_locations"].sum(dim=-3) > 0).sum(dim=-1) - 1, min=0.0)
 
         # Compute total loaded
         sum_action = action_state["action"].sum(dim=(-3, -2, -1)).unsqueeze(-1)
@@ -750,13 +769,13 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         is_done = done.any()
         time = th.where(is_done, time, time + 1)
 
+        # todo: masks are not great for utilization
         if self.block_stowage_mask:
             block_mask = compute_strict_BS_mask(pod, vessel_state["pod_locations"])
             action_mask = block_mask.view(*batch_size, self.B, 1, self.BL).expand(*batch_size, self.B, self.D, self.BL)
         elif self.ho_mask:
             min_pod = compute_min_pod(vessel_state["pod_locations"], self.P, self.float_type)
-            ho_mask = compute_HO_mask(action_state["action_mask"], pod, vessel_state["pod_locations"], min_pod, self.B, self.D)
-            action_mask = ho_mask.view(*batch_size, self.B, 1, self.BL).expand(*batch_size, self.B, self.D, self.BL)
+            action_mask = compute_HO_mask(action_state["action_mask"], pod, vessel_state["pod_locations"], min_pod)
         else:
             action_mask = th.ones_like(action_state["action"], dtype=bool)
         next_state_dict = self._update_next_state(vessel_state, demand_state, time, batch_size, block=True)
@@ -805,6 +824,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
                 "residual_lc_capacity": next_state_dict["residual_lc_capacity"].view(*batch_size, self.B - 1),
                 "agg_pol_location": agg_pol_location.view(*batch_size, self.B * self.D * self.BL),
                 "agg_pod_location": agg_pod_location.view(*batch_size, self.B * self.D * self.BL),
+                "excess_pod_locations": excess_pod_locations.view(*batch_size, self.B * self.BL),
                 "timestep": time,
                 "action_mask": action_mask.reshape(*batch_size, self.B * self.D * self.BL),
                 "gate": demand_state["gate"].reshape(*batch_size, self.B * self.D * self.BL),
@@ -861,7 +881,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         # Vessel
         utilization = th.zeros((*batch_size, self.B, self.D, self.BL, self.T, self.K), device=device, dtype=self.float_type)
         residual_capacity = th.clamp(self.capacity - utilization.sum(dim=-2) @ self.teus, min=self.zero)
-        target_long_crane = compute_target_long_crane(realized_demand.to(self.float_type), self.moves_idx[step],
+        target_long_crane = compute_target_long_crane(realized_demand.to(self.float_type), self.moves_idx[time[0]],
                                                         self.capacity, self.B, self.CI_target).view(*batch_size, 1)
         residual_lc_capacity = target_long_crane.repeat(1, self.B - 1)
         locations_utilization = th.zeros_like(action_mask, dtype=self.float_type)
@@ -898,7 +918,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             "residual_lc_capacity": residual_lc_capacity.view(*batch_size, self.B - 1),
             "agg_pol_location": th.zeros_like(locations_utilization),
             "agg_pod_location": th.zeros_like(locations_utilization),
-            # "excess_pod_locations": th.zeros_like(locations_utilization),
+            "excess_pod_locations": th.zeros(*batch_size, self.B * self.BL, dtype=self.float_type),
             "action_mask": action_mask.view(*batch_size, -1),
             "gate": gate.reshape(*batch_size, -1),
         }, batch_size=batch_size, device=device,)
@@ -948,8 +968,9 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             agg_pol_location=Unbounded(shape=(*batch_size, self.B * self.D * self.BL), dtype=self.float_type),
             agg_pod_location=Unbounded(shape=(*batch_size, self.B * self.D * self.BL), dtype=self.float_type),
             timestep=Unbounded(shape=(*batch_size, 1), dtype=th.int64),
-            action_mask=Bounded(shape=(*batch_size, self.B * self.D * self.BL), low=0, high=1, dtype=th.bool),\
+            action_mask=Bounded(shape=(*batch_size, self.B * self.D * self.BL), low=0, high=1, dtype=th.bool),
             gate=Bounded(shape=(*batch_size, self.B * self.D * self.BL), low=0, high=1, dtype=th.bool),
+            excess_pod_locations=Unbounded(shape=(*batch_size, self.B * self.BL), dtype=self.float_type),
             shape=batch_size,
         )
         self.observation_spec = Composite(
@@ -1016,9 +1037,10 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
     def _compact_form_block_shapes(self, ):
         """Define shapes for compact form"""
         self.n_demand = 1
-        self.n_stability = 4
         self.n_block_locations = self.B * self.D * self.BL
-        self.n_block_constraints = self.n_demand + self.n_block_locations + self.n_stability
+        self.n_stability = 4
+        self.n_block_stow = self.n_block_locations + 1
+        self.n_block_constraints = self.n_demand + self.n_block_locations + self.n_stability #+ self.n_block_stow
 
     def _create_constraint_matrix_block(self, shape: Tuple[int, int, int, int], ):
         """Create constraint matrix A for compact constraints Au <= b"""
