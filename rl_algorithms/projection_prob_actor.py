@@ -158,8 +158,6 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
 
     def forward(self, *args, **kwargs,):
         out = super().forward(*args, **kwargs)
-        # out["action"] = out["action"] * 100.0
-        # out["action"] = torch.where(out["action"] >= 1, out["action"], 1.0)
         # Get distribution and full log probabilities
         dist = self.get_dist(out)
         out["log_prob"] = self.get_logprobs(out["action"], dist)
