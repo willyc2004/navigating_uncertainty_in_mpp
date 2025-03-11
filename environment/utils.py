@@ -193,12 +193,6 @@ def generate_POD_mask(pod_demand: th.Tensor, port_demand: th.Tensor, residual_ca
     """
     Generates a boolean gate tensor of shape (B, BL) with exactly x elements set to True.
     The True values are randomly placed, and the rest are False.
-
-        # todo: update gating/mask
-        # - if pod_locations (B, D, BL, POD) does not have pod being indicated, then use random score based on available locations
-        # - if pod_locations (B, D, BL, POD) does have pod being indicated;
-        #       1. fill up PODs already existing -> know % of demand is added here
-        #       2. add new POD blocks based on random score -> use leftover demand to be added here
     """
     # Shapes
     B, BL, D, P = pod_locations.shape[-4:]
@@ -211,49 +205,31 @@ def generate_POD_mask(pod_demand: th.Tensor, port_demand: th.Tensor, residual_ca
 
     # Get amount of demand to be filled by new blocks
     total_residual_capacity = residual_capacity.sum(dim=(-1,-2,-3))
-    remaining_pod_demand = pod_demand - (residual_capacity * used_pod_locations).sum(dim=(-1,-2,-3))
+
+    # todo: add teu demand
+    remaining_pod_demand = th.clamp(pod_demand - (residual_capacity * used_pod_locations).sum(dim=(-1,-2,-3)), min=0)
     capacity_to_fill = th.minimum(total_residual_capacity, remaining_pod_demand)
 
     # Generate mirrored random scores for each bay
     half_B = B // 2 + (B % 2)
     random_scores_half = th.rand((*batch_size, half_B, BL), device=device)
     random_scores = th.cat([random_scores_half, random_scores_half.flip(dims=[-2])], dim=-2)
-    # Only randomly select empty locations, but make sure sum of capacity in top-k locations is close to capacity_to_fill
-    random_scores = empty_locations.any(dim=-2) * random_scores
-    sorted_indices = random_scores.argsort(dim=-1, descending=True).view(*batch_size, -1)
+    random_scores = (empty_locations.any(dim=-2) * random_scores).view(*batch_size, -1)
+    sorted_indices = random_scores.argsort(dim=-1, descending=True)
 
     # Gather capacities based on sorted indices
     if batch_size != ():
         capacity = capacity.unsqueeze(0).expand(*batch_size, B, BL, D)
-    sorted_capacities = th.gather(capacity.sum(dim=-2).view(*batch_size, -1), dim=-1, index=sorted_indices)
-    cumulative_capacity = sorted_capacities.cumsum(dim=-1)
     # Find the first index where cumulative capacity exceeds capacity_to_fill
-    enough_capacity_mask = cumulative_capacity >= capacity_to_fill.unsqueeze(-1)
+    sorted_capacities = th.gather(capacity.sum(dim=-2).view(*batch_size, -1), dim=-1, index=sorted_indices)
+    enough_capacity_mask = sorted_capacities.cumsum(dim=-1) >= capacity_to_fill.unsqueeze(-1)
     best_k = enough_capacity_mask.int().argmax(dim=-1) + 1
+    best_k_mask = th.arange(B * BL, device=device).expand(*batch_size, -1) < best_k.unsqueeze(-1)
     # Get selection mask
-    if batch_size != ():
-        mask = th.arange(B*BL, device=device).unsqueeze(0).expand(*batch_size, -1) < best_k.unsqueeze(-1)
-    else:
-        mask = th.arange(B*BL, device=device) < best_k.unsqueeze(-1)
-    selection_mask = th.zeros((*batch_size, B,BL), dtype=th.bool, device=device).view(*batch_size,-1)
-    selection_mask.scatter_(-1, sorted_indices, mask)
-    output = selection_mask.view(*batch_size, B, 1, BL, ).expand(*batch_size, B, D, BL,) | partial_filled_pod_locations
-    return output.view(*batch_size, -1)
-
-    # Sort indices in descending order; not random top-k, but top-k locations of capacity times random score
-
-    # # Sort indices in descending order
-    # sorted_indices = random_scores.argsort(dim=-1, descending=True)
-    # mask = th.arange(B * BL, device=device).expand(*batch_size, -1) < x.unsqueeze(-1)
-    # # Initialize gate with False values
-    # gate = th.zeros((*batch_size, B*BL), dtype=th.bool, device=device)
-    #
-    # # Scatter True values into the gate tensor at the correct positions
-    # gate.scatter_(-1, sorted_indices, mask)
-    #
-    # # Reshape to final shape
-    # out = gate.view(*batch_size, B, 1, BL).expand(*batch_size, -1, D, -1)
-    # return out
+    mask = th.zeros((*batch_size, B*BL), dtype=th.bool, device=device)
+    mask.scatter_(-1, sorted_indices, best_k_mask)
+    output = mask.view(*batch_size, B, 1, BL, ).expand(*batch_size, B, D, BL,) | used_pod_locations
+    return output.reshape(*batch_size, -1)
 
 
 def aggregate_indices(binary_matrix, get_highest=True):
