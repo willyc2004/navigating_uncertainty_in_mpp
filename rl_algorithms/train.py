@@ -221,7 +221,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
                 critic_optim.zero_grad()
 
                 # Actor Update
-                loss_out["loss_actor"] = loss_out["loss_actor"].clone() + feasibility_lambda * (loss_out["loss_feasibility"])
+                loss_out["loss_actor"] = loss_out["loss_actor"].clone() + feasibility_lambda * loss_out["loss_feasibility"]
                 loss_out["loss_actor"].backward()
                 loss_out["gn_actor"] = torch.nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
                 actor_optim.step()
@@ -240,8 +240,8 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
 
                 for _ in range(num_epochs):
                     loss_out = loss_module(subdata.to(device))
-                    loss_out["total_loss"] = (loss_out["loss_objective"] + loss_out["loss_critic"]
-                                              + loss_out["loss_entropy"] + feasibility_lambda * (loss_out["loss_feasibility"]))
+                    loss_out["total_loss"] = loss_out["loss_objective"] + loss_out["loss_critic"] + loss_out["loss_entropy"] \
+                                             + feasibility_lambda * (loss_out["loss_feasibility"])
 
                     # Optimization: backward, grad clipping and optimization step
                     loss_out["total_loss"].backward()
@@ -274,10 +274,12 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
             # Loss, gn and rewards
             f"return: {log['return']: 4.4f}, "
             f"traj_return: {log['traj_return']: 4.4f}, "
+            f"total_loss: {log['total_loss']: 4.4f}, "
             f"loss_actor:  {log['loss_actor']: 4.4f}, "
             f"loss_critic:  {log['loss_critic']: 4.4f}, "
             f"feasibility_loss: {log['loss_feasibility']: 4.4f}, "
             f"mean_violation: {log['mean_total_violation']: 4.4f}, "  
+            f"excess_POD_violation: {log['excess_POD_violation']: 4.4f}, "
             # Prediction
             f"x: {log['x']: 4.4f}, "
             f"loc(x): {log['loc(x)']: 4.4f}, "
@@ -331,6 +333,7 @@ def get_performance_metrics(subdata, td, env):
             "capacity_violation": subdata["violation"][...,1:-4].sum(dim=(1)).mean().item(),
             "LCG_violation": subdata["violation"][..., env.next_port_mask, -4:-2].sum(dim=(1,2)).mean().item(),
             "VCG_violation": subdata["violation"][..., env.next_port_mask, -2:].sum(dim=(1,2)).mean().item(),
+            "excess_POD_violation": subdata["observation", "excess_pod_locations"].sum(dim=(1)).mean().item(),
 
             # Environment
             "total_revenue": subdata["revenue"].sum(dim=(-2,-1)).mean().item(),
