@@ -153,7 +153,7 @@ class AttentionDecoderWithCache(nn.Module):
         # if mask is not None:
         #     mean = torch.where(mask, mean.squeeze(), 1e-6)
         #     std = torch.where(mask, std.squeeze(), 1e-6)
-        return mean.squeeze(), mean.squeeze()
+        return mean.squeeze(), std.squeeze()
 
     def pre_decoder_hook(self, td: TensorDict, env, embeddings: Tensor, num_starts: int = 0):
         return td, env, self._precompute_cache(embeddings, num_starts)

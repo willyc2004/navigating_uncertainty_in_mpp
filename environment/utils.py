@@ -188,6 +188,49 @@ def compute_excess_pod_blocks(pod_locations: th.Tensor, BL:int,) -> th.Tensor:
     # print(excess_pod_blocks.shape, excess_pod_blocks)
     # breakpoint()
 
+def get_POD_ratio_mask(expected_demand: th.Tensor, residual_capacity: th.Tensor, capacity: th.Tensor,
+                        pod_locations: th.Tensor, transport_idx:th.Tensor, pod:int, batch_size:tuple) -> th.Tensor:
+    """
+    add ...
+    """
+    # Shapes
+    B, BL, D, P = pod_locations.shape[-4:]
+    T = transport_idx.size(0)
+    device = pod_locations.device
+    expected_demand = expected_demand.view(*batch_size, T, -1)
+
+    # Indicate empty locations and used locations based on pod
+    empty_locations = ~pod_locations.any(dim=-1)
+    used_pod_locations = pod_locations[..., pod] > 0
+
+    # Indicate empty locations and used locations based on pod
+    pod_idx = (transport_idx[:, 1] == pod).nonzero(as_tuple=True)[0]
+    demand_ratio = expected_demand[..., pod_idx, :].sum(dim=(-2,-1)) / expected_demand.sum(dim=(-2,-1))
+    capacity_to_fill = capacity.sum(dim=(-3,-2,-1)) * demand_ratio
+
+    # Generate mirrored random scores for each bay
+    half_B = B // 2 + (B % 2)
+    random_scores_half = th.rand((*batch_size, half_B, BL), device=device)
+    random_scores = th.cat([random_scores_half, random_scores_half.flip(dims=[-2])], dim=-2)
+    random_scores = (empty_locations.all(dim=-2) * random_scores).view(*batch_size, -1)
+    sorted_indices = random_scores.argsort(dim=-1, descending=True)
+
+    # Gather capacities based on sorted indices
+    if batch_size != ():
+        capacity = capacity.unsqueeze(0).expand(*batch_size, B, BL, D)
+    # Find the first index where cumulative capacity exceeds capacity_to_fill
+    sorted_capacities = th.gather(capacity.sum(dim=-2).view(*batch_size, -1), dim=-1, index=sorted_indices)
+    enough_capacity_mask = sorted_capacities.cumsum(dim=-1) >= capacity_to_fill.unsqueeze(-1)
+    best_k = (enough_capacity_mask.int().argmax(dim=-1) + 1 )
+    best_k_mask = th.arange(B * BL, device=device).expand(*batch_size, -1) < best_k.unsqueeze(-1)
+
+    # Get selection mask
+    mask = th.zeros((*batch_size, B*BL), dtype=th.bool, device=device)
+    mask.scatter_(-1, sorted_indices, best_k_mask)
+    output = mask.view(*batch_size, B, 1, BL, ).expand(*batch_size, B, D, BL,) | used_pod_locations
+    return output.reshape(*batch_size, -1)
+
+
 def generate_POD_mask(pod_demand: th.Tensor, port_demand: th.Tensor, residual_capacity: th.Tensor, capacity: th.Tensor,
                       pod_locations: th.Tensor, pod:int, batch_size:tuple) -> th.Tensor:
     """
@@ -220,7 +263,7 @@ def generate_POD_mask(pod_demand: th.Tensor, port_demand: th.Tensor, residual_ca
     # Find the first index where cumulative capacity exceeds capacity_to_fill
     sorted_capacities = th.gather(capacity.sum(dim=-2).view(*batch_size, -1), dim=-1, index=sorted_indices)
     enough_capacity_mask = sorted_capacities.cumsum(dim=-1) >= capacity_to_fill.unsqueeze(-1)
-    best_k = enough_capacity_mask.int().argmax(dim=-1) + 1
+    best_k = (enough_capacity_mask.int().argmax(dim=-1) + 1 ) * 1.2
     best_k_mask = th.arange(B * BL, device=device).expand(*batch_size, -1) < best_k.unsqueeze(-1)
     # Get selection mask
     mask = th.zeros((*batch_size, B*BL), dtype=th.bool, device=device)
