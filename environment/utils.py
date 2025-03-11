@@ -194,6 +194,7 @@ def generate_POD_mask(pod_demand: th.Tensor, port_demand: th.Tensor, residual_ca
     Generates a boolean gate tensor of shape (B, BL) with exactly x elements set to True.
     The True values are randomly placed, and the rest are False.
     """
+    # todo: causes stability violations
     # Shapes
     B, BL, D, P = pod_locations.shape[-4:]
     device = pod_locations.device
@@ -201,20 +202,16 @@ def generate_POD_mask(pod_demand: th.Tensor, port_demand: th.Tensor, residual_ca
     # Indicate empty locations and used locations based on pod
     empty_locations = ~pod_locations.any(dim=-1)
     used_pod_locations = pod_locations[..., pod] > 0
-    partial_filled_pod_locations = (pod_locations.sum(dim=-1) > 0) & (residual_capacity < capacity)
 
     # Get amount of demand to be filled by new blocks
-    total_residual_capacity = residual_capacity.sum(dim=(-1,-2,-3))
-
-    # todo: add teu demand
     remaining_pod_demand = th.clamp(pod_demand - (residual_capacity * used_pod_locations).sum(dim=(-1,-2,-3)), min=0)
-    capacity_to_fill = th.minimum(total_residual_capacity, remaining_pod_demand)
+    capacity_to_fill = th.minimum(residual_capacity.sum(dim=(-1,-2,-3)), remaining_pod_demand)
 
     # Generate mirrored random scores for each bay
     half_B = B // 2 + (B % 2)
     random_scores_half = th.rand((*batch_size, half_B, BL), device=device)
     random_scores = th.cat([random_scores_half, random_scores_half.flip(dims=[-2])], dim=-2)
-    random_scores = (empty_locations.any(dim=-2) * random_scores).view(*batch_size, -1)
+    random_scores = (empty_locations.all(dim=-2) * random_scores).view(*batch_size, -1)
     sorted_indices = random_scores.argsort(dim=-1, descending=True)
 
     # Gather capacities based on sorted indices
@@ -229,6 +226,10 @@ def generate_POD_mask(pod_demand: th.Tensor, port_demand: th.Tensor, residual_ca
     mask = th.zeros((*batch_size, B*BL), dtype=th.bool, device=device)
     mask.scatter_(-1, sorted_indices, best_k_mask)
     output = mask.view(*batch_size, B, 1, BL, ).expand(*batch_size, B, D, BL,) | used_pod_locations
+    # if output.dim() > 3:
+    #     print("mask\n", mask[0], "\nrandom_scores\n", random_scores[0],
+    #     "\ncapacity\n", capacity.sum(dim=-2)[0].T, "\nsorted_indices\n", sorted_indices[0])
+    #     print("residual_capacity\n", (residual_capacity*output)[0].sum(), pod_demand[0], output[0].sum())
     return output.reshape(*batch_size, -1)
 
 
