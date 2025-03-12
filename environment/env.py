@@ -445,14 +445,14 @@ class MasterPlanningEnv(EnvBase):
                 demand_state["observed_demand"][..., load_idx, :] = demand_state["realized_demand"][..., load_idx, :]
 
         if k == 0 and self.block_stowage_mask:
-            action_state["action_mask"] = get_POD_ratio_mask(
-                demand_state["expected_demand"], vessel_state["residual_capacity"], self.capacity,
-                vessel_state["pod_locations"],  self.transport_idx, pod, batch_size)
-            # action_state["action_mask"] = generate_POD_mask(
-            #     demand_state["realized_demand"][..., tau, :] @ self.teus,
-            #     (demand_state["realized_demand"][..., load_idx, :] @ self.teus).sum(dim=-1),
-            #     vessel_state["residual_capacity"], self.capacity,
-            #     vessel_state["pod_locations"], pod, batch_size)
+            # action_state["action_mask"] = get_POD_ratio_mask(
+            #     demand_state["expected_demand"], vessel_state["residual_capacity"], self.capacity,
+            #     vessel_state["pod_locations"],  self.transport_idx, pod, batch_size)
+            action_state["action_mask"] = generate_POD_mask(
+                demand_state["realized_demand"][..., tau, :] @ self.teus,
+                (demand_state["realized_demand"][..., load_idx, :] @ self.teus).sum(dim=-1),
+                vessel_state["residual_capacity"], self.capacity,
+                vessel_state["pod_locations"], pod, batch_size)
 
         # Update residual lc capacity: target - actual load and discharge moves
         vessel_state["long_crane_moves"] = vessel_state["long_crane_moves_load"] + vessel_state["long_crane_moves_discharge"]
@@ -903,10 +903,10 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         # Action gate
         pod_locations = th.zeros((*batch_size, self.B, self.D, self.BL, self.P), dtype=self.float_type, device=device)
         if self.block_stowage_mask:
-            action_mask = get_POD_ratio_mask(expected_demand, residual_capacity, self.capacity, pod_locations,
-                                             self.transport_idx, pod, batch_size)
-            # action_mask = generate_POD_mask(realized_demand[..., tau, :].sum(dim=-1), realized_demand[...,load_idx,:].sum(dim=(-1,-2)),
-            #                                 residual_capacity, self.capacity, pod_locations, pod, batch_size)
+            # action_mask = get_POD_ratio_mask(expected_demand, residual_capacity, self.capacity, pod_locations,
+            #                                  self.transport_idx, pod, batch_size)
+            action_mask = generate_POD_mask(realized_demand[..., tau, :].sum(dim=-1), realized_demand[...,load_idx,:].sum(dim=(-1,-2)),
+                                            residual_capacity, self.capacity, pod_locations, pod, batch_size)
 
         # Init tds - state: internal state
         initial_state = TensorDict({
