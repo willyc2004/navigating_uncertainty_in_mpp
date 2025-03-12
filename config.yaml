@@ -2,7 +2,7 @@ algorithm:
   clip_range: 0.2
   demand_lambda: 1.0
   entropy_lambda: 0.010071090711145904
-  feasibility_lambda: 0.06773126513364854
+  feasibility_lambda: 0.00 #6773126513364854
   gae_lambda: 0.95
   gamma: 0.99
   max_grad_norm: 0.5
@@ -10,7 +10,7 @@ algorithm:
   ppo_epochs: 5
   stability_lambda: 1.0
   tau: 0.005
-  type: ppo
+  type: sac # todo: sac lower violation than ppo -> tune other hyperparameters
   vf_lambda: 0.5
 env:
   CI_target: 1.25
@@ -60,7 +60,7 @@ model:
   scale_max: 1.931286785557626
   tanh_clipping: 0
   tanh_squashing: false
-  temperature: 1.0
+  temperature: 0.015
 testing:
   num_episodes: 30
   folder: 'trial'
@@ -70,11 +70,10 @@ training:
   lr: 0.00020407622212291503
   optimizer: Adam
   projection_kwargs:
-    alpha: 0.05
-    delta: 0.05
-    max_iter: 100
-  # todo: linear violation goes to nan for block settings; ws+pc has major violations -> block env needs to be evaluated
-  projection_type: weighted_scaling_policy_clipping # None, weighted_scaling_policy_clipping, linear_violation
+    alpha: 0.025
+    delta: 0.025
+    max_iter: 200
+  projection_type: linear_violation # None, weighted_scaling_policy_clipping, linear_violation
   test_data_size: 5000
   train_data_size: 72000000
   val_data_size: 5000
