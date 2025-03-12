@@ -146,7 +146,7 @@ class AttentionDecoderWithCache(nn.Module):
         # Apply temperature scaling and max scaling
         if self.temperature is not None:
             mean = mean/self.temperature
-            std = std/self.temperature
+            # std = std/self.temperature
         if self.scale_max is not None:
             std = std.clamp(max=self.scale_max)
 
