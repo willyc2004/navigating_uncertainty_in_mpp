@@ -157,6 +157,11 @@ def compute_long_crane(utilization: th.Tensor, moves: th.Tensor, T: int, block=F
     moves_per_bay = (utilization * moves_idx).sum(dim=sum_dims)
     return moves_per_bay[..., :-1] + moves_per_bay[..., 1:]
 
+def compute_long_crane_excess_cost(lc_moves:th.Tensor, target_long_crane:th.Tensor, cm_costs:th.Tensor) -> th.Tensor:
+    """Computes the crane excess cost  """
+    lc_excess = th.clamp(lc_moves - target_long_crane.view(-1, 1), min=0)
+    return lc_excess.sum(dim=-1, keepdim=True) * cm_costs
+
 def compute_pol_pod_locations(utilization: th.Tensor, transform_tau_to_pol, transform_tau_to_pod, eps=1e-2) -> Tuple[th.Tensor, th.Tensor]:
     """Compute POL and POD locations based on utilization"""
     if utilization.dim() == 4:
