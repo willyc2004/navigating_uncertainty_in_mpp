@@ -179,12 +179,9 @@ class MasterPlanningEnv(EnvBase):
         else:
             # Compute crane excess at last port (only discharging)
             lc_moves_last_port = compute_long_crane(vessel_state["utilization"], moves, self.T)
-            lc_excess_last_port = th.clamp(lc_moves_last_port - next_state_dict["target_long_crane"].view(-1,1), min=0)
-
-            # Update cost and profit
-            lc_cost_ = lc_excess_last_port.sum(dim=-1, keepdim=True) * self.cm_costs
-            profit -= lc_cost_
-            cost += lc_cost_
+            cm_costs_last_port = compute_long_crane_excess_cost(lc_moves_last_port, next_state_dict["target_long_crane"], self.cm_costs)
+            profit -= cm_costs_last_port
+            cost += cm_costs_last_port
 
         # Update td output
         reward = self._compute_final_reward(revenue, cost, demand_state, step, time, batch_size)
@@ -679,12 +676,11 @@ class MasterPlanningEnv(EnvBase):
         Costs are based on utilization, long crane moves and target long crane"""
         profit = revenue.clone()
         if self.next_port_mask[step].any():
-            # Compute aggregated: overstowage and long crane excess
+            # Compute overstowage costs
             overstowage = compute_hatch_overstowage(vessel_state["utilization"], moves, ac_transport, block)
-            excess_crane_moves = th.clamp(vessel_state["long_crane_moves_load"] + vessel_state["long_crane_moves_discharge"] - vessel_state["target_long_crane"].view(-1, 1), min=0)
-            # Compute costs
             ho_costs = overstowage.sum(dim=-1, keepdim=True) * self.ho_costs
-            cm_costs = excess_crane_moves.sum(dim=-1, keepdim=True) * self.cm_costs
+            # Compute crane move costs
+            cm_costs = compute_long_crane_excess_cost(vessel_state["long_crane_moves_discharge"], vessel_state["target_long_crane"], self.cm_costs)            
             cost = ho_costs + cm_costs
             profit -= cost
         else:
@@ -776,18 +772,6 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         # Transition to next step
         is_done = done.any()
         time = th.where(is_done, time, time + 1)
-
-        # todo: masks are not great for utilization
-        # if self.block_stowage_mask:
-        #     # print(vessel_state["pod_locations"].sum(dim=-3).to(self.float_type).mean())
-        #     block_mask = compute_strict_BS_mask(pod, vessel_state["pod_locations"])
-        #     action_mask = block_mask.view(*batch_size, self.B, 1, self.BL).expand(*batch_size, self.B, self.D, self.BL)
-        #     # print("% actions", action_mask.reshape(*batch_size,-1).sum(dim=-1).to(self.float_type).mean()/(self.B*self.D*self.BL))
-        # elif self.ho_mask:
-        #     min_pod = compute_min_pod(vessel_state["pod_locations"], self.P, self.float_type)
-        #     action_mask = compute_HO_mask(action_state["action_mask"], pod, vessel_state["pod_locations"], min_pod)
-        # else:
-        #     action_mask = th.ones_like(action_state["action"], dtype=bool)
         next_state_dict = self._update_next_state(vessel_state, demand_state, action_state, time, batch_size, block=True)
 
         if not is_done:
@@ -797,15 +781,11 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
                 next_state_dict["utilization"], next_state_dict["current_demand"], self.swap_signs_block_stability,
                 self.block_A, self.n_block_constraints, self.n_demand, self.n_block_locations, batch_size)
         else:
-            # todo: make a fn for this:
-            # Compute crane excess at last port (only discharging)
+            # Compute crane cost at last port (only discharging)
             lc_moves_last_port = compute_long_crane(vessel_state["utilization"], moves, self.T, block=True)
-            lc_excess_last_port = th.clamp(lc_moves_last_port - next_state_dict["target_long_crane"].view(-1, 1), min=0)
-
-            # Update cost and profit
-            lc_cost_ = lc_excess_last_port.sum(dim=-1, keepdim=True) * self.cm_costs
-            profit -= lc_cost_
-            cost += lc_cost_
+            cm_costs_last_port = compute_long_crane_excess_cost(lc_moves_last_port, next_state_dict["target_long_crane"], self.cm_costs)
+            profit -= cm_costs_last_port
+            cost += cm_costs_last_port
 
         # Update td output
         reward = self._compute_final_reward(revenue, cost, demand_state, step, time, batch_size)
