@@ -1,0 +1,24 @@
+method: bayes
+metric:
+  name: val/return
+  goal: maximize
+run_cap: 100
+parameters:
+  lr:
+    min: 0.000001
+    max: 0.001
+  temperature:
+    min: 0.001
+    max: 1.0
+  scale_max:
+    min: 0.25
+    max: 10.0
+  alpha:
+    min: 0.001
+    max: 0.05
+  delta:
+    min: 0.001
+    max: 0.05
+  iters:
+    min: 100
+    max: 300
