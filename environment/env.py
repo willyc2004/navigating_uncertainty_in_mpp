@@ -156,7 +156,7 @@ class MasterPlanningEnv(EnvBase):
         vessel_state["pol_locations"], vessel_state["pod_locations"] = compute_pol_pod_locations(
             vessel_state["utilization"], self.transform_tau_to_pol, self.transform_tau_to_pod)
         vessel_state["agg_pol_location"], vessel_state["agg_pod_location"] = aggregate_pol_pod_location(
-            vessel_state["pol_locations"], vessel_state["pod_locations"], self.float_type)
+            vessel_state["pol_locations"], vessel_state["pod_locations"], self.float_type, block=False)
 
         # Compute total loaded
         sum_action = action_state["action"].sum(dim=(-2, -1)).unsqueeze(-1)
@@ -732,7 +732,6 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         self._initialize_block_stability()
         self._initialize_block_constraints()
 
-
     def _step(self, td: TensorDict) -> TensorDict:
         """Perform a step in the environment and return the next state."""
         # Extraction
@@ -757,7 +756,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         vessel_state["pol_locations"], vessel_state["pod_locations"] = compute_pol_pod_locations(
             vessel_state["utilization"], self.transform_tau_to_pol, self.transform_tau_to_pod)
         agg_pol_location, agg_pod_location = aggregate_pol_pod_location(
-            vessel_state["pol_locations"], vessel_state["pod_locations"], self.float_type)
+            vessel_state["pol_locations"], vessel_state["pod_locations"], self.float_type, block=True)
 
         # compute unique number of pods at each bay,block
         excess_pod_locations = th.clamp((vessel_state["pod_locations"].sum(dim=-3) > 0).sum(dim=-1) - 1, min=0.0)

@@ -222,7 +222,7 @@ def get_POD_ratio_mask(expected_demand: th.Tensor, residual_capacity: th.Tensor,
 
     # Gather capacities based on sorted indices
     if batch_size != ():
-        capacity = capacity.unsqueeze(0).expand(*batch_size, B, BL, D)
+        capacity = capacity.unsqueeze(0).expand(*batch_size, B, D, BL)
     # Find the first index where cumulative capacity exceeds capacity_to_fill
     sorted_capacities = th.gather(capacity.sum(dim=-2).view(*batch_size, -1), dim=-1, index=sorted_indices)
     enough_capacity_mask = sorted_capacities.cumsum(dim=-1) >= capacity_to_fill.unsqueeze(-1)
@@ -242,9 +242,9 @@ def generate_POD_mask(pod_demand: th.Tensor, port_demand: th.Tensor, residual_ca
     Generates a boolean gate tensor of shape (B, BL) with exactly x elements set to True.
     The True values are randomly placed, and the rest are False.
     """
-    # todo: causes stability violations
+    # todo: causes stability violations -  it can be fixed to minimal violations
     # Shapes
-    B, BL, D, P = pod_locations.shape[-4:]
+    B, D, BL, P = pod_locations.shape[-4:]
     device = pod_locations.device
 
     # Indicate empty locations and used locations based on pod
@@ -264,7 +264,7 @@ def generate_POD_mask(pod_demand: th.Tensor, port_demand: th.Tensor, residual_ca
 
     # Gather capacities based on sorted indices
     if batch_size != ():
-        capacity = capacity.unsqueeze(0).expand(*batch_size, B, BL, D)
+        capacity = capacity.unsqueeze(0).expand(*batch_size, B, D, BL)
     # Find the first index where cumulative capacity exceeds capacity_to_fill
     sorted_capacities = th.gather(capacity.sum(dim=-2).view(*batch_size, -1), dim=-1, index=sorted_indices)
     enough_capacity_mask = sorted_capacities.cumsum(dim=-1) >= capacity_to_fill.unsqueeze(-1)
@@ -304,28 +304,42 @@ def aggregate_indices(binary_matrix, get_highest=True):
 
     return result
 
-def aggregate_pol_pod_location(pol_locations: th.Tensor, pod_locations: th.Tensor, float_type:th.dtype) -> Tuple:
+def aggregate_pol_pod_location(pol_locations: th.Tensor, pod_locations: th.Tensor, float_type:th.dtype,
+                               block:bool=True) -> Tuple:
     """Aggregate pol_locations and pod_locations into:
         - pod: [max(pod_d0), min(pod_d1)]
         - pol: [min(pol_d0), max(pol_d1)]"""
 
     ## Get load indicators - we load below deck that is blocked
     # For above deck (d=0):
-    min_pol_d0 = aggregate_indices(pol_locations[..., 0, :], get_highest=False)
+    if block:
+        min_pol_d0_idx = (..., 0, slice(None), slice(None))
+        max_pol_d1_idx = (..., 1, slice(None), slice(None))
+        max_pod_d0_idx = (..., 0, slice(None), slice(None))
+        min_pod_d1_idx = (..., 1, slice(None), slice(None))
+        agg_dim = -2
+    else:
+        min_pol_d0_idx = (..., 0, slice(None))
+        max_pol_d1_idx = (..., 1, slice(None))
+        max_pod_d0_idx = (..., 0, slice(None))
+        min_pod_d1_idx = (..., 1, slice(None))
+        agg_dim = -1
+
+    min_pol_d0 = aggregate_indices(pol_locations[min_pol_d0_idx], get_highest=False)
     #th.where(pol_locations[..., 0, :] > 0, ports + 1, 0).min(dim=-1).values
     # For below deck (d=1):
-    max_pol_d1 = aggregate_indices(pol_locations[..., 1, :], get_highest=True)
+    max_pol_d1 = aggregate_indices(pol_locations[max_pol_d1_idx], get_highest=True)
     # th.where(pol_locations[..., 1, :] > 0, ports + 1, 0).max(dim=-1).values
-    agg_pol_locations = th.stack((min_pol_d0, max_pol_d1), dim=-1)
+    agg_pol_locations = th.stack((min_pol_d0, max_pol_d1), dim=agg_dim)
 
     ## Get discharge indicators - we discharge below deck that is blocked
     # For above deck (d=0):
-    max_pod_d0 = aggregate_indices(pod_locations[..., 0, :], get_highest=True)
+    max_pod_d0 = aggregate_indices(pod_locations[max_pod_d0_idx], get_highest=True)
     # th.where(pod_locations[..., 0, :] > 0, ports+1, 0).max(dim=-1).values
     # For below deck (d=1):
-    min_pod_d1 = aggregate_indices(pod_locations[..., 0, :], get_highest=False)
+    min_pod_d1 = aggregate_indices(pod_locations[min_pod_d1_idx], get_highest=False)
     # th.where(pod_locations[..., 1, :] > 0, ports+1, 0).min(dim=-1).values
-    agg_pod_locations = th.stack((max_pod_d0, min_pod_d1), dim=-1)
+    agg_pod_locations = th.stack((max_pod_d0, min_pod_d1), dim=agg_dim)
     # Return indicators
     return agg_pol_locations.to(float_type), agg_pod_locations.to(float_type)
 
