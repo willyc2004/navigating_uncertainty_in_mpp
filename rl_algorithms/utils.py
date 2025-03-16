@@ -24,7 +24,7 @@ def adapt_env_kwargs(config):
     config_env.bays = 10 if config_env.TEU == 1000 else 20
     config_env.weight_classes = 3 if config_env.cargo_classes % 3 == 0 else 2 # 2 weights for 2 classes, 3 weights for 3,6 classes
     config_env.capacity = [50] if config_env.TEU == 1000 else [500]
-    config_env.blocks = 2 if config_env.TEU == 1000 else 3
+    config_env.blocks = 1 if config_env.TEU == 1000 else 3
     return config
 
 def recursive_check_for_nans(td, parent_key=""):
