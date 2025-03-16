@@ -15,17 +15,17 @@ algorithm:
 env:
   CI_target: 1.25
   LCG_target: 0.95
-  TEU: 20000
+  TEU: 1000
   VCG_target: 1.05
-  bays: 20
-  blocks: 3
+  bays: 10
+  blocks: 1
   capacity:
-  - 500
+  - 50
   cargo_classes: 6
   customer_classes: 2
   cv_demand: 0.5
   decks: 2
-  demand_uncertainty: true
+  demand_uncertainty: false
   env_name: block_mpp #mpp
   episode_order: standard
   generalization: false
