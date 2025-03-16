@@ -1049,8 +1049,9 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             self.capacity[..., i] = th.full((self.B, self.D), capacity * ratio, device=self.device, dtype=self.float_type)
         # Needed for 1000 TEU vessel, 20k TEU works fine
         if self.total_capacity == 1000:
-            self.capacity[...,0] = th.ceil(self.capacity[...,0]/2)*2
-            self.capacity[...,1] = th.floor(self.capacity[...,1]/2)*2
+            pass
+            # self.capacity[...,0] = th.ceil(self.capacity[...,0]/2)*2
+            # self.capacity[...,1] = th.floor(self.capacity[...,1]/2)*2
 
     def _initialize_block_stability(self, ):
         """Initialize stability parameters"""
