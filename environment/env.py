@@ -1047,11 +1047,10 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         block_ratios = [2 / (self.BL + 1)] + [1 / (self.BL + 1)] * (self.BL - 1)
         for i, ratio in enumerate(block_ratios):
             self.capacity[..., i] = th.full((self.B, self.D), capacity * ratio, device=self.device, dtype=self.float_type)
-        # Needed for 1000 TEU vessel, 20k TEU works fine
-        if self.total_capacity == 1000:
-            pass
-            # self.capacity[...,0] = th.ceil(self.capacity[...,0]/2)*2
-            # self.capacity[...,1] = th.floor(self.capacity[...,1]/2)*2
+        # Needed for 2 paired-blocks; i.e., 3 hatch covers
+        if self.BL == 2:
+            self.capacity[...,0] = th.ceil(self.capacity[...,0]/2)*2
+            self.capacity[...,1] = th.floor(self.capacity[...,1]/2)*2
 
     def _initialize_block_stability(self, ):
         """Initialize stability parameters"""
