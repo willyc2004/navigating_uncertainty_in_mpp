@@ -25,7 +25,7 @@ env:
   customer_classes: 2
   cv_demand: 0.5
   decks: 2
-  demand_uncertainty: false
+  demand_uncertainty: true
   env_name: block_mpp #mpp
   episode_order: standard
   generalization: false
