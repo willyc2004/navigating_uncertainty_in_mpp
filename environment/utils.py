@@ -250,6 +250,9 @@ def generate_POD_mask(pod_demand: th.Tensor, port_demand: th.Tensor, residual_ca
     # Indicate empty locations and used locations based on pod
     empty_locations = ~pod_locations.any(dim=-1)
     used_pod_locations = pod_locations[..., pod] > 0
+    # print("empty\n", empty_locations[0].T)
+    # print("empty_all\n", empty_locations.all(dim=-2)[0].T)
+    # print("used_pod_locations\n", used_pod_locations[0].T)
 
     # Get amount of demand to be filled by new blocks
     remaining_pod_demand = th.clamp(pod_demand - (residual_capacity * used_pod_locations).sum(dim=(-1,-2,-3)), min=0)
@@ -260,6 +263,7 @@ def generate_POD_mask(pod_demand: th.Tensor, port_demand: th.Tensor, residual_ca
     random_scores_half = th.rand((*batch_size, half_B, BL), device=device)
     random_scores = th.cat([random_scores_half, random_scores_half.flip(dims=[-2])], dim=-2)
     random_scores = (empty_locations.all(dim=-2) * random_scores).view(*batch_size, -1)
+    # print("random_score\n", random_scores[0].T) # todo: maybe available locations less than needed, hence 0 random score are selected?
     sorted_indices = random_scores.argsort(dim=-1, descending=True)
 
     # Gather capacities based on sorted indices
@@ -273,11 +277,12 @@ def generate_POD_mask(pod_demand: th.Tensor, port_demand: th.Tensor, residual_ca
     # Get selection mask
     mask = th.zeros((*batch_size, B*BL), dtype=th.bool, device=device)
     mask.scatter_(-1, sorted_indices, best_k_mask)
-    output = mask.view(*batch_size, B, 1, BL, ).expand(*batch_size, B, D, BL,) | used_pod_locations
+    output = empty_locations.all(dim=-2).view(*batch_size, B, 1, BL) * mask.view(*batch_size, B, 1, BL, ).expand(*batch_size, B, D, BL,) | used_pod_locations
     # if output.dim() > 3:
     #     print("mask\n", mask[0], "\nrandom_scores\n", random_scores[0],
     #     "\ncapacity\n", capacity.sum(dim=-2)[0].T, "\nsorted_indices\n", sorted_indices[0])
     #     print("residual_capacity\n", (residual_capacity*output)[0].sum(), pod_demand[0], output[0].sum())
+    # print("output\n",output[0].T)
     return output.reshape(*batch_size, -1)
 
 
@@ -286,7 +291,7 @@ def aggregate_indices(binary_matrix, get_highest=True):
     bays, ports = binary_matrix.shape[-2:]
 
     # Create a tensor of indices [0, 1, ..., columns - 1]
-    indices = th.arange(ports, device=binary_matrix.device).expand(bays, -1) + 1
+    indices = th.arange(ports, device=binary_matrix.device).expand(bays, -1)
     if get_highest:
         # Find the highest True index
         # Reverse the indices and binary matrix along the last dimension
