@@ -706,6 +706,7 @@ if __name__ == "__main__":
 
     # Precompute largest scenario tree
     stages = config.env.ports - 1  # Number of load ports (P-1)
+    teu = config.env.teu
     max_scenarios_per_stage = max(num_scenarios) if max(num_scenarios) >= 28 else 28
     # Number of scenarios per stage
     max_paths = max_scenarios_per_stage ** (stages-1) + 1 if not deterministic else 1
@@ -732,6 +733,7 @@ if __name__ == "__main__":
                 os.makedirs("./test_results/scenario_tree")
 
             # Save results in json
-            with open(f"./test_results/scenario_tree/block_mpp/results_scenario_tree_p{stages}_e{x}_s{scen}_pi{perfect_information}"
+            with open(f"./test_results/scenario_tree/block_mpp/results_scenario_tree_teu{teu}_p{stages}_"
+                      f"e{x}_s{scen}_pi{perfect_information}"
                       f"_gen{generalization}.json", "w") as json_file:
                 json.dump(result, json_file, indent=4)
