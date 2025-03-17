@@ -2,11 +2,11 @@
 #SBATCH --job-name=scenario_tree_mip.py         # Job name
 #SBATCH --output=output_files/cpu_job.%j.out    # Name of output file (%j expands to jobId)
 #SBATCH --error=output_files/cpu_job.%j.err     # Separate error log
-#SBATCH --cpus-per-task=8                       # Use fewer CPUs to fit into `mix` nodes
-#SBATCH --time=1-00:00:00                       # Run time (d-hh:mm:ss)
+#SBATCH --cpus-per-task=32                      # Use fewer CPUs to fit into `mix` nodes
+#SBATCH --time=3-00:00:00                       # Run time (d-hh:mm:ss)
 #SBATCH --mail-type=FAIL,END                    # Send an email when the job finishes or fails
 #SBATCH --nodes=1                               # Request 1 node
-#SBATCH --nodelist=desktop1,desktop2,desktop3,desktop4,desktop5,desktop6,desktop7,desktop8,desktop9,desktop12,desktop15,desktop16
+#SBATCH --constraint=arch_zenver1               # Use Zen 2 CPUs
 
 # Print out the hostname of the node the job is running on
 hostname
