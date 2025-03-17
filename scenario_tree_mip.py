@@ -732,6 +732,6 @@ if __name__ == "__main__":
                 os.makedirs("./test_results/scenario_tree")
 
             # Save results in json
-            with open(f"./test_results/scenario_tree/block_mpp/results_scenario_tree_e{x}_s{scen}_pi{perfect_information}"
+            with open(f"./test_results/scenario_tree/block_mpp/results_scenario_tree_p{stages}_e{x}_s{scen}_pi{perfect_information}"
                       f"_gen{generalization}.json", "w") as json_file:
                 json.dump(result, json_file, indent=4)
