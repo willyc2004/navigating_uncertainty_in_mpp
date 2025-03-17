@@ -690,16 +690,35 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
         print("No solution found")
 
 if __name__ == "__main__":
+    # allow arguments to be passed to the script
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ports", type=int, default=4)
+    parser.add_argument("--teu", type=int, default=1000)
+    parser.add_argument("--perfect_information", type=bool, default=True)
+    parser.add_argument("--deterministic", type=bool, default=True)
+    parser.add_argument("--generalization", type=bool, default=False)
+    parser.add_argument("--num_episodes", type=int, default=30)
+    # todo: add warm solution
+    parser = parser.parse_args()
+
     # Load the configuration file
     with open(f'{path_to_main}/config.yaml', 'r') as file:
         config = yaml.safe_load(file)
         config = DotMap(config)
         config = adapt_env_kwargs(config)
 
+        # Add the arguments to the configuration
+        config.env.ports = parser.ports
+        config.env.teu = parser.teu
+        config.env.perfect_information = parser.perfect_information
+        config.env.deterministic = parser.deterministic
+        config.env.generalization = parser.generalization
+        config.testing.num_episodes = parser.num_episodes
+
     # Run main for different seeds and number of scenarios
-    perfect_information = True
-    deterministic = True
-    debug = False
+    perfect_information = parser.perfect_information
+    deterministic = parser.deterministic
     generalization = config.env.generalization
     num_episodes = config.testing.num_episodes
     num_scenarios = [1] if deterministic else ([28] if generalization else [4, 8, 12, 16, 20, 24, 28])
@@ -730,7 +749,7 @@ if __name__ == "__main__":
 
             # setup folder
             if not os.path.exists("./test_results/scenario_tree/block_mpp/"):
-                os.makedirs("./test_results/scenario_tree")
+                os.makedirs("./test_results/scenario_tree/block_mpp/")
 
             # Save results in json
             with open(f"./test_results/scenario_tree/block_mpp/results_scenario_tree_teu{teu}_p{stages}_"
