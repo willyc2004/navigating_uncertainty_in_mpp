@@ -8,6 +8,7 @@ from docplex.mp.model import Model
 import sys
 import os
 import json
+import argparse
 
 path = 'add path to cplex here'
 sys.path.append(path)
@@ -690,8 +691,6 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
         print("No solution found")
 
 if __name__ == "__main__":
-    # allow arguments to be passed to the script
-    import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--ports", type=int, default=4)
     parser.add_argument("--teu", type=int, default=1000)
