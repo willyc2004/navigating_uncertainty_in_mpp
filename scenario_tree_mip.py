@@ -113,7 +113,7 @@ def onboard_groups(ports:int, pol:int, transport_indices:list) -> np.array:
 
 # Main function
 def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
-         perfect_information=False, deterministic=False, warm_start=None, bay_mix=0.1):
+         perfect_information=False, deterministic=False, warm_solution=None,):
     # Scenario tree parameters
     M = 10 ** 3 # Big M
     num_nodes_per_stage = [1*scenarios_per_stage**stage for stage in range(stages)]
@@ -158,7 +158,26 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
     all_load_moves = []
     transport_indices = [(i, j) for i in range(P) for j in range(P) if i < j]
 
-    def build_tree_mpp(stages, demand, mip_start=None):
+    def _get_warm_start_dict(x):
+        """Function to get the warm start dictionary"""
+        warm_start_dict = {}
+
+        # f"x_{stage}_{node_id}_{bay}_{deck}_{cargo_class}_{pol}_{pod}"
+
+        for stage in range(stages):
+            for node_id in range(num_nodes_per_stage[stage]):
+                for bay in range(B):
+                    for deck in range(D):
+                        for cargo_class in range(K):
+                            for pol in range(stage + 1):
+                                for pod in range(pol + 1, P):
+                                    warm_start_dict[f'x_{stage}_{node_id}_{bay}_{deck}_{cargo_class}_{pol}_{pod}'] = x[
+                                        stage, node_id, bay, deck, cargo_class, pol, pod].solution_value
+        print(f'Warm start dict: {warm_start_dict}')
+        breakpoint()
+        return warm_start_dict
+
+    def build_tree_mpp(stages, demand, warm_solution=None):
         """Function to build the scenario tree; with decisions and constraints for each node"""
         for stage in range(stages):
             for node_id in range(num_nodes_per_stage[stage]):
@@ -303,12 +322,12 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
                 # mdl.add_constraint(CI[stage, node_id] <= CI_target[stage, node_id])
                 mdl.add_constraint(CI[stage, node_id] - CI_target[stage, node_id] <= CM[stage, node_id])
 
-
         # Add mip start
-        if mip_start:
-            mdl.add_mip_start({x[key]: value for key, value in mip_start.items()}, write_level=1)
+        if warm_solution:
+            start_dict = _get_warm_start_dict(warm_solution)
+            mdl.add_mip_start({x[key]: value for key, value in start_dict.items()}, write_level=1)
 
-    def build_tree_block_mpp(stages, demand, mip_start=None):
+    def build_tree_block_mpp(stages, demand, warm_solution=None):
         """Function to build the scenario tree; with decisions and constraints for each node"""
         for stage in range(stages):
             for node_id in range(num_nodes_per_stage[stage]):
@@ -352,7 +371,6 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
             all_port_moves.append(port_moves)
             all_load_moves.append(load_moves)
 
-            # todo: capacity of shape (B,D,BL)
             # constraints for the current stage and node
             for node_id in range(num_nodes_per_stage[stage]):
                 print(f"Stage {stage}, Node {node_id}")
@@ -488,14 +506,15 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
                 # )
 
         # Add mip start
-        if mip_start:
-            mdl.add_mip_start({x[key]: value for key, value in mip_start.items()}, write_level=1)
+        if warm_solution:
+            start_dict = _get_warm_start_dict(warm_solution)
+            mdl.add_mip_start({x[key]: value for key, value in start_dict.items()}, write_level=1)
 
     # Build the scenario tree
     if config.env.env_name == "mpp":
-        build_tree_mpp(stages, demand, warm_start)
+        build_tree_mpp(stages, demand, warm_solution)
     elif config.env.env_name == "block_mpp":
-        build_tree_block_mpp(stages, demand, warm_start)
+        build_tree_block_mpp(stages, demand, warm_solution)
 
     # Define the objective function
     # Reshape revenues to match the shape of x
