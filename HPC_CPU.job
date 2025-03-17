@@ -6,9 +6,7 @@
 #SBATCH --time=3-00:00:00                       # Run time (d-hh:mm:ss)
 #SBATCH --mail-type=FAIL,END                    # Send an email when the job finishes or fails
 #SBATCH --nodes=1                               # Request 1 node
-#SBATCH --constraint=arch_zenver1               # Use Zen 2 CPUs
-#SBATCH --nodelist=cn14,cn15                    # Request specific nodes
-#SBATCH --partition=cores                       # Explicitly request the standard partition
+#SBATCH --partition=superc34                       # Explicitly request the standard partition
 
 
 # Print out the hostname of the node the job is running on
