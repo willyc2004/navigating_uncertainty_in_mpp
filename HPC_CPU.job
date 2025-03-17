@@ -6,7 +6,9 @@
 #SBATCH --time=7-00:00:00                       # Run time (d-hh:mm:ss)
 #SBATCH --partition=cores_any                   # Select the cores_any partition
 #SBATCH --mail-type=FAIL,END                    # Send an email when the job finishes or fails
-#SBATCH --nodelist=desktop1-9,desktop12,desktop15-16     # Run on the desktop nodes, similar CPUs
+#SBATCH --nodelist=desktop1,desktop2,desktop3,desktop4,desktop5,
+                   desktop6,desktop7,desktop8,desktop9,desktop10,
+                   desktop11,desktop12,desktop13,desktop14,desktop15,desktop16
 
 # Print out the hostname of the node the job is running on
 hostname
