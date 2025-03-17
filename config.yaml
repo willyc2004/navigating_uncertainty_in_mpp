@@ -15,7 +15,7 @@ algorithm:
 env:
   CI_target: 1.25
   LCG_target: 0.95
-  TEU: 1000
+  TEU: 20000
   VCG_target: 1.05
   bays: 10
   blocks: 1
@@ -35,7 +35,7 @@ env:
   iid_demand: true
   long_crane_costs: 0.5
   normalize_obs: true
-  ports: 6
+  ports: 4
   seed: 42
   spot_percentage: 0.3
   stability_difference: 0.1
