@@ -727,14 +727,11 @@ if __name__ == "__main__":
             # Run the main logic and get results and variables
             result, var = main(env, demand_sub_tree, scen, stages, max_paths, seed, perfect_information, deterministic)
 
-            # todo: save results properly
-            # # Save results for this episode and scenario
-            # if debug:
-            #     # Save debug results
-            #     with open(f"./test_results/scenario_tree/results_scenario_tree_e{x}_s{scen}_debug.json","w") as json_file:
-            #         json.dump(result, json_file, indent=4)
-            # else:
-            #     # Save regular results
-            #     with open(f"./test_results/scenario_tree/results_scenario_tree_e{x}_s{scen}_pi{perfect_information}"
-            #             f"_gen{generalization}.json", "w") as json_file:
-            #         json.dump(result, json_file, indent=4)
+            # setup folder
+            if not os.path.exists("./test_results/scenario_tree/block_mpp/"):
+                os.makedirs("./test_results/scenario_tree")
+
+            # Save results in json
+            with open(f"./test_results/scenario_tree/block_mpp/results_scenario_tree_e{x}_s{scen}_pi{perfect_information}"
+                      f"_gen{generalization}.json", "w") as json_file:
+                json.dump(result, json_file, indent=4)
