@@ -694,9 +694,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ports", type=int, default=4)
     parser.add_argument("--teu", type=int, default=1000)
-    parser.add_argument("--perfect_information", type=bool, default=True)
-    parser.add_argument("--deterministic", type=bool, default=True)
-    parser.add_argument("--generalization", type=bool, default=False)
+    parser.add_argument("--deterministic", type=lambda x: x.lower() == "true", default=True,
+                        help="Enable deterministic mode (true/false)")
+    parser.add_argument("--perfect_information", type=lambda x: x.lower() == "true", default=True,
+                        help="Enable perfect information (true/false)")
+    parser.add_argument("--generalization", type=lambda x: x.lower() == "true", default=False,
+                        help="Enable generalization (true/false)")
     parser.add_argument("--num_episodes", type=int, default=30)
     # todo: add warm solution
     parser = parser.parse_args()
