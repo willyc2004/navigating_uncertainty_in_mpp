@@ -703,8 +703,6 @@ if __name__ == "__main__":
     parser.add_argument("--num_episodes", type=int, default=30)
     # todo: add warm solution
     parser = parser.parse_args()
-    print(parser.deterministic)
-    breakpoint()
 
     # Load the configuration file
     with open(f'{path_to_main}/config.yaml', 'r') as file:
