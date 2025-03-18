@@ -71,7 +71,7 @@ class CriticEmbedding(nn.Module):
         self.env = env
         self.seq_dim = seq_dim
         self.BL = self.env.BL if hasattr(self.env, 'BL') else 1
-        self.obs_dim = self.env.T * self.env.K + self.env.B*self.env.D*self.BL + self.env.B-1 + 2 + 3*self.env.B*self.env.D*self.BL
+        self.obs_dim = 1+self.env.T * self.env.K + self.env.B*self.env.D*self.BL + self.env.B-1 + 2 + 3*self.env.B*self.env.D*self.BL
         self.project_context = nn.Linear(embed_dim + self.obs_dim, embed_dim,)
         self.train_max_demand = self.env.generator.train_max_demand
 
@@ -79,6 +79,7 @@ class CriticEmbedding(nn.Module):
         batch_size = td.batch_size
         max_demand = td["realized_demand"].max() if self.train_max_demand == None else self.train_max_demand
         return torch.cat([
+            td["total_profit"] / (td["max_total_profit"]+1e-6),
             (td["observed_demand"] / max_demand ).view(*batch_size, -1),
             (td["residual_capacity"] / self.env.capacity.view(1, -1)).view(*batch_size, -1),
             (td["residual_lc_capacity"] / td["target_long_crane"].unsqueeze(0)).view(*batch_size, -1),
@@ -87,7 +88,6 @@ class CriticEmbedding(nn.Module):
             td["agg_pol_location"] / self.env.P,
             td["agg_pod_location"] / self.env.P,
             td["action_mask"],
-            # td["gate"]
         ], dim=-1)
 
     def forward(self,  latent_state: Tensor, td: TensorDict):
@@ -113,12 +113,13 @@ class ContextEmbedding(nn.Module):
         self.env = env
         self.seq_dim = seq_dim
         self.BL = self.env.BL if hasattr(self.env, 'BL') else 1
-        self.obs_dim = self.env.B*self.env.D*self.BL + self.env.B-1 + 2 + 3*self.env.B*self.env.D*self.BL
+        self.obs_dim = 1+self.env.B*self.env.D*self.BL + self.env.B-1 + 2 + 3*self.env.B*self.env.D*self.BL
         self.project_context = nn.Linear(embed_dim + self.obs_dim, embed_dim,)
 
     def normalize_obs(self, td):
         batch_size = td.batch_size
         return torch.cat([
+            td["total_profit"] / (td["max_total_profit"]+1e-6),
             (td["residual_capacity"] / self.env.capacity.view(1, -1)).view(*batch_size, -1),
             (td["residual_lc_capacity"] / td["target_long_crane"].unsqueeze(0)).view(*batch_size, -1),
             td["lcg"],

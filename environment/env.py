@@ -791,6 +791,8 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         residual_capacity = self._compute_residual_capacity(next_state_dict["utilization"]) if not is_done else \
             torch.zeros_like(td["observation"]["residual_capacity"], dtype=self.float_type).view(*batch_size, self.B,self.D,self.BL )
         clip_max = self._compute_clip_max(residual_capacity, next_state_dict, batch_size, step)
+        total_profit = td["observation", "total_profit"] + profit
+        max_total_profit = td["observation", "max_total_profit"] +  self.revenues.max() * demand_state["current_demand"]
         out = TensorDict({
             "observation": {
                 # Vessel
@@ -816,6 +818,8 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
                 "excess_pod_locations": excess_pod_locations.view(*batch_size, self.B * self.BL),
                 "timestep": time,
                 "action_mask": next_state_dict["action_mask"].reshape(*batch_size, self.B * self.D * self.BL),
+                "total_profit":total_profit,
+                "max_total_profit":max_total_profit,
             },
 
             # # Feasibility and constraints
@@ -911,6 +915,8 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             "agg_pod_location": th.zeros_like(locations_utilization),
             "excess_pod_locations": th.zeros(*batch_size, self.B * self.BL, dtype=self.float_type),
             "action_mask": action_mask.view(*batch_size, -1),
+            "total_profit":th.zeros_like(time, dtype=self.float_type).view(*batch_size, 1),
+            "max_total_profit":th.zeros_like(time, dtype=self.float_type).view(*batch_size, 1),
         }, batch_size=batch_size, device=device,)
 
         # Init tds - full td
@@ -960,6 +966,8 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             timestep=Unbounded(shape=(*batch_size, 1), dtype=th.int64),
             action_mask=Bounded(shape=(*batch_size, self.B * self.D * self.BL), low=0, high=1, dtype=th.bool),
             excess_pod_locations=Unbounded(shape=(*batch_size, self.B * self.BL), dtype=self.float_type),
+            total_profit=Unbounded(shape=(*batch_size, 1), dtype=torch.float32),
+            max_total_profit=Unbounded(shape=(*batch_size, 1), dtype=torch.float32),
             shape=batch_size,
         )
         self.observation_spec = Composite(
