@@ -88,7 +88,7 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
 
     with torch.no_grad():
         # Warm-up phase
-        for _ in range(10):
+        for _ in tqdm(range(10), desc="Warm-up"):
             _ = test_env.rollout(
                 policy=policy,
                 max_steps=n_step,
