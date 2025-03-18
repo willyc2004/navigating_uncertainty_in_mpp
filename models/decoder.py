@@ -141,7 +141,7 @@ class AttentionDecoderWithCache(nn.Module):
         # Use mean and std heads for the policy
         mean = F.softplus(self.mean_head(combined_output))
         std = F.softplus(self.std_head(combined_output))
-        multiplier = F.softplus(self.multiplier_head(combined_output))
+        # multiplier = F.softplus(self.multiplier_head(combined_output))
 
         # Apply temperature scaling and max scaling
         if self.temperature is not None:
@@ -155,7 +155,7 @@ class AttentionDecoderWithCache(nn.Module):
         if mask is not None:
             mean = torch.where(mask, mean.squeeze(), 1e-6)
             std = torch.where(mask, std.squeeze(), 1.0)
-        return mean.squeeze()*multiplier.squeeze(-2), std.squeeze()
+        return mean.squeeze(), std.squeeze()
 
     def pre_decoder_hook(self, td: TensorDict, env, embeddings: Tensor, num_starts: int = 0):
         return td, env, self._precompute_cache(embeddings, num_starts)
