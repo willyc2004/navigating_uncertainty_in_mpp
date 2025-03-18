@@ -19,6 +19,6 @@ parameters:
   delta:
     min: 0.0001 #0.001, 0.00001
     max: 0.1 #0.001, 0.00001
-  iters:
+  max_iter:
     min: 100
     max: 300
