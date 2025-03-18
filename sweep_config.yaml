@@ -22,3 +22,6 @@ parameters:
   max_iter:
     min: 100
     max: 300
+  feasibility_lambda:
+    min: 0.0000001 #0000
+    max: 0.001

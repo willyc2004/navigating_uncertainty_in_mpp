@@ -36,7 +36,7 @@ if __name__ == "__main__":
             # # PPO hyperparameters
             # config['algorithm']['ppo_epochs'] = sweep_config.ppo_epochs
             # config['algorithm']['mini_batch_size'] = sweep_config.mini_batch_size
-            # config['algorithm']['feasibility_lambda'] = sweep_config.feasibility_lambda
+            config['algorithm']['feasibility_lambda'] = sweep_config.feasibility_lambda
             # config['algorithm']['entropy_lambda'] = sweep_config.entropy_lambda
 
             # # AM-PPO hyperparameters
