@@ -693,13 +693,12 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ports", type=int, default=4)
-    parser.add_argument("--teu", type=int, default=1000)
-    parser.add_argument("--deterministic", type=lambda x: x.lower() == "true", default=True,
-                        help="Enable deterministic mode (true/false)")
-    parser.add_argument("--perfect_information", type=lambda x: x.lower() == "true", default=True,
-                        help="Enable perfect information (true/false)")
-    parser.add_argument("--generalization", type=lambda x: x.lower() == "true", default=False,
-                        help="Enable generalization (true/false)")
+    parser.add_argument("--teu", type=int, default=20000)
+    parser.add_argument("--deterministic", type=lambda x: x.lower() == "true", default=False)
+    parser.add_argument("--perfect_information", type=lambda x: x.lower() == "true", default=False)
+    parser.add_argument("--generalization", type=lambda x: x.lower() == "true", default=False)
+    parser.add_argument("--scenarios", type=int, default=28)
+    parser.add_argument("--scenario_range", type=lambda x: x.lower() == "true", default=True)
     parser.add_argument("--num_episodes", type=int, default=30)
     # todo: add warm solution
     parser = parser.parse_args()
@@ -718,12 +717,18 @@ if __name__ == "__main__":
         config.env.generalization = parser.generalization
         config.testing.num_episodes = parser.num_episodes
 
-    # Run main for different seeds and number of scenarios
+    # Set parameters
     perfect_information = parser.perfect_information
     deterministic = parser.deterministic
     generalization = config.env.generalization
     num_episodes = config.testing.num_episodes
-    num_scenarios = [1] if deterministic else ([28] if generalization else [4, 8, 12, 16, 20, 24, 28])
+    scenario_range = parser.scenario_range if not generalization else False
+    if deterministic:
+        num_scenarios = [1]
+    elif scenario_range:
+        num_scenarios = list(range(4, parser.scenarios + 1, 4))
+    else:
+        num_scenarios = [parser.scenarios]
 
     # Precompute largest scenario tree
     stages = config.env.ports - 1  # Number of load ports (P-1)
