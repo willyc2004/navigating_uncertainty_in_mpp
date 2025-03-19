@@ -56,7 +56,7 @@ model:
   num_decoder_layers: 3
   num_encoder_layers: 3
   num_heads: 8
-  phase: test
+  phase: train
   scale_max: 3.988627109442181
   tanh_clipping: 0
   tanh_squashing: false
