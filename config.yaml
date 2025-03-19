@@ -60,15 +60,15 @@ model:
   scale_max: 5.988627109442181
   tanh_clipping: 0
   tanh_squashing: false
-  temperature: 0.1146853501644833 #0.015
+  temperature: 0.03 #1146853501644833 #0.015
 testing:
   num_episodes: 1
   folder: 'trial_20k'
   path: trained_models
   feasibility_recovery: false
 training:
-  lr: 0.0003695184402239147
-#  lr: 0.00020407622212291503
+#  lr: 0.0003695184402239147
+  lr: 0.00020407622212291503
   optimizer: Adam
   projection_kwargs:
     alpha: 0.027959542982510004
