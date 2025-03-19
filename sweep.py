@@ -23,11 +23,12 @@ if __name__ == "__main__":
             sweep_config = wandb.config
 
             # Model hyperparameters
-            # config['model']['hidden_dim'] = sweep_config.hidden_dim
-            # config['model']['num_encoder_layers'] = sweep_config.num_encoder_layers
-            # config['model']['num_decoder_layers'] = sweep_config.num_decoder_layers
+            config['model']['hidden_dim'] = sweep_config.hidden_dim
+            config['model']['embed_dim'] = sweep_config.embed_dim
+            config['model']['num_encoder_layers'] = sweep_config.num_encoder_layers
+            config['model']['num_decoder_layers'] = sweep_config.num_decoder_layers
             # config['model']['num_heads'] = sweep_config.num_heads
-            # config['model']['batch_size'] = sweep_config.batch_size
+            config['model']['batch_size'] = sweep_config.batch_size
             # config['model']['dropout_rate'] = sweep_config.dropout_rate
             # config['model']['normalization'] = sweep_config.normalization
             config['model']['scale_max'] = sweep_config.scale_max
@@ -35,7 +36,7 @@ if __name__ == "__main__":
 
             # # PPO hyperparameters
             # config['algorithm']['ppo_epochs'] = sweep_config.ppo_epochs
-            # config['algorithm']['mini_batch_size'] = sweep_config.mini_batch_size
+            config['algorithm']['mini_batch_size'] = sweep_config.mini_batch_size
             config['algorithm']['feasibility_lambda'] = sweep_config.feasibility_lambda
             # config['algorithm']['entropy_lambda'] = sweep_config.entropy_lambda
 
