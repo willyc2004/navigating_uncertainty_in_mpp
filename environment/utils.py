@@ -236,7 +236,7 @@ def get_POD_ratio_mask(expected_demand: th.Tensor, residual_capacity: th.Tensor,
     return output.reshape(*batch_size, -1)
 
 
-def generate_POD_mask(pod_demand: th.Tensor, port_demand: th.Tensor, residual_capacity: th.Tensor, capacity: th.Tensor,
+def generate_POD_mask(pod_demand: th.Tensor, residual_capacity: th.Tensor, capacity: th.Tensor,
                       pod_locations: th.Tensor, pod:int, batch_size:tuple) -> th.Tensor:
     """
     Generates a boolean gate tensor of shape (B, BL) with exactly x elements set to True.
