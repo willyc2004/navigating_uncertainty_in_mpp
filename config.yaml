@@ -15,12 +15,12 @@ algorithm:
 env:
   CI_target: 1.25
   LCG_target: 0.95
-  TEU: 1000
+  TEU: 20000
   VCG_target: 1.05
-  bays: 10
-  blocks: 1
+  bays: 20
+  blocks: 3
   capacity:
-  - 50
+  - 500
   cargo_classes: 6
   customer_classes: 2
   cv_demand: 0.5
