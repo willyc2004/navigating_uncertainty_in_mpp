@@ -1,6 +1,6 @@
 method: bayes
 metric:
-  name: val/return
+  name: validation.traj_return
   goal: maximize
 run_cap: 100
 parameters:
