@@ -54,7 +54,7 @@ class MasterPlanningEnv(EnvBase):
         # Seed and generator
         self._set_seed(kwargs.get("seed"))
         self.demand_uncertainty = kwargs.get("demand_uncertainty", False)
-        self.generator = MPP_Generator(device=device,**kwargs) # UniformMPP_Generator(device=device, **kwargs)
+        self.generator = UniformMPP_Generator(device=device, **kwargs) # MPP_Generator(device=device,**kwargs)
         if td_gen == None:
             self.td_gen = self.generator(batch_size=batch_size,)
         # Data type and shapes
@@ -447,7 +447,6 @@ class MasterPlanningEnv(EnvBase):
             #     vessel_state["pod_locations"],  self.transport_idx, pod, batch_size)
             action_state["action_mask"] = generate_POD_mask(
                 demand_state["realized_demand"][..., tau, :] @ self.teus,
-                (demand_state["realized_demand"][..., load_idx, :] @ self.teus).sum(dim=-1),
                 vessel_state["residual_capacity"], self.capacity,
                 vessel_state["pod_locations"], pod, batch_size)
 
@@ -707,8 +706,13 @@ class MasterPlanningEnv(EnvBase):
         """Compute clip max based on residual capacity and next state"""
         dims = residual_capacity.dim()-1 if residual_capacity.dim() > 3 else 2 # if dim <= 3, then 2D locations
         teu = self.teus_episode[step].view((1,) * dims)
-        clip_max = (residual_capacity / teu).view(*batch_size, self.action_spec.shape[-1])
-        return clip_max.clamp(max=next_state_dict["current_demand"].view(*batch_size, 1))
+        out = (residual_capacity / teu).view(*batch_size, self.action_spec.shape[-1])
+        out = out.clamp(max=next_state_dict["current_demand"].view(*batch_size, 1))
+        # if clip_max.ndim > 1:
+        #     print(clip_max.ndim)
+        #     print("res_cap", residual_capacity[0], "clip_max", clip_max[0])
+        #     print("clip_max", clip_max[0], "c_demand", next_state_dict["current_demand"][0])
+        return out
 
 class BlockMasterPlanningEnv(MasterPlanningEnv):
     """Master Planning Problem environment for locations with coordinates (Bay, Deck, Block).
@@ -763,6 +767,12 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
 
         # Compute total loaded
         sum_action = action_state["action"].sum(dim=(-3, -2, -1)).unsqueeze(-1)
+
+        # if time.shape[0] > 1:
+        #     print("------")
+        #     print(f"time:{time[0]}, teu[0]{self.teus_episode[step]}")
+        #     print(f"clip_max[0] {td['clip_max'][0].sum()}, res_cap[0] {td['observation']['residual_capacity'][0].sum()}, dem[0] {demand_state['current_demand'][0]}")
+        #     print(f"action[0] {sum_action[0]}, teu_action[0], {self.teus_episode[step] * sum_action[0]}")
 
         # Compute reward & cost
         revenue = self._compute_revenue(sum_action, demand_state, rev)
@@ -886,9 +896,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         # Action gate
         pod_locations = th.zeros((*batch_size, self.B, self.D, self.BL, self.P), dtype=self.float_type, device=device)
         if self.block_stowage_mask:
-            # action_mask = get_POD_ratio_mask(expected_demand, residual_capacity, self.capacity, pod_locations,
-            #                                  self.transport_idx, pod, batch_size)
-            action_mask = generate_POD_mask(realized_demand[..., tau, :].sum(dim=-1), realized_demand[...,load_idx,:].sum(dim=(-1,-2)),
+            action_mask = generate_POD_mask(realized_demand[..., tau, :] @ self.teus,
                                             residual_capacity, self.capacity, pod_locations, pod, batch_size)
 
         # Init tds - state: internal state
