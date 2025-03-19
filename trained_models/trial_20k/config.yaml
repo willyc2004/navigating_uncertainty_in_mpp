@@ -2,7 +2,7 @@ algorithm:
   clip_range: 0.2
   demand_lambda: 1.0
   entropy_lambda: 0.010071090711145904
-  feasibility_lambda: 0.0
+  feasibility_lambda: 0.00012614769893820892
   gae_lambda: 0.95
   gamma: 0.99
   max_grad_norm: 0.5
@@ -57,23 +57,22 @@ model:
   num_encoder_layers: 3
   num_heads: 8
   phase: train
-  scale_max: 3.988627109442181
+  scale_max: 6.7669292958283505
   tanh_clipping: 0
   tanh_squashing: false
-  temperature: 0.1146853501644833
+  temperature: 0.0573037313614573
 testing:
   feasibility_recovery: false
-  folder: trial
-  num_episodes: 30
+  folder: trial_20k
+  num_episodes: 1
   path: trained_models
 training:
-  lr: 0.0003695184402239147
+  lr: 0.00016383706320394198
   optimizer: Adam
   projection_kwargs:
-    alpha: 0.027959542982510004
-    delta: 0.0170646087054356
-    iters: 248
-    max_iter: 200
+    alpha: 0.00953774453177282
+    delta: 0.05931531055031506
+    max_iter: 274
     n_action: 80
     n_constraints: 45
   projection_type: linear_violation
