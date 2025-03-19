@@ -143,6 +143,55 @@ class ContextEmbedding(nn.Module):
         output = self.project_context(context_embedding)
         return output
 
+class DemandSelfAttention(nn.Module):
+    """Self-Attention Module for Demand History"""
+
+    def __init__(self, embed_dim, n_heads=4):
+        super(DemandSelfAttention, self).__init__()
+        self.embed =  nn.Linear(1, embed_dim)  # Projection layer
+        self.attention = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=n_heads, batch_first=True)
+        self.fc = nn.Linear(embed_dim, embed_dim)  # Projection layer
+
+    def forward(self, demand):
+        """
+        Inputs:
+            demand_emb: Tensor of shape [batch_size, time_steps, embed_dim]
+        Returns:
+            attended_demand: Tensor of shape [batch_size, embed_dim]
+        """
+        demand_emb = self.embed(demand)
+        attn_output, _ = self.attention(demand_emb, demand_emb, demand_emb)
+        return self.fc(attn_output)  # Aggregate attention-weighted demand
+
+
+class DynamicSelfAttentionEmbedding(nn.Module):
+    """Dynamic embedding with self-attention on demand"""
+
+    def __init__(self, embed_dim, seq_dim, env):
+        super(DynamicSelfAttentionEmbedding, self).__init__()
+        self.env = env
+        self.seq_dim = seq_dim
+        self.train_max_demand = self.env.generator.train_max_demand
+        self.self_attention = DemandSelfAttention(embed_dim)  # Add self-attention layer
+        # self.project_dynamic = nn.Linear(embed_dim + 1, 3 * embed_dim)
+        self.project_dynamic = nn.Linear(2 * embed_dim, 3 * embed_dim)
+
+    def forward(self, latent_state: Optional[Tensor], td: Tensor):
+        """Embed the dynamic demand for MPP using self-attention"""
+        max_demand = td["realized_demand"].max() if self.train_max_demand is None else self.train_max_demand
+        if td["observed_demand"].dim() == 2:
+            observed_demand = td["observed_demand"].unsqueeze(-1) / max_demand
+        else:
+            observed_demand = td["observed_demand"][...,0,:].unsqueeze(-1) / max_demand
+
+        # Self-Attention over demand history
+        attended_demand = self.self_attention(observed_demand)
+
+        # Combine with latent state
+        hidden = torch.cat([attended_demand, latent_state], dim=-1)
+        glimpse_k_dyn, glimpse_v_dyn, logit_k_dyn = self.project_dynamic(hidden).chunk(3, dim=-1)
+        return glimpse_k_dyn, glimpse_v_dyn, logit_k_dyn
+
 class DynamicEmbedding(nn.Module):
     """Dynamic embedding of the MPP"""
 
