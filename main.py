@@ -21,7 +21,7 @@ from torchrl.modules import TruncatedNormal, ValueOperator
 from rl_algorithms.utils import make_env, adapt_env_kwargs
 from rl_algorithms.train import run_training
 # Models
-from models.embeddings import CargoEmbedding, ContextEmbedding, DynamicEmbedding, CriticEmbedding
+from models.embeddings import *
 from models.autoencoder import Autoencoder
 from models.encoder import MLPEncoder, AttentionEncoder
 from models.decoder import AttentionDecoderWithCache, MLPDecoderWithCache
@@ -126,7 +126,7 @@ def initialize_policy_and_critic(config, env, device):
     # Embedding initialization
     init_embed = CargoEmbedding(action_dim, embed_dim, sequence_dim, env)
     context_embed = ContextEmbedding(action_dim, embed_dim, sequence_dim, env,)
-    dynamic_embed = DynamicEmbedding(embed_dim, sequence_dim, env)
+    dynamic_embed = DynamicSelfAttentionEmbedding(embed_dim, sequence_dim, env) # DynamicEmbedding(embed_dim, sequence_dim, env)
     critic_embed = CriticEmbedding(action_dim, embed_dim, sequence_dim, env,)
 
     # Model arguments
@@ -210,6 +210,7 @@ def main(config: Optional[DotMap] = None, **kwargs):
 
     elif config.model.phase == "test":
         # Initialize
+        config = load_trained_hyperparameters(path)
         policy, critic = initialize_policy_and_critic(config, env, device)
 
         # Evaluate policy
