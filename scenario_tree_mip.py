@@ -704,7 +704,7 @@ if __name__ == "__main__":
     parser = parser.parse_args()
 
     # Load the configuration file
-    with open(f'{path_to_main}/config.yaml', 'r') as file:
+    with open(f'{path_to_main}/config_20k.yaml', 'r') as file:
         config = yaml.safe_load(file)
         config = DotMap(config)
         config = adapt_env_kwargs(config)
