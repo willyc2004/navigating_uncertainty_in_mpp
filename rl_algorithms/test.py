@@ -72,8 +72,8 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     max_paths = max_scenarios_per_stage ** (stages-1) + 1 if stages < 4 else 2 # Prevent out-of-memory by limit max_paths
     test_env = make_env(env_kwargs, batch_size=[max_paths], device=device)
     n_step = test_env.T * test_env.K  # Maximum steps per episode (T x K)
-    feas_threshold = 1e-1
-    delta = config.training.projection_kwargs.get("delta", 0.05) * 1.1
+    feas_threshold = 1e-2
+    delta = 0.05 #config.training.projection_kwargs.get("delta", 0.05) * 1.1
 
     # Set policy to evaluation mode
     policy.eval()  # Set policy to evaluation mode
@@ -134,6 +134,7 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
             violation_adjusted = trajectory["violation"][0].clone()
             violation_adjusted[violation_adjusted < delta] = 0.0
             metrics["feasible_instance"][episode] = 1.0 if violation_adjusted.sum() <= feas_threshold else 0.0
+            print(f"Episode {episode}: Feasible = {violation_adjusted.sum(dim=-1)}")
 
             # Close the generated environment
             gen_env.close()
