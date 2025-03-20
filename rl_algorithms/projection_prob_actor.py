@@ -51,12 +51,12 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         sum_sample = sample.sum(dim=-1, keepdim=True)
         upper_bound = ub.unsqueeze(-1)
         scaling_factor = upper_bound / (sum_sample + epsilon)  # Avoid division by zero
-        scaled_sample = torch.where(
+        out = torch.where(
             sum_sample > upper_bound,
             sample * scaling_factor,
             sample
         )
-        return scaled_sample
+        return out
 
     def weighted_scaling_projection(self, out):
         return self.weighted_scaling(out["action"], ub=out["ub"])
@@ -71,9 +71,9 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         return self.policy_clipping_projection(out)
 
     def violation_projection(self, out):
-        # todo: add layers
-        out["action"] = self.weighted_scaling_projection(out)
-        out["action"] = self.policy_clipping_projection(out)
+        # # # todo: add layers, ws and pc need to be removed here
+        # out["action"] = self.weighted_scaling_projection(out)
+        # out["action"] = self.policy_clipping_projection(out)
         out["action"] = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
         return out["action"]
 
@@ -168,7 +168,7 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         out["log_prob"] = self.get_logprobs(out["action"], dist)
 
         if "action_mask" in out["observation"]:
-            out["action"] = torch.where(out["observation", "action_mask"], out["action"],  1e-6)
+            out["action"] = torch.where(out["observation", "action_mask"], out["action"],  0)
             out["log_prob"] = torch.where(out["observation", "action_mask"], out["log_prob"], torch.tensor(-10, device=out["log_prob"].device))
 
         # Raise error for projection layers without log prob adaptation implementations
@@ -183,6 +183,7 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         out["action"] = self.handle_action_projection(out)
         jacobian = self.handle_jacobian_adjustment(out)
         out["log_prob"] = self.jacobian_adaptation(out["log_prob"], jacobian=jacobian)
+        out["action"] = torch.where(out["observation", "action_mask"], out["action"], 1e-6)
 
         # Apply log_prob adjustment of clipping based on https://arxiv.org/pdf/1802.07564v2.pdf
         if self.projection_type in ["policy_clipping", "weighted_scaling_policy_clipping"]:
