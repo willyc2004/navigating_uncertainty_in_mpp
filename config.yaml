@@ -75,6 +75,7 @@ training:
     alpha: 0.027959542982510004
     delta: 0.0570646087054356
     max_iter: 200
+    scale: 0.0001
 #    alpha: 0.025
 #    delta: 0.025
 #    max_iter: 200
