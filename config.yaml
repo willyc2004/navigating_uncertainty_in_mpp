@@ -15,7 +15,7 @@ algorithm:
 env:
   CI_target: 1.25
   LCG_target: 0.95
-  TEU: 20000 #
+  TEU: 1000
   VCG_target: 1.05
   bays: 10
   blocks: 1
