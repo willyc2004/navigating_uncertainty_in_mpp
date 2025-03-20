@@ -34,6 +34,9 @@ parameters:
   max_iter:
     min: 100
     max: 300
+  scale:
+    min: 0.00001 #0.001, 0.00001
+    max: 0.1 #0.05, 0.005
   feasibility_lambda:
     min: 0.0000001 #0000
     max: 0.001
