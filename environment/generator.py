@@ -40,6 +40,7 @@ class MPP_Generator(Generator):
         self.cv_demand = kwargs.get("cv_demand", 0.5)
         self.demand_uncertainty = kwargs.get("demand_uncertainty", False)
         self.generalization = kwargs.get("generalization", False)
+        self.perturbation = kwargs.get("perturbation", 0.1)
 
         # Get cv vector
         self.cv = th.empty((self.K,), device=self.device, dtype=th.float16,)
@@ -244,7 +245,7 @@ class UniformMPP_Generator(MPP_Generator):
             if batch_size != []: bound = bound.unsqueeze(0).expand(*batch_size, -1, -1) # Expand to batch size
 
             # Get initial demand based on random perturbed bound
-            bound = self._random_perturbation(bound, 0.1)
+            bound = self._random_perturbation(bound, self.perturbation)
             demand, _ = self._generate_initial_moments(batch_size, bound, self.cv)
             # Get moments from uniform distribution
             e_x = (bound * 0.5).expand_as(demand)
