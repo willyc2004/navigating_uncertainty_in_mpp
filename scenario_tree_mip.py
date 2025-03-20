@@ -684,11 +684,16 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
             "VM_": VM_.tolist(),
             "TW_": TW_.tolist(),
         }
-
-        return results, vars
     else:
         # Print the error
         print("No solution found")
+        results = {}
+        vars = {}
+
+    mdl.end()
+    del mdl
+    return results, vars
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
