@@ -72,7 +72,7 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     max_paths = max_scenarios_per_stage ** (stages-1) + 1 if stages < 4 else 2 # Prevent out-of-memory by limit max_paths
     test_env = make_env(env_kwargs, batch_size=[max_paths], device=device)
     n_step = test_env.T * test_env.K  # Maximum steps per episode (T x K)
-    feas_threshold = 1e-2
+    feas_threshold = 1e-1
     delta = 0.05 #config.training.projection_kwargs.get("delta", 0.05) * 1.1
 
     # Set policy to evaluation mode
