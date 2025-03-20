@@ -15,17 +15,12 @@ class LinearViolationAdaption(th.nn.Module):
     def __init__(self, **kwargs):
         super(LinearViolationAdaption, self).__init__()
         self.alpha = kwargs.get('alpha', 0.005)
+        self.scale = kwargs.get('scale', 0.0001)
         self.delta = kwargs.get('delta', 0.1)
         self.max_iter = kwargs.get('max_iter', 100)
         self.use_early_stopping = kwargs.get('use_early_stopping', False)
 
     def forward(self, x, A, b, **kwargs):
-        """
-        - alpha => 0.04 diverges, 0.025 might also cause nans
-        - delta, tolerance = 0.05 causes overshooting demand
-
-        Good settings (project per t): alpha=0.005, delta=0.01, tolerance=0.01
-        """
         # Raise error is dimensions are invalid
         if b.dim() not in [2, 3] or A.dim() not in [3, 4]:
             raise ValueError("Invalid dimensions: 'b' must have dim 2 or 3 and 'A' must have dim 3 or 4.")
@@ -67,7 +62,8 @@ class LinearViolationAdaption(th.nn.Module):
             penalty_gradient = th.matmul(violation_new.unsqueeze(2), A).squeeze(2)  # Shape: [32, 1, 20]
 
             # Apply penalty gradient update only for active batches/steps
-            x_ = th.where(active_mask.unsqueeze(2), x_ - self.alpha * penalty_gradient, x_)
+            lr = self.alpha / (1 + self.scale * penalty_gradient)
+            x_ = th.where(active_mask.unsqueeze(2), x_ - lr * penalty_gradient, x_)
             x_ = th.clamp(x_, min=0) # Ensure non-negativity
 
             count += 1
