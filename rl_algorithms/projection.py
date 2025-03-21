@@ -62,7 +62,8 @@ class LinearViolationAdaption(th.nn.Module):
             penalty_gradient = th.matmul(violation_new.unsqueeze(2), A).squeeze(2)  # Shape: [32, 1, 20]
 
             # Apply penalty gradient update only for active batches/steps
-            lr = self.alpha / (1 + self.scale * penalty_gradient)
+            scale = 1 / (th.std(penalty_gradient, dim=0, keepdim=True) + 1e-6)
+            lr = self.alpha / (1 + scale * penalty_gradient)
             x_ = th.where(active_mask.unsqueeze(2), x_ - lr * penalty_gradient, x_)
             x_ = th.clamp(x_, min=0) # Ensure non-negativity
 
