@@ -36,7 +36,7 @@ env:
   long_crane_costs: 0.5
   normalize_obs: true
   perturbation: 0.2
-  ports: 5
+  ports: 4
   seed: 42
   spot_percentage: 0.3
   stability_difference: 0.1
@@ -57,7 +57,7 @@ model:
   num_decoder_layers: 3
   num_encoder_layers: 3
   num_heads: 8
-  phase: test
+  phase: train
   scale_max: 3.988627109442181
   tanh_clipping: 0
   tanh_squashing: false
