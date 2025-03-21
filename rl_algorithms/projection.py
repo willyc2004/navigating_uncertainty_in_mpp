@@ -18,7 +18,7 @@ class LinearViolationAdaption(th.nn.Module):
         self.scale = kwargs.get('scale', 0.001)
         self.delta = kwargs.get('delta', 0.1)
         self.max_iter = kwargs.get('max_iter', 100)
-        self.use_early_stopping = kwargs.get('use_early_stopping', False)
+        self.use_early_stopping = kwargs.get('use_early_stopping', True)
 
     def forward(self, x, A, b, **kwargs):
         # Raise error is dimensions are invalid
