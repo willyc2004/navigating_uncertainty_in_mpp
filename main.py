@@ -219,9 +219,9 @@ def main(config: Optional[DotMap] = None, **kwargs):
 
         # Evaluate the model
         results = []
-        for alpha in [1e-3, 1e-4, 1e-5, ]: # [0.01, 0.005, 0.001, 0.0005, 0.0001]:
+        for alpha in [1e-1, 5e-2, 1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 5e-5, 1e-5, ]:
             for delta in [0.1, 0.05,]:
-                for max_iter in [1000, 750, 500, 250,]:
+                for max_iter in [100, 250, 500, 1000, 1500, 2000]:
                     print(f"Running evaluation for alpha={alpha}, delta={delta}, max_iter={max_iter}")
                     config.training.projection_kwargs["alpha"] = alpha
                     config.training.projection_kwargs["delta"] = delta
