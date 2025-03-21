@@ -166,7 +166,6 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
 
         if "action_mask" in out["observation"]:
             out["action"] = torch.where(out["observation", "action_mask"], out["action"],  0)
-            out["log_prob"] = torch.where(out["observation", "action_mask"], out["log_prob"], torch.tensor(-10, device=out["log_prob"].device))
 
         # Raise error for projection layers without log prob adaptation implementations
         if self.projection_type not in ["linear_violation", "weighted_scaling_policy_clipping", "none"]:
@@ -189,6 +188,10 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
             self.clipped_gaussian.low = out["clip_min"]
             self.clipped_gaussian.high = out["clip_max"]
             out["log_prob"] = self.clipped_gaussian.log_prob(out["action"])
+
+        if "action_mask" in out["observation"]:
+            out["action"] = torch.where(out["observation", "action_mask"], out["action"],  0)
+            out["log_prob"] = torch.where(out["observation", "action_mask"], out["log_prob"], torch.tensor(-10, device=out["log_prob"].device))
 
         # Apply log_prob clamp for numerical stability
         out["log_prob"] = torch.clamp(out["log_prob"], min=-10.0, max=0.0)
