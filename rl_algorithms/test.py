@@ -132,11 +132,9 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
 
             # Determine feasibility per instance based on adjusted violations; violations < delta are set to 0
             violation_adjusted = trajectory["violation"][0].clone()
-            violation_adjusted[violation_adjusted < delta] = 0.0
+            v_mask = violation_adjusted[:, :-4] < delta
+            violation_adjusted[:, :-4][v_mask] = 0.0 # Do not apply this to stability constraints
             metrics["feasible_instance"][episode] = 1.0 if violation_adjusted.sum() <= feas_threshold else 0.0
-            # print(f"Episode {episode}:  "
-            #       f"Feasible = {violation_adjusted.sum()}, "
-            #       f"Feasible (time) = {violation_adjusted.sum(dim=-1)}")
 
             # Close the generated environment
             gen_env.close()
