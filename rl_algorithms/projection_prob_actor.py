@@ -71,8 +71,8 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         return self.policy_clipping_projection(out)
 
     def violation_projection(self, out):
-        # out["action"] = self.policy_clipping_projection(out)
         out["action"] = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
+        out["action"] = self.policy_clipping_projection(out)
         return out["action"]
 
     def identity_fn(self, out):
