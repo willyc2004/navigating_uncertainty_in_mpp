@@ -230,6 +230,7 @@ def main(config: Optional[DotMap] = None, **kwargs):
                     config.training.projection_kwargs["max_iter"] = max_iter
                     metrics, summary_stats = evaluate_model(policy, config, device=device, **config.testing)
                     results.append((alpha, delta, max_iter, metrics, summary_stats))
+                    print(summary_stats)
 
         # Save summary statistics in path
         if "feasibility_recovery" in config.testing:
@@ -240,7 +241,6 @@ def main(config: Optional[DotMap] = None, **kwargs):
                         f"_gen{config.env.generalization}.yaml"
         with open(f"{path}/{file_name}", "w") as file:
             yaml.dump(summary_stats, file)
-        print(summary_stats)
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
