@@ -2,11 +2,11 @@ algorithm:
   clip_range: 0.2
   demand_lambda: 1.0
   entropy_lambda: 0.010071090711145904
-  feasibility_lambda: 0.00014971532832947664
+  feasibility_lambda: 0.00032398940615718737
   gae_lambda: 0.95
   gamma: 0.99
   max_grad_norm: 0.5
-  mini_batch_size: 0.5
+  mini_batch_size: 0.25
   ppo_epochs: 5
   stability_lambda: 1.0
   tau: 0.005
@@ -43,7 +43,7 @@ env:
   utilization_rate_initial_demand: 1.1
   weight_classes: 3
 model:
-  batch_size: 128
+  batch_size: 64
   critic_temperature: 1.0
   decoder_type: attention
   dropout_rate: 0.008972135903337364
@@ -54,28 +54,29 @@ model:
   logger: wandb
   lr_end_factor: 0.5
   normalization: layer
-  num_decoder_layers: 2
+  num_decoder_layers: 4
   num_encoder_layers: 3
   num_heads: 8
   phase: train
-  scale_max: 6.437089391403902
+  scale_max: 8.897753859117877
   tanh_clipping: 0
   tanh_squashing: false
-  temperature: 0.597828746336137
+  temperature: 0.20503899686621255
 testing:
   feasibility_recovery: false
   folder: trial_20k
   num_episodes: 30
   path: trained_models
 training:
-  lr: 0.0009654300688136044
+  lr: 0.0006763838502036537
   optimizer: Adam
   projection_kwargs:
-    alpha: 0.009887658886968296
-    delta: 0.014452105065261754
-    max_iter: 149
+    alpha: 0.03603916981023487
+    delta: 0.03952078415385216
+    max_iter: 251
     n_action: 80
     n_constraints: 45
+    scale: 0.0956793401693036
   projection_type: linear_violation
   test_data_size: 5000
   train_data_size: 7200000
