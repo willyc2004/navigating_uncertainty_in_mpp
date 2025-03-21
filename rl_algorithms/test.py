@@ -69,7 +69,7 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     # Use same batch size as scenario tree to get same instance
     stages = config.env.ports - 1  # Number of load ports (P-1)
     max_scenarios_per_stage = 28  # Number of scenarios per stage
-    max_paths = max_scenarios_per_stage ** (stages-1) + 1 if stages < 4 else 2 # Prevent out-of-memory by limit max_paths
+    max_paths = max_scenarios_per_stage ** (stages-1) + 1 if stages < 4 else 100 # Prevent out-of-memory by limit max_paths
     test_env = make_env(env_kwargs, batch_size=[max_paths], device=device)
     n_step = test_env.T * test_env.K  # Maximum steps per episode (T x K)
     feas_threshold = 1e-1
@@ -88,12 +88,12 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
 
     with torch.no_grad():
         # Warm-up phase
-        for _ in tqdm(range(3), desc="Warm-up"):
-            _ = test_env.rollout(
-                policy=policy,
-                max_steps=n_step,
-                auto_reset=True,
-            )
+        # for _ in tqdm(range(3), desc="Warm-up"):
+        #     _ = test_env.rollout(
+        #         policy=policy,
+        #         max_steps=n_step,
+        #         auto_reset=True,
+        #     )
 
         for episode in tqdm(range(num_episodes), desc="Episodes"):
             # Update seeds
@@ -134,7 +134,9 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
             violation_adjusted = trajectory["violation"][0].clone()
             violation_adjusted[violation_adjusted < delta] = 0.0
             metrics["feasible_instance"][episode] = 1.0 if violation_adjusted.sum() <= feas_threshold else 0.0
-            print(f"Episode {episode}: Feasible = {violation_adjusted.sum(dim=-1)}")
+            print(f"Episode {episode}:  "
+                  f"Feasible = {violation_adjusted.sum()}, "
+                  f"Feasible (time) = {violation_adjusted.sum(dim=-1)}")
 
             # Close the generated environment
             gen_env.close()

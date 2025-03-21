@@ -216,7 +216,21 @@ def main(config: Optional[DotMap] = None, **kwargs):
         # Evaluate policy
         policy_load_path = f"{path}/policy.pth"
         policy.load_state_dict(torch.load(policy_load_path, map_location=device))
-        metrics, summary_stats = evaluate_model(policy, config, device=device, **config.testing)
+
+        # run grid search for alpha, delta and max_iter
+
+        # Evaluate the model
+        results = []
+        for alpha in [0.01, 0.005, 0.001, 0.0005, 0.0001]:
+            for delta in [0.1, 0.051,]:
+                for max_iter in [600, 400, 200]:
+                    print(f"Running evaluation for alpha={alpha}, delta={delta}, max_iter={max_iter}")
+                    config.training.projection_kwargs["alpha"] = alpha
+                    config.training.projection_kwargs["delta"] = delta
+                    config.training.projection_kwargs["max_iter"] = max_iter
+                    metrics, summary_stats = evaluate_model(policy, config, device=device, **config.testing)
+                    results.append((alpha, delta, max_iter, metrics, summary_stats))
+
         # Save summary statistics in path
         if "feasibility_recovery" in config.testing:
             file_name = f"summary_stats_P{config.env.ports}_feas_recov{config.testing.feasibility_recovery}_" \
