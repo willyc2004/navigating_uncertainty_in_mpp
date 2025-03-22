@@ -135,6 +135,7 @@ class QPProjectionWithSlack(nn.Module):
             if lower.dim() == 1:
                 lower = lower.unsqueeze(0).expand(total, -1)
             if upper.dim() == 1:
+                # todo: what is upper here?
                 upper = upper.unsqueeze(0).expand(total, -1)
 
             I_n = torch.eye(n).unsqueeze(0).repeat(total, 1, 1).to(device)
@@ -180,7 +181,7 @@ class QPProjectionWithSlack(nn.Module):
 
 
 class CvxpyProjectionLayer(nn.Module):
-    def __init__(self, n_action=80, n_constraints=85, slack_penalty=1.0, **kwargs):
+    def __init__(self, n_action=80, n_constraints=85, slack_penalty=1, **kwargs):
         """
         n: number of decision variables
         m: number of linear inequality constraints
@@ -204,7 +205,7 @@ class CvxpyProjectionLayer(nn.Module):
         # Objective: projection + slack penalty
         objective = cp.Minimize(
             0.5 * cp.sum_squares(x - x_raw_param) +
-            (slack_penalty / 2.0) * cp.sum_squares(s)
+            slack_penalty * cp.sum_squares(s)
         )
 
         constraints = [
@@ -238,7 +239,7 @@ class CvxpyProjectionLayer(nn.Module):
         if lower is None:
             lower = torch.zeros_like(x_raw)
         if upper is None:
-            upper = torch.ones_like(x_raw)
+            upper = torch.ones_like(x_raw) * 100
 
         # Handle broadcasting if bounds are 1D
         if lower.dim() == 1:
@@ -253,7 +254,6 @@ class CvxpyProjectionLayer(nn.Module):
                 x_raw[i], A[i], b[i], lower[i], upper[i]
             )
             x_proj.append(x_i)
-        print("step")
         return torch.stack(x_proj, dim=0)
 
 
