@@ -788,7 +788,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             action_state["lhs_A"] = self.create_lhs_A(self.block_A, time)
             action_state["rhs"] = self.create_rhs(
                 next_state_dict["utilization"], next_state_dict["current_demand"], self.swap_signs_block_stability,
-                self.block_A, self.n_block_constraints, self.n_demand, self.n_block_locations, batch_size)
+                self.block_A, self.n_constraints, self.n_demand, self.n_block_locations, batch_size)
         else:
             # Compute crane cost at last port (only discharging)
             lc_moves_last_port = compute_long_crane(vessel_state["utilization"], moves, self.T, block=True)
@@ -833,9 +833,9 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             },
 
             # # Feasibility and constraints
-            "lhs_A": action_state["lhs_A"].view(*batch_size, self.n_block_constraints, self.B * self.D * self.BL),
-            "rhs": action_state["rhs"].view(*batch_size, self.n_block_constraints),
-            "violation": action_state["violation"].view(*batch_size, self.n_block_constraints),
+            "lhs_A": action_state["lhs_A"].view(*batch_size, self.n_constraints, self.B * self.D * self.BL),
+            "rhs": action_state["rhs"].view(*batch_size, self.n_constraints),
+            "violation": action_state["violation"].view(*batch_size, self.n_constraints),
             # in containers
             "clip_min": th.zeros_like(residual_capacity, dtype=self.float_type).view(*batch_size, self.B * self.D * self.BL),
             "clip_max": clip_max.view(*batch_size, self.B * self.D * self.BL),
@@ -892,7 +892,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         lhs_A = self.create_lhs_A(self.block_A, time)
         rhs = self.create_rhs(
             utilization.to(self.float_type), current_demand, self.swap_signs_block_stability,
-            self.block_A, self.n_block_constraints, self.n_demand, self.n_block_locations, batch_size)
+            self.block_A, self.n_constraints, self.n_demand, self.n_block_locations, batch_size)
         # Action gate
         pod_locations = th.zeros((*batch_size, self.B, self.D, self.BL, self.P), dtype=self.float_type, device=device)
         if self.block_stowage_mask:
@@ -936,8 +936,8 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             # # Constraints
             "clip_min": th.zeros_like(residual_capacity, dtype=self.float_type).view(*batch_size, self.B * self.D * self.BL, ),
             "clip_max": residual_capacity.view(*batch_size, self.B * self.D * self.BL),
-            "lhs_A": lhs_A.view(*batch_size, self.n_block_constraints, self.B * self.D * self.BL),
-            "rhs":  rhs.view(*batch_size, self.n_block_constraints),
+            "lhs_A": lhs_A.view(*batch_size, self.n_constraints, self.B * self.D * self.BL),
+            "rhs":  rhs.view(*batch_size, self.n_constraints),
             "violation": th.zeros_like(rhs, dtype=self.float_type),
             # Performance
             "profit": th.zeros_like(time, dtype=self.float_type).view(*batch_size, 1),
@@ -991,9 +991,9 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             # Constraints
             clip_min=Unbounded(shape=(*batch_size,self.B*self.D*self.BL),dtype=self.float_type),
             clip_max=Unbounded(shape=(*batch_size,self.B*self.D*self.BL),dtype=self.float_type),
-            lhs_A=Unbounded(shape=(*batch_size,self.n_block_constraints,self.B*self.D*self.BL),dtype=self.float_type),
-            rhs=Unbounded(shape=(*batch_size,self.n_block_constraints),dtype=self.float_type),
-            violation=Unbounded(shape=(*batch_size,self.n_block_constraints),dtype=self.float_type),
+            lhs_A=Unbounded(shape=(*batch_size,self.n_constraints,self.B*self.D*self.BL),dtype=self.float_type),
+            rhs=Unbounded(shape=(*batch_size,self.n_constraints),dtype=self.float_type),
+            violation=Unbounded(shape=(*batch_size,self.n_constraints),dtype=self.float_type),
             shape=batch_size,
         )
         self.action_spec = Bounded(
@@ -1045,7 +1045,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         self.n_block_locations = self.B * self.D * self.BL
         self.n_stability = 4
         self.n_block_stow = self.n_block_locations + 1
-        self.n_block_constraints = self.n_demand + self.n_block_locations + self.n_stability #+ self.n_block_stow
+        self.n_constraints = self.n_demand + self.n_block_locations + self.n_stability #+ self.n_block_stow
 
     def _create_constraint_matrix_block(self, shape: Tuple[int, int, int, int], ):
         """Create constraint matrix A for compact constraints Au <= b"""
@@ -1054,7 +1054,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         A[self.n_demand:self.n_block_locations + self.n_demand,] *= self.teus.view(1, 1, 1, -1) * th.eye(self.n_block_locations, device=self.device, dtype=self.float_type).view(self.n_block_locations, self.B*self.D*self.BL, 1, 1)
         A *= self.block_constraint_signs.view(-1, 1, 1, 1)
         A[self.n_block_locations + self.n_demand:self.n_block_locations + self.n_demand + self.n_stability] *= self.block_stability_params_lhs.view(self.n_stability, self.B*self.D*self.BL, 1, self.K,)
-        return A.view(self.n_block_constraints, self.B*self.D*self.BL, -1)
+        return A.view(self.n_constraints, self.B*self.D*self.BL, -1)
 
     # Initialize
     def _initialize_block_capacity(self, capacity):
@@ -1074,7 +1074,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
 
     def _initialize_block_constraints(self, ):
         """Initialize constraint-related parameters."""
-        self.block_constraint_signs = th.ones(self.n_block_constraints, device=self.device, dtype=self.float_type)
+        self.block_constraint_signs = th.ones(self.n_constraints, device=self.device, dtype=self.float_type)
         self.block_constraint_signs[th.tensor([-3, -1], device=self.device)] *= -1  # Flip signs for specific constraints
 
         # Swap signs for stability constraints, only the first one remains positive
@@ -1082,7 +1082,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         self.swap_signs_block_stability[0] = 1
 
         # Create constraint matrix
-        self.block_A = self._create_constraint_matrix_block(shape=(self.n_block_constraints, self.n_block_locations, self.T, self.K))
+        self.block_A = self._create_constraint_matrix_block(shape=(self.n_constraints, self.n_block_locations, self.T, self.K))
 
     # Precomputes
     def _precompute_block_stability_parameters(self,):
