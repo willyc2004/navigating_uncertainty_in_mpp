@@ -3,7 +3,7 @@ import torch.nn as nn
 import qpth
 import cvxpy as cp
 from cvxpylayers.torch import CvxpyLayer
-
+import warnings
 
 class EmptyLayer(nn.Module):
     def __init__(self, **kwargs):
@@ -77,78 +77,106 @@ class LinearViolationAdaption(nn.Module):
         return x_.squeeze(1) if n_step == 1 else x_
 
 
+import torch
+import torch.nn as nn
+import qpth
+import warnings
+
 class QPProjectionWithSlack(nn.Module):
-    def __init__(self, slack_penalty=1, box_bounds=None, **kwargs):
+    def __init__(self, slack_penalty=1.0, box_bounds=None, **kwargs):
         super().__init__()
-        self.slack_penalty = slack_penalty  # λ
+        self.slack_penalty = slack_penalty
         self.box_bounds = box_bounds  # (lower, upper) or None
 
     def forward(self, x_raw, A, b):
         """
-        x_raw: [batch, n]
-        A: [batch, m, n]
-        b: [batch, m]
+        Supports input of shape [batch, n] or [batch, seq, n]
+        A: [batch, seq, m, n] or [batch, m, n]
+        b: [batch, seq, m] or [batch, m]
         """
-        batch_size, n = x_raw.shape
-        m = b.shape[1]
+
+        orig_shape = x_raw.shape
+        is_seq = x_raw.dim() == 3  # [batch, seq, n]
+
+        if is_seq:
+            batch_size, seq_len, n = x_raw.shape
+            x_raw = x_raw.reshape(-1, n)            # [batch*seq, n]
+            A = A.reshape(-1, *A.shape[-2:])        # [batch*seq, m, n]
+            b = b.reshape(-1, b.shape[-1])          # [batch*seq, m]
+        else:
+            batch_size, n = x_raw.shape
+
+        m = b.shape[-1]
         device = x_raw.device
+        total = x_raw.shape[0]  # batch * seq OR batch
 
         # Build Q: block diagonal [I, 0; 0, λI]
         Q = torch.cat([
             torch.cat([torch.eye(n), torch.zeros(n, m)], dim=1),
             torch.cat([torch.zeros(m, n), self.slack_penalty * torch.eye(m)], dim=1)
         ], dim=0).to(device)
-        Q = Q.unsqueeze(0).repeat(batch_size, 1, 1)  # [batch, n+m, n+m]
+        Q = Q.unsqueeze(0).repeat(total, 1, 1)  # [total, n+m, n+m]
 
         # Linear term: [-x_raw, 0]
-        p = torch.cat([-x_raw, torch.zeros(batch_size, m, device=device)], dim=1)  # [batch, n+m]
+        p = torch.cat([-x_raw, torch.zeros(total, m, device=device)], dim=1)  # [total, n+m]
 
         # Constraints
         G_list = []
         h_list = []
 
         # A x - s ≤ b  → [A, -I]
-        G1 = torch.cat([A, -torch.eye(m).unsqueeze(0).repeat(batch_size, 1, 1).to(device)], dim=2)
+        G1 = torch.cat([A, -torch.eye(m).unsqueeze(0).repeat(total, 1, 1).to(device)], dim=2)
         G_list.append(G1)
         h_list.append(b)
 
         # x ≤ upper  and  -x ≤ -lower
         if self.box_bounds is not None:
             lower, upper = self.box_bounds
-            I_n = torch.eye(n).unsqueeze(0).repeat(batch_size, 1, 1).to(device)
-            zero_ns = torch.zeros(batch_size, n, m, device=device)
+            if lower.dim() == 1:
+                lower = lower.unsqueeze(0).expand(total, -1)
+            if upper.dim() == 1:
+                upper = upper.unsqueeze(0).expand(total, -1)
+
+            I_n = torch.eye(n).unsqueeze(0).repeat(total, 1, 1).to(device)
+            zero_ns = torch.zeros(total, n, m, device=device)
 
             G_upper = torch.cat([I_n, zero_ns], dim=2)   # [I, 0]
-            h_upper = upper.expand(batch_size, -1)
+            h_upper = upper
 
             G_lower = torch.cat([-I_n, zero_ns], dim=2)  # [-I, 0]
-            h_lower = -lower.expand(batch_size, -1)
+            h_lower = -lower
 
             G_list += [G_upper, G_lower]
             h_list += [h_upper, h_lower]
 
         # s ≥ 0  → [0, -I]
-        zero_mn = torch.zeros(batch_size, m, n, device=device)
-        minus_I_m = -torch.eye(m).unsqueeze(0).repeat(batch_size, 1, 1).to(device)
+        zero_mn = torch.zeros(total, m, n, device=device)
+        minus_I_m = -torch.eye(m).unsqueeze(0).repeat(total, 1, 1).to(device)
         G_slack = torch.cat([zero_mn, minus_I_m], dim=2)
-        h_slack = torch.zeros(batch_size, m, device=device)
+        h_slack = torch.zeros(total, m, device=device)
 
         G_list.append(G_slack)
         h_list.append(h_slack)
 
-        # Combine constraints
-        G = torch.cat(G_list, dim=1)  # [batch, total_constraints, n+m]
-        h = torch.cat(h_list, dim=1)  # [batch, total_constraints]
-        dummy_A = torch.empty(x_raw.shape[0], 0, Q.shape[-1], device=x_raw.device)
-        dummy_b = torch.empty(x_raw.shape[0], 0, device=x_raw.device)
+        G = torch.cat(G_list, dim=1)  # [total, ?, n+m]
+        h = torch.cat(h_list, dim=1)  # [total, ?]
+
+        dummy_A = torch.empty(total, 0, n + m, device=device)
+        dummy_b = torch.empty(total, 0, device=device)
 
         # Solve QP
-        x_s_slack = qpth.qp.QPFunction(eps=1e-2, verbose=False, maxIter=10,)(
-            Q, p, G, h, dummy_A, dummy_b
-        )  # [batch, n + m]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            x_s_slack = qpth.qp.QPFunction(eps=1e-2, verbose=False, maxIter=10)(
+                Q, p, G, h, dummy_A, dummy_b
+            )  # [total, n + m]
 
-        # Return only the projected x
-        return x_s_slack[:, :n]
+        x_proj = x_s_slack[:, :n]  # [total, n]
+
+        if is_seq:
+            return x_proj.view(batch_size, seq_len, n)
+        else:
+            return x_proj  # [batch, n]
 
 
 class CvxpyProjectionLayer(nn.Module):
@@ -225,7 +253,7 @@ class CvxpyProjectionLayer(nn.Module):
                 x_raw[i], A[i], b[i], lower[i], upper[i]
             )
             x_proj.append(x_i)
-
+        print("step")
         return torch.stack(x_proj, dim=0)
 
 
