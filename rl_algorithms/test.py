@@ -88,12 +88,12 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
 
     with torch.no_grad():
         # Warm-up phase
-        # for _ in tqdm(range(3), desc="Warm-up"):
-        #     _ = test_env.rollout(
-        #         policy=policy,
-        #         max_steps=n_step,
-        #         auto_reset=True,
-        #     )
+        for _ in tqdm(range(3), desc="Warm-up"):
+            _ = test_env.rollout(
+                policy=policy,
+                max_steps=n_step,
+                auto_reset=True,
+            )
 
         for episode in tqdm(range(num_episodes), desc="Episodes"):
             # Update seeds
