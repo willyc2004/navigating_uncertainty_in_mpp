@@ -71,7 +71,6 @@ class MasterPlanningEnv(EnvBase):
         self._initialize_step_parameters()
         self._initialize_constraints()
 
-        self.act = 0
 
     def _make_spec(self, td:TensorDict = None) -> None:
         """Define the specs for observations, actions, rewards, and done flags."""
