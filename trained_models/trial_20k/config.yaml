@@ -65,7 +65,7 @@ model:
 testing:
   feasibility_recovery: false
   folder: trial_20k
-  num_episodes: 1
+  num_episodes: 30
   path: trained_models
 training:
   lr: 0.0006763838502036537
@@ -73,11 +73,12 @@ training:
   projection_kwargs:
     alpha: 0.03603916981023487
     delta: 0.03952078415385216
+    scale: 0.0956793401693036
     max_iter: 251
     n_action: 80
     n_constraints: 85
-    scale: 0.0956793401693036
-  projection_type: linear_violation
+    slack_penalty: 10
+  projection_type: convex_program
   test_data_size: 5000
   train_data_size: 7200000
   val_data_size: 5000
