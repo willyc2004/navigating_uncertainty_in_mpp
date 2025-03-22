@@ -77,7 +77,7 @@ training:
     max_iter: 100
     n_action: 80
     n_constraints: 85
-    slack_penalty: 10
+    slack_penalty: 100
   projection_type: linear_violation # None, weighted_scaling_policy_clipping, linear_violation
   test_data_size: 5000
   train_data_size: 7200000 #72000000
