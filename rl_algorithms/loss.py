@@ -194,11 +194,13 @@ class FeasibilitySACLoss(SACLoss):
             ExplorationType.RANDOM
         ), self.actor_network_params.to_module(self.actor_network):
             dist = self.actor_network.get_dist(tensordict)
-            a_reparm = dist.rsample()
-        log_prob = compute_log_prob(dist, a_reparm, self.tensor_keys.log_prob)
+            tensordict["action"] = dist.rsample()
+
+        tensordict = self.actor_network(tensordict) # Perform projection
+        log_prob = tensordict["sample_log_prob"] # Use sample log prob
 
         td_q = tensordict.select(*self.qvalue_network.in_keys, strict=False)
-        td_q.set(self.tensor_keys.action, a_reparm)
+        td_q.set(self.tensor_keys.action, tensordict["action"])
         td_q = self._vmap_qnetworkN0(
             td_q,
             self._cached_detached_qvalue_params,  # should we clone?
@@ -212,7 +214,7 @@ class FeasibilitySACLoss(SACLoss):
                 f"Losses shape mismatch: {log_prob.shape} and {min_q_logprob.shape}"
             )
 
-        return self._alpha * log_prob - min_q_logprob, {"log_prob": log_prob.detach(), "action": a_reparm}
+        return self._alpha * log_prob - min_q_logprob, {"log_prob": log_prob.detach(), "action": tensordict["action"]}
 
 class FeasibilityClipPPOLoss(PPOLoss):
     """Clipped PPO loss.
@@ -354,6 +356,7 @@ class FeasibilityClipPPOLoss(PPOLoss):
         self._out_keys = values
 
     @dispatch
+    # todo: check if projection during training is working.
     def forward(self, tensordict: TensorDictBase) -> TensorDictBase:
         tensordict = tensordict.clone(False)
         advantage = tensordict.get(self.tensor_keys.advantage, None)
