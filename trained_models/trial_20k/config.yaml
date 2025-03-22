@@ -65,7 +65,7 @@ model:
 testing:
   feasibility_recovery: false
   folder: trial_20k
-  num_episodes: 30
+  num_episodes: 1
   path: trained_models
 training:
   lr: 0.0006763838502036537
@@ -75,7 +75,7 @@ training:
     delta: 0.03952078415385216
     max_iter: 251
     n_action: 80
-    n_constraints: 45
+    n_constraints: 85
     scale: 0.0956793401693036
   projection_type: linear_violation
   test_data_size: 5000
