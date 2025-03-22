@@ -121,16 +121,22 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
             batch, n = A.shape
         elif A.dim() == 3:
             batch, _, n = A.shape
+            shape = (batch, n, n)
         elif A.dim() == 4:
-            batch, _, _, n = A.shape
+            batch, seq, _, n = A.shape
+            shape = (batch, seq, n, n)
         else:
             raise ValueError(f"Invalid dimension of A: {A.dim()}")
 
         # Compute
-        I = torch.eye(n, device=x.device).expand(batch, n, n)  # Identity matrix for each batch
+        I = torch.eye(n, device=x.device).expand(shape)  # Identity matrix for each batch
         violation = compute_violation(x, A, b)
         D = torch.diag_embed(violation > 0).float()
-        jacobian = I + alpha * torch.bmm(A.transpose(1, 2), D).bmm(A)
+
+        if A.dim() == 3:
+            jacobian = I + alpha * torch.bmm(A.transpose(-2, -1), D).bmm(A)
+        elif A.dim() > 3:
+            jacobian = I + alpha * torch.matmul(A.transpose(-2, -1), torch.matmul(D, A))
         return jacobian
 
     def handle_jacobian_adjustment(self, out):
