@@ -178,6 +178,7 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         # Get distribution and full log probabilities
         dist = self.get_dist(out)
         out["log_prob"] = self.get_logprobs(out["action"], dist)
+        # print("sample_logp_mean 1", out["sample_log_prob"].mean())
 
         if "action_mask" in out["observation"]:
             out["action"] = torch.where(out["observation", "action_mask"], out["action"],  0)
@@ -206,12 +207,13 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
             out["log_prob"] = self.clipped_gaussian.log_prob(out["action"])
 
         if "action_mask" in out["observation"]:
-            out["action"] = torch.where(out["observation", "action_mask"], out["action"],  0)
+            out["action"] = torch.where(out["observation", "action_mask"], out["action"],  1e-6)
             out["log_prob"] = torch.where(out["observation", "action_mask"], out["log_prob"], torch.tensor(-10, device=out["log_prob"].device))
 
         # Apply log_prob clamp for numerical stability
         out["log_prob"] = torch.clamp(out["log_prob"], min=-10.0, max=0.0)
 
         # Get sample log probabilities for loss computations -> add clamping for numerical stability
-        out["sample_log_prob"] = out["log_prob"].sum(dim=-1).clamp(min=-50.0, max=0.0)
+        out["sample_log_prob"] = out["log_prob"].sum(dim=-1).clamp(min=-100.0, max=0.0)
+        # print("sample_logp_mean 2", out["sample_log_prob"].mean())
         return out
