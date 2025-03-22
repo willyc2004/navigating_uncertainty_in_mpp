@@ -76,12 +76,6 @@ class LinearViolationAdaption(nn.Module):
         # Return the adjusted x_, reshaped to remove n_step dimension if it was initially 2D
         return x_.squeeze(1) if n_step == 1 else x_
 
-
-import torch
-import torch.nn as nn
-import qpth
-import warnings
-
 class QPProjectionWithSlack(nn.Module):
     def __init__(self, slack_penalty=1.0, box_bounds=None, **kwargs):
         super().__init__()
@@ -248,15 +242,8 @@ class CvxpyProjectionLayer(nn.Module):
             upper = upper.unsqueeze(0).expand(batch_size, -1)
 
         # Solve per batch item
-        x_proj = []
-        for i in range(batch_size):
-            x_i, = self.cvxpy_layer(
-                x_raw[i], A[i], b[i], lower[i], upper[i]
-            )
-            x_proj.append(x_i)
-        return torch.stack(x_proj, dim=0)
-
-
+        x_proj, = self.cvxpy_layer(x_raw, A, b, lower, upper)
+        return x_proj
 
 class ProjectionFactory:
     _class_map = {
