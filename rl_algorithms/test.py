@@ -69,11 +69,11 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     # Use same batch size as scenario tree to get same instance
     stages = config.env.ports - 1  # Number of load ports (P-1)
     max_scenarios_per_stage = 28  # Number of scenarios per stage
-    max_paths = max_scenarios_per_stage ** (stages-1) + 1 if stages < 4 else 100 # Prevent out-of-memory by limit max_paths
+    max_paths = 2 #max_scenarios_per_stage ** (stages-1) + 1 if stages < 4 else 2 # Prevent out-of-memory by limit max_paths
     test_env = make_env(env_kwargs, batch_size=[max_paths], device=device)
     n_step = test_env.T * test_env.K  # Maximum steps per episode (T x K)
     feas_threshold = 1.0
-    delta = 1.0 #config.training.projection_kwargs.get("delta", 0.05) * 1.1
+    delta = 0.1 #config.training.projection_kwargs.get("delta", 0.05) * 1.1
 
     # Set policy to evaluation mode
     policy.eval()  # Set policy to evaluation mode
@@ -134,6 +134,7 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
             violation_adjusted = trajectory["violation"][0].clone()
             v_mask = violation_adjusted[:, :-4] < delta
             violation_adjusted[:, :-4][v_mask] = 0.0 # Do not apply this to stability constraints
+            violation_adjusted[:, -4:][~test_env.next_port_mask] = 0.0  # Only care about feasibility between ports
             metrics["feasible_instance"][episode] = 1.0 if violation_adjusted.sum() <= feas_threshold else 0.0
 
             # Close the generated environment
