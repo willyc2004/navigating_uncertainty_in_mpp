@@ -85,10 +85,11 @@ class CvxpyProjectionLayer(nn.Module):
         self.n = n_action
         self.m = n_constraints
         self.slack_penalty = slack_penalty
+        stab_idx = -4
 
         # Define CVXPY variables and parameters
         x = cp.Variable(n_action)
-        s = cp.Variable(n_constraints)
+        s = cp.Variable(4)
 
         x_raw_param = cp.Parameter(n_action)
         A_param = cp.Parameter((n_constraints, n_action))
@@ -101,9 +102,9 @@ class CvxpyProjectionLayer(nn.Module):
             0.5 * cp.sum_squares(x - x_raw_param) +
             slack_penalty * cp.sum_squares(s)
         )
-
         constraints = [
-            A_param @ x <= b_param + s,
+            A_param[:stab_idx] @ x <= b_param[:stab_idx],
+            A_param[stab_idx:] @ x <= b_param[stab_idx:] + s, # stability slack
             s >= 0,
             x >= lower_param,
             x <= upper_param
