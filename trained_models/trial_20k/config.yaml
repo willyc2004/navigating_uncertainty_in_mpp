@@ -2,11 +2,11 @@ algorithm:
   clip_range: 0.2
   demand_lambda: 1.0
   entropy_lambda: 0.010071090711145904
-  feasibility_lambda: 0.00032398940615718737
+  feasibility_lambda: 0.2828168389831236
   gae_lambda: 0.95
   gamma: 0.99
   max_grad_norm: 0.5
-  mini_batch_size: 0.25
+  mini_batch_size: 0.5
   ppo_epochs: 5
   stability_lambda: 1.0
   tau: 0.005
@@ -33,6 +33,7 @@ env:
   hatch_overstowage_costs: 0.333333
   hatch_overstowage_mask: false
   iid_demand: true
+  limit_revenue: true
   long_crane_costs: 0.5
   normalize_obs: true
   perturbation: 0.2
@@ -47,9 +48,9 @@ model:
   critic_temperature: 1.0
   decoder_type: attention
   dropout_rate: 0.008972135903337364
-  embed_dim: 256
+  embed_dim: 128
   encoder_type: attention
-  hidden_dim: 128
+  hidden_dim: 512
   init_dim: 8
   logger: wandb
   lr_end_factor: 0.5
@@ -58,27 +59,27 @@ model:
   num_encoder_layers: 3
   num_heads: 8
   phase: train
-  scale_max: 8.897753859117877
+  scale_max: 9.459951968688712
   tanh_clipping: 0
   tanh_squashing: false
-  temperature: 0.20503899686621255
+  temperature: 0.11243639449117128
 testing:
   feasibility_recovery: false
   folder: trial_20k
   num_episodes: 30
   path: trained_models
 training:
-  lr: 0.0006763838502036537
+  lr: 0.00014690714579803494
   optimizer: Adam
   projection_kwargs:
-    alpha: 0.03603916981023487
-    delta: 0.03952078415385216
-    scale: 0.0956793401693036
-    max_iter: 251
+    alpha: 0.00987804770039214
+    delta: 0.023908679032053855
+    max_iter: 273
     n_action: 80
     n_constraints: 85
-    slack_penalty: 10000
-  projection_type: convex_program
+    scale: 0.00025463040788043916
+    slack_penalty: 1000
+  projection_type: convex_program_policy_clipping
   test_data_size: 5000
   train_data_size: 7200000
   val_data_size: 5000
