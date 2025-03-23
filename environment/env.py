@@ -741,6 +741,8 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         batch_size = td.batch_size
         action_state, demand_state, vessel_state, time = self._extract_from_block_td(td, batch_size)
         pol, pod, tau, k, rev, step = self._extract_cargo_parameters_for_step(time[0])
+        old_clip_max = action_state["clip_max"].clone()
+        old_rhs = action_state["rhs"].clone()
 
         # Get indices
         ac_transport, moves = self.remain_on_board_transport[pol], self.moves_idx[pol]
@@ -802,10 +804,24 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         clip_max = self._compute_clip_max(residual_capacity, next_state_dict, batch_size, step)
         total_profit = td["observation", "total_profit"] + profit
         max_total_profit = td["observation", "max_total_profit"] +  self.revenues.max() * demand_state["current_demand"]
+
+        if action_state["violation"].dim() > 1:
+            torch.set_printoptions(profile="full", sci_mode=False)
+            print("------ t:", time[0])
+            print("old_clip_max", old_clip_max[0].view(self.B, self.D, self.BL).T)
+            print("old_rhs", old_rhs[0,1:-4].view(self.B, self.D, self.BL).T)
+            print("viol", action_state["violation"][0,1:-4].view(self.B, self.D, self.BL).T)
+            print("action", action_state["action"][0].view(self.B, self.D, self.BL).T)
+            print("rhs", action_state["rhs"][0,1:-4].view(self.B, self.D, self.BL).T)
+            print("clip_max", clip_max[0].view(self.B, self.D, self.BL).T)
+            if action_state["violation"][0,1:-4].sum() > 1:
+                breakpoint()
+
+
         out = TensorDict({
             "observation": {
                 # Vessel
-                "utilization": next_state_dict["utilization"].view(*batch_size, self.B * self.D * self.BL * self.T * self.K),
+                "utilization": next_state_dict["utilization"].view(*batch_size, self.n_block_locations * self.T * self.K),
                 "target_long_crane": next_state_dict["target_long_crane"],
                 "long_crane_moves_discharge": next_state_dict["long_crane_moves_discharge"].view(*batch_size, self.B - 1),
                 # Demand
@@ -820,30 +836,30 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
                 # Vessel
                 "lcg": next_state_dict["lcg"].view(*batch_size, 1),
                 "vcg": next_state_dict["vcg"].view(*batch_size, 1),
-                "residual_capacity": residual_capacity.view(*batch_size, self.B * self.D * self.BL),
+                "residual_capacity": residual_capacity.view(*batch_size, self.n_block_locations),
                 "residual_lc_capacity": next_state_dict["residual_lc_capacity"].view(*batch_size, self.B - 1),
-                "agg_pol_location": agg_pol_location.view(*batch_size, self.B * self.D * self.BL),
-                "agg_pod_location": agg_pod_location.view(*batch_size, self.B * self.D * self.BL),
+                "agg_pol_location": agg_pol_location.view(*batch_size, self.n_block_locations),
+                "agg_pod_location": agg_pod_location.view(*batch_size, self.n_block_locations),
                 "excess_pod_locations": excess_pod_locations.view(*batch_size, self.B * self.BL),
                 "timestep": time,
-                "action_mask": next_state_dict["action_mask"].reshape(*batch_size, self.B * self.D * self.BL),
+                "action_mask": next_state_dict["action_mask"].reshape(*batch_size, self.n_block_locations),
                 "total_profit":total_profit,
                 "max_total_profit":max_total_profit,
             },
 
             # # Feasibility and constraints
-            "lhs_A": action_state["lhs_A"].view(*batch_size, self.n_constraints, self.B * self.D * self.BL),
+            "lhs_A": action_state["lhs_A"].view(*batch_size, self.n_constraints, self.n_block_locations),
             "rhs": action_state["rhs"].view(*batch_size, self.n_constraints),
             "violation": action_state["violation"].view(*batch_size, self.n_constraints),
             # in containers
-            "clip_min": th.zeros_like(residual_capacity, dtype=self.float_type).view(*batch_size, self.B * self.D * self.BL),
-            "clip_max": clip_max.view(*batch_size, self.B * self.D * self.BL),
+            "clip_min": th.zeros_like(residual_capacity, dtype=self.float_type).view(*batch_size, self.n_block_locations),
+            "clip_max": clip_max.view(*batch_size, self.n_block_locations),
             # Profit metrics
             "profit": profit,
             "revenue": revenue,
             "cost": cost,
             # Action, reward, done and step
-            "action": action_state["action"].view(*batch_size, self.B * self.D * self.BL),
+            "action": action_state["action"].view(*batch_size, self.n_block_locations),
             "reward": reward,
             "done": done,
         }, td.shape)
@@ -878,7 +894,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         current_demand = observed_demand[..., tau, k].view(*batch_size, 1).clone() # clone to prevent in-place!
 
         # State and mask
-        action_mask = th.ones((*batch_size, self.B*self.D*self.BL), dtype=th.bool, device=device)
+        action_mask = th.ones((*batch_size, self.n_block_locations), dtype=th.bool, device=device)
         # Vessel
         utilization = th.zeros((*batch_size, self.B, self.D, self.BL, self.T, self.K), device=device, dtype=self.float_type)
         residual_capacity = th.clamp(self.capacity - utilization.sum(dim=-2) @ self.teus, min=self.zero)
@@ -911,10 +927,10 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             "init_expected_demand": td["observation", "init_expected_demand"].view(*batch_size, self.T * self.K),
             "batch_updates": td["observation", "batch_updates"],
             # Vessel
-            "utilization": utilization.view(*batch_size, self.B * self.D * self.BL * self.T * self.K),
+            "utilization": utilization.view(*batch_size, self.n_block_locations * self.T * self.K),
             "target_long_crane": target_long_crane,
             "long_crane_moves_discharge": th.zeros_like(residual_lc_capacity).view(*batch_size, self.B - 1),
-            "residual_capacity": residual_capacity.view(*batch_size, self.B * self.D * self.BL),
+            "residual_capacity": residual_capacity.view(*batch_size, self.n_block_locations),
             "lcg": th.ones_like(time, dtype=self.float_type).view(*batch_size, 1),
             "vcg": th.ones_like(time, dtype=self.float_type).view(*batch_size, 1),
             "residual_lc_capacity": residual_lc_capacity.view(*batch_size, self.B - 1),
@@ -933,9 +949,9 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             # # Action mask
             "action": th.zeros_like(action_mask, dtype=self.float_type),
             # # Constraints
-            "clip_min": th.zeros_like(residual_capacity, dtype=self.float_type).view(*batch_size, self.B * self.D * self.BL, ),
-            "clip_max": residual_capacity.view(*batch_size, self.B * self.D * self.BL),
-            "lhs_A": lhs_A.view(*batch_size, self.n_constraints, self.B * self.D * self.BL),
+            "clip_min": th.zeros_like(residual_capacity, dtype=self.float_type).view(*batch_size, self.n_block_locations, ),
+            "clip_max": residual_capacity.view(*batch_size, self.n_block_locations),
+            "lhs_A": lhs_A.view(*batch_size, self.n_constraints, self.n_block_locations),
             "rhs":  rhs.view(*batch_size, self.n_constraints),
             "violation": th.zeros_like(rhs, dtype=self.float_type),
             # Performance
@@ -966,12 +982,12 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             long_crane_moves_discharge=Unbounded(shape=(*batch_size,self.B-1), dtype=self.float_type),
             lcg=Unbounded(shape=(*batch_size, 1), dtype=self.float_type),
             vcg=Unbounded(shape=(*batch_size, 1), dtype=self.float_type),
-            residual_capacity=Unbounded(shape=(*batch_size, self.B * self.D * self.BL),  dtype=self.float_type),
+            residual_capacity=Unbounded(shape=(*batch_size, self.n_block_locations),  dtype=self.float_type),
             residual_lc_capacity=Unbounded(shape=(*batch_size, self.B - 1), dtype=self.float_type),
-            agg_pol_location=Unbounded(shape=(*batch_size, self.B * self.D * self.BL), dtype=self.float_type),
-            agg_pod_location=Unbounded(shape=(*batch_size, self.B * self.D * self.BL), dtype=self.float_type),
+            agg_pol_location=Unbounded(shape=(*batch_size, self.n_block_locations), dtype=self.float_type),
+            agg_pod_location=Unbounded(shape=(*batch_size, self.n_block_locations), dtype=self.float_type),
             timestep=Unbounded(shape=(*batch_size, 1), dtype=th.int64),
-            action_mask=Bounded(shape=(*batch_size, self.B * self.D * self.BL), low=0, high=1, dtype=th.bool),
+            action_mask=Bounded(shape=(*batch_size, self.n_block_locations), low=0, high=1, dtype=th.bool),
             excess_pod_locations=Unbounded(shape=(*batch_size, self.B * self.BL), dtype=self.float_type),
             total_profit=Unbounded(shape=(*batch_size, 1), dtype=torch.float32),
             max_total_profit=Unbounded(shape=(*batch_size, 1), dtype=torch.float32),
@@ -980,7 +996,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         self.observation_spec = Composite(
             # State, action, generator
             observation=state_spec,
-            action=Unbounded(shape=(*batch_size, self.B * self.D * self.BL), dtype=self.float_type),
+            action=Unbounded(shape=(*batch_size, self.n_block_locations), dtype=self.float_type),
 
             # Performance
             profit=Unbounded(shape=(*batch_size, 1), dtype=torch.float32),
@@ -988,15 +1004,15 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             cost=Unbounded(shape=(*batch_size, 1), dtype=torch.float32),
 
             # Constraints
-            clip_min=Unbounded(shape=(*batch_size,self.B*self.D*self.BL),dtype=self.float_type),
-            clip_max=Unbounded(shape=(*batch_size,self.B*self.D*self.BL),dtype=self.float_type),
-            lhs_A=Unbounded(shape=(*batch_size,self.n_constraints,self.B*self.D*self.BL),dtype=self.float_type),
+            clip_min=Unbounded(shape=(*batch_size,self.n_block_locations),dtype=self.float_type),
+            clip_max=Unbounded(shape=(*batch_size,self.n_block_locations),dtype=self.float_type),
+            lhs_A=Unbounded(shape=(*batch_size,self.n_constraints,self.n_block_locations),dtype=self.float_type),
             rhs=Unbounded(shape=(*batch_size,self.n_constraints),dtype=self.float_type),
             violation=Unbounded(shape=(*batch_size,self.n_constraints),dtype=self.float_type),
             shape=batch_size,
         )
         self.action_spec = Bounded(
-            shape=(*batch_size, self.B*self.D*self.BL),  # Define shape as needed
+            shape=(*batch_size, self.n_block_locations),  # Define shape as needed
             low=0.0,
             high=50.0,  # Define high value as needed
             dtype=self.float_type,
@@ -1015,6 +1031,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             "action_mask": td["observation", "action_mask"].view(*batch_size, self.B, self.D, self.BL).clone(),
             "lhs_A": td["lhs_A"].clone(),
             "rhs": td["rhs"].clone(),
+            "clip_max": td["clip_max"].view(*batch_size, self.B, self.D, self.BL).clone(),
         }
 
         # Demand-related variables
@@ -1050,10 +1067,10 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         """Create constraint matrix A for compact constraints Au <= b"""
         # [1, LM-TW, TW-LM, VM-TW, TW-VM]
         A = th.ones(shape, device=self.device, dtype=self.float_type)
-        A[self.n_demand:self.n_block_locations + self.n_demand,] *= self.teus.view(1, 1, 1, -1) * th.eye(self.n_block_locations, device=self.device, dtype=self.float_type).view(self.n_block_locations, self.B*self.D*self.BL, 1, 1)
+        A[self.n_demand:self.n_block_locations + self.n_demand,] *= self.teus.view(1, 1, 1, -1) * th.eye(self.n_block_locations, device=self.device, dtype=self.float_type).view(self.n_block_locations, self.n_block_locations, 1, 1)
         A *= self.block_constraint_signs.view(-1, 1, 1, 1)
-        A[self.n_block_locations + self.n_demand:self.n_block_locations + self.n_demand + self.n_stability] *= self.block_stability_params_lhs.view(self.n_stability, self.B*self.D*self.BL, 1, self.K,)
-        return A.view(self.n_constraints, self.B*self.D*self.BL, -1)
+        A[self.n_block_locations + self.n_demand:self.n_block_locations + self.n_demand + self.n_stability] *= self.block_stability_params_lhs.view(self.n_stability, self.n_block_locations, 1, self.K,)
+        return A.view(self.n_constraints, self.n_block_locations, -1)
 
     # Initialize
     def _initialize_block_capacity(self, capacity):
@@ -1094,4 +1111,4 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         delta = torch.tensor([self.stab_delta, -self.stab_delta, self.stab_delta, -self.stab_delta],
                              device=self.device, dtype=self.float_type).view(-1,1,1,1,1)
         output = p_weight - self.weights.view(1,1,1,1,self.K) * (target + delta)
-        return output.view(-1, self.B*self.D*self.BL, self.K,)
+        return output.view(-1, self.n_block_locations, self.K,)
