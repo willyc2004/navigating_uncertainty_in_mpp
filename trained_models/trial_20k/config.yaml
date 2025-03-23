@@ -77,7 +77,7 @@ training:
     max_iter: 251
     n_action: 80
     n_constraints: 85
-    slack_penalty: 100
+    slack_penalty: 10000
   projection_type: convex_program
   test_data_size: 5000
   train_data_size: 7200000
