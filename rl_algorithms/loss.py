@@ -195,9 +195,10 @@ class FeasibilitySACLoss(SACLoss):
         ), self.actor_network_params.to_module(self.actor_network):
             dist = self.actor_network.get_dist(tensordict)
             tensordict["action"] = dist.rsample()
-
         tensordict = self.actor_network(tensordict) # Perform projection
         log_prob = tensordict["sample_log_prob"] # Use sample log prob
+        # (non projection on SAC)
+        # log_prob = compute_log_prob(dist, tensordict["action"], self.tensor_keys.log_prob)
 
         td_q = tensordict.select(*self.qvalue_network.in_keys, strict=False)
         td_q.set(self.tensor_keys.action, tensordict["action"])
@@ -356,7 +357,6 @@ class FeasibilityClipPPOLoss(PPOLoss):
         self._out_keys = values
 
     @dispatch
-    # todo: check if projection during training is working.
     def forward(self, tensordict: TensorDictBase) -> TensorDictBase:
         tensordict = tensordict.clone(False)
         advantage = tensordict.get(self.tensor_keys.advantage, None)
@@ -372,6 +372,7 @@ class FeasibilityClipPPOLoss(PPOLoss):
             scale = advantage.std().clamp_min(1e-6)
             advantage = (advantage - loc) / scale
 
+        # todo: check if projection during training is working
         log_weight, dist, kl_approx = self._log_weight(tensordict)
         # ESS for logging
         with torch.no_grad():
