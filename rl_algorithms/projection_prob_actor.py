@@ -62,8 +62,6 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         return self.weighted_scaling(out["action"], ub=out["ub"])
 
     def policy_clipping_projection(self, out):
-        if "clip_min" not in out or "clip_max" not in out:
-            raise ValueError("Policy clipping not supported due to absence of clip_min or clip_max in out")
         return out["action"].clamp(min=out["clip_min"], max=out["clip_max"])
 
     def weighted_scaling_policy_clipping_projection(self, out):
@@ -74,10 +72,20 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         return self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
 
     def convex_program(self, out):
-        return self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
+        out["action"] = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
+        return out["action"]
 
+    def convex_program_policy_clipping(self, out):
+        # tried difference configurations, but this one is best!
+        out["action"] = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
+        out["action"] = self.policy_clipping_projection(out)
+        return out["action"]
 
     def violation_projection(self, out):
+        out["action"] = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
+        return out["action"]
+
+    def violation_projection_policy_clipping(self, out):
         out["action"] = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
         out["action"] = self.policy_clipping_projection(out)
         return out["action"]
@@ -90,10 +98,12 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         projection_methods = {
             "weighted_scaling": self.weighted_scaling_projection,
             "linear_violation": self.violation_projection,
+            "linear_violation_policy_clipping": self.violation_projection_policy_clipping,
             "policy_clipping": self.policy_clipping_projection,
             "weighted_scaling_policy_clipping": self.weighted_scaling_policy_clipping_projection,
-            "quadratic_program":self.quadratic_program,
             "convex_program":self.convex_program,
+            "convex_program_policy_clipping":self.convex_program_policy_clipping,
+
         }
         projection_fn = projection_methods.get(self.projection_type, self.identity_fn)
         return projection_fn(out)
@@ -184,7 +194,9 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
             out["action"] = torch.where(out["observation", "action_mask"], out["action"],  0)
 
         # Raise error for projection layers without log prob adaptation implementations
-        if self.projection_type not in ["linear_violation", "weighted_scaling_policy_clipping", "none", "quadratic_program", "convex_program"]:
+        if self.projection_type not in ["linear_violation", "linear_violation_policy_clipping",
+                                        "weighted_scaling_policy_clipping", "none", "quadratic_program",
+                                        "convex_program", "convex_program_policy_clipping"]:
             raise ValueError(f"Log prob adaptation for projection type \'{self.projection_type}\' not supported.")
             # todo: quadratic and convex programs only for inference
 
