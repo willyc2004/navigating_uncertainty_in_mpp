@@ -786,10 +786,10 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
 
         if not is_done:
             # Update feasibility constraints
-            action_state["lhs_A"] = self.create_lhs_A(self.block_A, time)
+            action_state["lhs_A"] = self.create_lhs_A(self.block_A_lhs, time)
             action_state["rhs"] = self.create_rhs(
                 next_state_dict["utilization"], next_state_dict["current_demand"], self.swap_signs_block_stability,
-                self.block_A, self.n_constraints, self.n_demand, self.n_block_locations, batch_size)
+                self.block_A_rhs, self.n_constraints, self.n_demand, self.n_block_locations, batch_size)
         else:
             # Compute crane cost at last port (only discharging)
             lc_moves_last_port = compute_long_crane(vessel_state["utilization"], moves, self.T, block=True)
@@ -803,15 +803,17 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             torch.zeros_like(td["observation"]["residual_capacity"], dtype=self.float_type).view(*batch_size, self.B,self.D,self.BL )
         clip_max = self._compute_clip_max(residual_capacity, next_state_dict, batch_size, step)
         total_profit = td["observation", "total_profit"] + profit
-        max_total_profit = td["observation", "max_total_profit"] +  self.revenues.max() * demand_state["current_demand"]
+        max_total_profit = td["observation", "max_total_profit"] + self.revenues.max() * demand_state["current_demand"]
 
         if action_state["violation"].dim() > 1:
             torch.set_printoptions(profile="full", sci_mode=False)
-            print("------ t:", time[0])
+            print("------ t:", time[0], "------ step:", step, "------ teu:", self.teus_episode[step])
+            # print("old_lhs_A", old_lhs_A[0,1:-4])
             print("old_clip_max", old_clip_max[0].view(self.B, self.D, self.BL).T)
             print("old_rhs", old_rhs[0,1:-4].view(self.B, self.D, self.BL).T)
             print("viol", action_state["violation"][0,1:-4].view(self.B, self.D, self.BL).T)
             print("action", action_state["action"][0].view(self.B, self.D, self.BL).T)
+            # print("lhs_A", action_state["lhs_A"][0,1:-4])
             print("rhs", action_state["rhs"][0,1:-4].view(self.B, self.D, self.BL).T)
             print("clip_max", clip_max[0].view(self.B, self.D, self.BL).T)
             if action_state["violation"][0,1:-4].sum() > 1:
@@ -904,10 +906,10 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         locations_utilization = th.zeros_like(action_mask, dtype=self.float_type)
 
         # Constraints
-        lhs_A = self.create_lhs_A(self.block_A, time)
+        lhs_A = self.create_lhs_A(self.block_A_lhs, time)
         rhs = self.create_rhs(
             utilization.to(self.float_type), current_demand, self.swap_signs_block_stability,
-            self.block_A, self.n_constraints, self.n_demand, self.n_block_locations, batch_size)
+            self.block_A_rhs, self.n_constraints, self.n_demand, self.n_block_locations, batch_size)
         # Action gate
         pod_locations = th.zeros((*batch_size, self.B, self.D, self.BL, self.P), dtype=self.float_type, device=device)
         if self.block_stowage_mask:
@@ -1063,11 +1065,12 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         self.n_block_stow = self.n_block_locations + 1
         self.n_constraints = self.n_demand + self.n_block_locations + self.n_stability #+ self.n_block_stow
 
-    def _create_constraint_matrix_block(self, shape: Tuple[int, int, int, int], ):
+    def _create_constraint_matrix_block(self, shape: Tuple[int, int, int, int], rhs=True):
         """Create constraint matrix A for compact constraints Au <= b"""
         # [1, LM-TW, TW-LM, VM-TW, TW-VM]
         A = th.ones(shape, device=self.device, dtype=self.float_type)
-        A[self.n_demand:self.n_block_locations + self.n_demand,] *= self.teus.view(1, 1, 1, -1) * th.eye(self.n_block_locations, device=self.device, dtype=self.float_type).view(self.n_block_locations, self.n_block_locations, 1, 1)
+        scaling = self.teus.view(1, 1, 1, -1) if rhs else 1
+        A[self.n_demand:self.n_block_locations + self.n_demand,] *= scaling * th.eye(self.n_block_locations, device=self.device, dtype=self.float_type).view(self.n_block_locations, self.n_block_locations, 1, 1)
         A *= self.block_constraint_signs.view(-1, 1, 1, 1)
         A[self.n_block_locations + self.n_demand:self.n_block_locations + self.n_demand + self.n_stability] *= self.block_stability_params_lhs.view(self.n_stability, self.n_block_locations, 1, self.K,)
         return A.view(self.n_constraints, self.n_block_locations, -1)
@@ -1098,7 +1101,8 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         self.swap_signs_block_stability[0] = 1
 
         # Create constraint matrix
-        self.block_A = self._create_constraint_matrix_block(shape=(self.n_constraints, self.n_block_locations, self.T, self.K))
+        self.block_A_rhs = self._create_constraint_matrix_block(shape=(self.n_constraints, self.n_block_locations, self.T, self.K), rhs=True)
+        self.block_A_lhs = self._create_constraint_matrix_block(shape=(self.n_constraints, self.n_block_locations, self.T, self.K), rhs=False)
 
     # Precomputes
     def _precompute_block_stability_parameters(self,):
