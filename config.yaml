@@ -58,13 +58,13 @@ model:
   num_decoder_layers: 3
   num_encoder_layers: 3
   num_heads: 8
-  phase: train
+  phase: test
   scale_max: 3.988627109442181
   tanh_clipping: 0
   tanh_squashing: false
   temperature: 0.1 #1146853501644833 #0.015
 testing:
-  num_episodes: 1
+  num_episodes: 30
   folder: 'trial_20k'
   path: trained_models
   feasibility_recovery: false
