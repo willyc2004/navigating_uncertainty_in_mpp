@@ -184,11 +184,16 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         return logprob_ # Apply reduction for loss computations. Shape: [Batch]
 
     def forward(self, *args, **kwargs,):
-        out = super().forward(*args, **kwargs)
+        if "action" in kwargs:
+            out = args[0]
+            out["action"] = out["unprojected_action"].clone()
+        else:
+            out = super().forward(*args, **kwargs)
+
         # Get distribution and full log probabilities
         dist = self.get_dist(out)
         out["log_prob"] = self.get_logprobs(out["action"], dist)
-        # print("sample_logp_mean 1", out["sample_log_prob"].mean())
+        out["unprojected_action"] = out["action"].clone()
 
         if "action_mask" in out["observation"]:
             out["action"] = torch.where(out["observation", "action_mask"], out["action"],  0)
@@ -198,7 +203,6 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
                                         "weighted_scaling_policy_clipping", "none", "quadratic_program",
                                         "convex_program", "convex_program_policy_clipping"]:
             raise ValueError(f"Log prob adaptation for projection type \'{self.projection_type}\' not supported.")
-            # todo: quadratic and convex programs only for inference
 
         # Pre-compute upper bound for weighted_scaling
         timestep_idx = out["observation", "timestep"].squeeze(0)
@@ -220,7 +224,7 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
 
         if "action_mask" in out["observation"]:
             out["action"] = torch.where(out["observation", "action_mask"], out["action"],  1e-6)
-            out["log_prob"] = torch.where(out["observation", "action_mask"], out["log_prob"], torch.tensor(-10, device=out["log_prob"].device))
+            out["log_prob"] = torch.where(out["observation", "action_mask"], out["log_prob"], torch.tensor(-100, device=out["log_prob"].device))
 
         # Get sample log probabilities for loss computations
         out["sample_log_prob"] = out["log_prob"].sum(dim=-1)
