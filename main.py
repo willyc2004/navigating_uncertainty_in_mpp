@@ -204,7 +204,7 @@ def main(config: Optional[DotMap] = None, **kwargs):
 
     if config.model.phase in {"train", "tuned_training"}:
         # Initialize models and run training
-        wandb.init(config=config, mode="disabled")
+        wandb.init(config=config)
         policy, critic = initialize_policy_and_critic(config, env, device)
         run_training(policy, critic, **config)
 
