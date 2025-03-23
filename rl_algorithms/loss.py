@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import torch
 import torch.nn.functional as F
+from torch import distributions as d
+import contextlib
 import math
 
 # Typing
@@ -20,6 +22,7 @@ from tensordict.nn import (
     ProbabilisticTensorDictSequential,
     TensorDictModule,
 )
+
 
 # TorchRL
 from torchrl.data.tensor_specs import Composite, TensorSpec
@@ -40,6 +43,7 @@ from torchrl.objectives.sac import SACLoss, _delezify, compute_log_prob
 
 # Custom
 from environment.utils import compute_violation
+
 
 def loss_feasibility(td, action, lagrange_multiplier=None, aggregate_feasibility="sum",):
     """ Compute feasibility loss based on the action and the lagrange multiplier."""
@@ -372,7 +376,6 @@ class FeasibilityClipPPOLoss(PPOLoss):
             scale = advantage.std().clamp_min(1e-6)
             advantage = (advantage - loc) / scale
 
-        # todo: check if projection during training is working
         log_weight, dist, kl_approx = self._log_weight(tensordict)
         # ESS for logging
         with torch.no_grad():
@@ -388,6 +391,7 @@ class FeasibilityClipPPOLoss(PPOLoss):
         log_weight_clip = log_weight.clamp(*self._clip_bounds)
         clip_fraction = (log_weight_clip != log_weight).to(log_weight.dtype).mean()
         ratio = log_weight_clip.exp()
+        print("ratio", ratio.mean(), ratio.shape)
         gain2 = ratio * advantage
 
         gain = torch.stack([gain1, gain2], -1).min(dim=-1)[0]
@@ -419,3 +423,43 @@ class FeasibilityClipPPOLoss(PPOLoss):
             batch_size=[],
         )
         return td_out
+
+    def _log_weight(
+        self, tensordict: TensorDictBase
+    ) -> Tuple[torch.Tensor, d.Distribution]:
+        # either "unprojected_action" or "action"
+        action = tensordict.get("unprojected_action", self.tensor_keys.action)
+
+        with self.actor_network_params.to_module(
+            self.actor_network
+        ) if self.functional else contextlib.nullcontext():
+            dist = self.actor_network.get_dist(tensordict)
+
+        prev_log_prob = tensordict.get(self.tensor_keys.sample_log_prob)
+        if prev_log_prob.requires_grad:
+            raise RuntimeError(
+                f"tensordict stored {self.tensor_keys.sample_log_prob} requires grad."
+            )
+
+        if action.requires_grad:
+            raise RuntimeError(
+                f"tensordict stored {self.tensor_keys.action} requires grad."
+            )
+        if isinstance(action, torch.Tensor):
+            td = self.actor_network(tensordict, action=action) # Re-use unprojected action
+            log_prob = td.get(self.tensor_keys.sample_log_prob)
+            # This does not include Jacobian adjustment:
+            # log_prob = dist.log_prob(action)
+        else:
+            maybe_log_prob = dist.log_prob(tensordict)
+            if not isinstance(maybe_log_prob, torch.Tensor):
+                # In some cases (Composite distribution with aggregate_probabilities toggled off) the returned type may not
+                # be a tensor
+                log_prob = maybe_log_prob.get(self.tensor_keys.sample_log_prob)
+            else:
+                log_prob = maybe_log_prob
+
+        log_weight = (log_prob - prev_log_prob).unsqueeze(-1)
+        kl_approx = (prev_log_prob - log_prob).unsqueeze(-1)
+
+        return log_weight, dist, kl_approx
