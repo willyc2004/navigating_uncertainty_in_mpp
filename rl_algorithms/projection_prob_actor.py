@@ -222,10 +222,6 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
             out["action"] = torch.where(out["observation", "action_mask"], out["action"],  1e-6)
             out["log_prob"] = torch.where(out["observation", "action_mask"], out["log_prob"], torch.tensor(-10, device=out["log_prob"].device))
 
-        # Apply log_prob clamp for numerical stability
-        out["log_prob"] = torch.clamp(out["log_prob"], min=-10.0, max=0.0)
-
-        # Get sample log probabilities for loss computations -> add clamping for numerical stability
-        out["sample_log_prob"] = out["log_prob"].sum(dim=-1).clamp(min=-100.0, max=0.0)
-        # print("sample_logp_mean 2", out["sample_log_prob"].mean())
+        # Get sample log probabilities for loss computations
+        out["sample_log_prob"] = out["log_prob"].sum(dim=-1)
         return out
