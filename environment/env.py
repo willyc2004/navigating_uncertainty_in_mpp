@@ -171,9 +171,9 @@ class MasterPlanningEnv(EnvBase):
 
         if not is_done:
             # Update feasibility constraints
-            action_state["lhs_A"] = self.create_lhs_A(self.A, time,)
+            action_state["lhs_A"] = self.create_lhs_A(self.A_lhs, time,)
             action_state["rhs"] = self.create_rhs(
-                next_state_dict["utilization"], next_state_dict["current_demand"], self.swap_signs_stability, self.A,
+                next_state_dict["utilization"], next_state_dict["current_demand"], self.swap_signs_stability, self.A_rhs,
                 self.n_constraints, self.n_demand, self.n_locations,batch_size)
         else:
             # Compute crane excess at last port (only discharging)
@@ -271,8 +271,9 @@ class MasterPlanningEnv(EnvBase):
         locations_utilization = th.zeros_like(action_mask, dtype=self.float_type)
 
         # Constraints
-        lhs_A = self.create_lhs_A(self.A, time,)
-        rhs = self.create_rhs(utilization.to(self.float_type), current_demand, self.swap_signs_stability, self.A,
+        # todo: A_lhs,A_rhs not included in IJCAI paper
+        lhs_A = self.create_lhs_A(self.A_lhs, time,)
+        rhs = self.create_rhs(utilization.to(self.float_type), current_demand, self.swap_signs_stability, self.A_rhs,
             self.n_constraints, self.n_demand, self.n_locations, batch_size)
         # Init tds - state: internal state
         # todo: hardcoded shapes; use spec instead
@@ -481,11 +482,12 @@ class MasterPlanningEnv(EnvBase):
         self.n_locations = self.B * self.D
         self.n_constraints = self.n_demand + self.n_locations + self.n_stability
 
-    def _create_constraint_matrix(self, shape: Tuple[int, int, int, int], ):
+    def _create_constraint_matrix(self, shape: Tuple[int, int, int, int], rhs=True):
         """Create constraint matrix A for compact constraints Au <= b"""
         # [1, LM-TW, TW-LM, VM-TW, TW-VM]
         A = th.ones(shape, device=self.device, dtype=self.float_type)
-        A[self.n_demand:self.n_locations + self.n_demand,] *= self.teus.view(1, 1, 1, -1) * th.eye(self.n_locations, device=self.device, dtype=self.float_type).view(self.n_locations, self.B*self.D, 1, 1)
+        scaling = self.teus.view(1, 1, 1, -1) if rhs else 1
+        A[self.n_demand:self.n_locations + self.n_demand,] *= scaling * th.eye(self.n_locations, device=self.device, dtype=self.float_type).view(self.n_locations, self.B*self.D, 1, 1)
         A *= self.constraint_signs.view(-1, 1, 1, 1)
         A[self.n_locations + self.n_demand:self.n_locations + self.n_demand + self.n_stability] *= self.stability_params_lhs.view(self.n_stability, self.B*self.D, 1, self.K,)
         return A.view(self.n_constraints, self.B*self.D, -1)
@@ -557,7 +559,8 @@ class MasterPlanningEnv(EnvBase):
         self.swap_signs_stability[0] = 1
 
         # Create constraint matrix
-        self.A = self._create_constraint_matrix(shape=(self.n_constraints, self.n_locations, self.T, self.K))
+        self.A_lhs = self._create_constraint_matrix(shape=(self.n_constraints, self.n_locations, self.T, self.K), rhs=False)
+        self.A_rhs = self._create_constraint_matrix(shape=(self.n_constraints, self.n_locations, self.T, self.K), rhs=True)
 
     # Precomputes
     def _precompute_order_standard(self):
@@ -707,10 +710,6 @@ class MasterPlanningEnv(EnvBase):
         teu = self.teus_episode[step].view((1,) * dims)
         out = (residual_capacity / teu).view(*batch_size, self.action_spec.shape[-1])
         out = out.clamp(max=next_state_dict["current_demand"].view(*batch_size, 1))
-        # if clip_max.ndim > 1:
-        #     print(clip_max.ndim)
-        #     print("res_cap", residual_capacity[0], "clip_max", clip_max[0])
-        #     print("clip_max", clip_max[0], "c_demand", next_state_dict["current_demand"][0])
         return out
 
 class BlockMasterPlanningEnv(MasterPlanningEnv):
@@ -769,12 +768,6 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         # Compute total loaded
         sum_action = action_state["action"].sum(dim=(-3, -2, -1)).unsqueeze(-1)
 
-        # if time.shape[0] > 1:
-        #     print("------")
-        #     print(f"time:{time[0]}, teu[0]{self.teus_episode[step]}")
-        #     print(f"clip_max[0] {td['clip_max'][0].sum()}, res_cap[0] {td['observation']['residual_capacity'][0].sum()}, dem[0] {demand_state['current_demand'][0]}")
-        #     print(f"action[0] {sum_action[0]}, teu_action[0], {self.teus_episode[step] * sum_action[0]}")
-
         # Compute reward & cost
         revenue = self._compute_revenue(sum_action, demand_state, rev)
         profit, cost = self._compute_cost(revenue, vessel_state, moves, ac_transport, step, block=True)
@@ -804,22 +797,6 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         clip_max = self._compute_clip_max(residual_capacity, next_state_dict, batch_size, step)
         total_profit = td["observation", "total_profit"] + profit
         max_total_profit = td["observation", "max_total_profit"] + self.revenues.max() * demand_state["current_demand"]
-
-        if action_state["violation"].dim() > 1:
-            torch.set_printoptions(profile="full", sci_mode=False)
-            print("------ t:", time[0], "------ step:", step, "------ teu:", self.teus_episode[step])
-            # print("old_lhs_A", old_lhs_A[0,1:-4])
-            print("old_clip_max", old_clip_max[0].view(self.B, self.D, self.BL).T)
-            print("old_rhs", old_rhs[0,1:-4].view(self.B, self.D, self.BL).T)
-            print("viol", action_state["violation"][0,1:-4].view(self.B, self.D, self.BL).T)
-            print("action", action_state["action"][0].view(self.B, self.D, self.BL).T)
-            # print("lhs_A", action_state["lhs_A"][0,1:-4])
-            print("rhs", action_state["rhs"][0,1:-4].view(self.B, self.D, self.BL).T)
-            print("clip_max", clip_max[0].view(self.B, self.D, self.BL).T)
-            if action_state["violation"][0,1:-4].sum() > 1:
-                breakpoint()
-
-
         out = TensorDict({
             "observation": {
                 # Vessel
