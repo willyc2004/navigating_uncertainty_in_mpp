@@ -149,7 +149,9 @@ class CvxpyProjectionLayer(nn.Module):
 class ProjectionFactory:
     _class_map = {
         'linear_violation':LinearViolationAdaption,
+        'linear_violation_policy_clipping':LinearViolationAdaption,
         'convex_program':CvxpyProjectionLayer,
+        'convex_program_policy_clipping':CvxpyProjectionLayer,
     }
 
     @staticmethod
