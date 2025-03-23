@@ -204,7 +204,7 @@ def main(config: Optional[DotMap] = None, **kwargs):
 
     if config.model.phase in {"train", "tuned_training"}:
         # Initialize models and run training
-        wandb.init(config=config,)
+        wandb.init(config=config, mode="disabled")
         policy, critic = initialize_policy_and_critic(config, env, device)
         run_training(policy, critic, **config)
 
@@ -217,29 +217,16 @@ def main(config: Optional[DotMap] = None, **kwargs):
         policy_load_path = f"{path}/policy.pth"
         policy.load_state_dict(torch.load(policy_load_path, map_location=device))
 
-        # Evaluate the model
-        results = []
-        # for alpha in [1e-1, 5e-2, 1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 5e-5, 1e-5, ]:
-        #     for delta in [0.1, 0.05,]:
-        #         for max_iter in [100, 250, 500, 1000, 1500, 2000]:
-        alpha = 1e-5
-        delta = 0.05
-        max_iter = 1000
-        print(f"Running evaluation for alpha={alpha}, delta={delta}, max_iter={max_iter}")
-        config.training.projection_kwargs["alpha"] = alpha
-        config.training.projection_kwargs["delta"] = delta
-        config.training.projection_kwargs["max_iter"] = max_iter
         metrics, summary_stats = evaluate_model(policy, config, device=device, **config.testing)
-        results.append((alpha, delta, max_iter, metrics, summary_stats))
         print(summary_stats)
 
         # Save summary statistics in path
         if "feasibility_recovery" in config.testing:
             file_name = f"summary_stats_P{config.env.ports}_feas_recov{config.testing.feasibility_recovery}_" \
-                   f"cv{config.env.cv_demand}_gen{config.env.generalization}.yaml"
+                   f"cv{config.env.cv_demand}_gen{config.env.generalization}_{config.training.projection_type}.yaml"
         else:
             file_name = f"summary_stats_P{config.env.ports}_cv{config.env.cv_demand}" \
-                        f"_gen{config.env.generalization}.yaml"
+                        f"_gen{config.env.generalization}_{config.training.projection_type}.yaml"
         with open(f"{path}/{file_name}", "w") as file:
             yaml.dump(summary_stats, file)
 
