@@ -130,7 +130,7 @@ def initialize_policy_and_critic(config, env, device):
     if config.model.dynamic_embedding == "self_attention":
         dynamic_embed = DynamicSelfAttentionEmbedding(embed_dim, sequence_dim, env)
     elif config.model.dynamic_embedding == "ffn":
-        DynamicEmbedding(embed_dim, sequence_dim, env)
+        dynamic_embed = DynamicEmbedding(embed_dim, sequence_dim, env)
     else:
         raise ValueError(f"Unsupported dynamic embedding type: {config.model.dynamic_embedding}")
 
@@ -143,6 +143,7 @@ def initialize_policy_and_critic(config, env, device):
         "context_embedding": context_embed,
         "dynamic_embedding": dynamic_embed,
         "critic_embedding": critic_embed,
+        "obs_embedding": critic_embed,
         **config.model,
     }
     encoder_args = {
