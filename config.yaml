@@ -2,7 +2,7 @@ algorithm:
   clip_range: 0.2
   demand_lambda: 1.0
   entropy_lambda: 0.010071090711145904
-  feasibility_lambda: 0.2828168389831236 #VP: 0.2828168389831236 #FR: 0.19541109874275892
+  feasibility_lambda: 0.19541109874275892 #VP: 0.2828168389831236 #FR: 0.19541109874275892
   gae_lambda: 0.95
   gamma: 0.99
   max_grad_norm: 0.5
@@ -31,7 +31,7 @@ env:
   generalization: false
   hatch_overstowage_costs: 0.333333
   hatch_overstowage_mask: false
-  block_stowage_mask: false
+  block_stowage_mask: true
   iid_demand: true
   limit_revenue: true
   long_crane_costs: 0.5
@@ -80,7 +80,7 @@ training:
     n_constraints: 85
     scale: 0.00025463040788043916
     slack_penalty: 100000
-  projection_type: linear_violation
+  projection_type: None
   # None, weighted_scaling_policy_clipping, linear_violation, linear_violation_policy_clipping, convex_program, convex_program_policy_clipping
   test_data_size: 5000
   train_data_size: 7200000
