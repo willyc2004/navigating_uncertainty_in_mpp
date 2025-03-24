@@ -2,7 +2,7 @@ algorithm:
   clip_range: 0.2
   demand_lambda: 1.0
   entropy_lambda: 0.010071090711145904
-  feasibility_lambda: 0.2828168389831236
+  feasibility_lambda: 0.2828168389831236 # 0.19541109874275892
   gae_lambda: 0.95
   gamma: 0.99
   max_grad_norm: 0.5
@@ -31,13 +31,13 @@ env:
   generalization: false
   hatch_overstowage_costs: 0.333333
   hatch_overstowage_mask: false
-  block_stowage_mask: false
+  block_stowage_mask: true
   iid_demand: true
   limit_revenue: true
   long_crane_costs: 0.5
   normalize_obs: true
   perturbation: 0.2
-  ports: 4
+  ports: 5
   seed: 42
   spot_percentage: 0.3
   stability_difference: 0.1
@@ -58,7 +58,7 @@ model:
   num_decoder_layers: 4
   num_encoder_layers: 3
   num_heads: 8
-  phase: train
+  phase: test
   scale_max: 9.459951968688712
   tanh_clipping: 0
   tanh_squashing: false
