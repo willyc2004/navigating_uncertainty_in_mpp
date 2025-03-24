@@ -31,7 +31,7 @@ env:
   generalization: false
   hatch_overstowage_costs: 0.333333
   hatch_overstowage_mask: false
-  block_stowage_mask: true
+  block_stowage_mask: false
   iid_demand: true
   limit_revenue: true
   long_crane_costs: 0.5
@@ -50,7 +50,7 @@ model:
   dropout_rate: 0.008972135903337364
   embed_dim: 128
   encoder_type: attention
-  dyn_embed: ffn # ffn, self_attention
+  dyn_embed: self_attention # ffn, self_attention
   hidden_dim: 512
   init_dim: 8
   logger: wandb
