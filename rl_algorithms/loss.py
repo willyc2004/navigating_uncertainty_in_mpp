@@ -49,19 +49,31 @@ def loss_feasibility(td, action, lagrange_multiplier=None, aggregate_feasibility
     """ Compute feasibility loss based on the action and the lagrange multiplier."""
     lhs_A = td.get("lhs_A")
     rhs = td.get("rhs")
+    excess_pod_locations = td["observation"].get("excess_pod_locations")
     violations = compute_violation(action, lhs_A, rhs)
 
     if lagrange_multiplier is not None:
-        lagrange_multiplier = violations * lagrange_multiplier
+        weighted_violations = violations * lagrange_multiplier
     else:
-        lagrange_multiplier = violations
+        weighted_violations = violations
 
     # Get aggregation dimensions
     sum_dims = [-x for x in range(1, violations.dim())]
     if aggregate_feasibility == "sum":
-        return lagrange_multiplier.sum(dim=sum_dims).mean(), violations
+        agg_fn = lambda x: x.sum(dim=sum_dims).mean()
     elif aggregate_feasibility == "mean":
-        return lagrange_multiplier.mean(), violations
+        agg_fn = lambda x: x.mean()
+    else:
+        raise ValueError(f"Unknown aggregation method: {aggregate_feasibility}")
+
+    # Compute loss from weighted violations
+    loss = agg_fn(weighted_violations)
+
+    # Add excess pod penalty if present
+    if excess_pod_locations is not None:
+        loss += agg_fn(excess_pod_locations)
+
+    return loss, violations
 
 class FeasibilitySACLoss(SACLoss):
     """TorchRL implementation of the SAC loss with feasibility constraints.
