@@ -46,11 +46,11 @@ env:
 model:
   batch_size: 64
   critic_temperature: 1.0
-  decoder_type: mlp
+  decoder_type: attention
   dropout_rate: 0.008972135903337364
   embed_dim: 128
-  encoder_type: mlp
-  dynamic_embedding: self_attention # ffn
+  encoder_type: attention
+  dynamic_embedding: ffn # ffn, self_attention
   hidden_dim: 512
   init_dim: 8
   logger: wandb
