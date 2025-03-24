@@ -31,7 +31,7 @@ env:
   generalization: false
   hatch_overstowage_costs: 0.333333
   hatch_overstowage_mask: false
-  block_stowage_mask: false
+  block_stowage_mask: true
   iid_demand: true
   limit_revenue: true
   long_crane_costs: 0.5
@@ -46,10 +46,10 @@ env:
 model:
   batch_size: 64
   critic_temperature: 1.0
-  decoder_type: attention
+  decoder_type: mlp
   dropout_rate: 0.008972135903337364
   embed_dim: 128
-  encoder_type: attention
+  encoder_type: mlp
   hidden_dim: 512
   init_dim: 8
   logger: wandb
