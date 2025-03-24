@@ -127,9 +127,9 @@ def initialize_policy_and_critic(config, env, device):
     critic_embed = CriticEmbedding(action_dim, embed_dim, sequence_dim, env,)
     init_embed = CargoEmbedding(action_dim, embed_dim, sequence_dim, env)
     context_embed = ContextEmbedding(action_dim, embed_dim, sequence_dim, env,)
-    if config.model.dynamic_embedding == "self_attention":
+    if config.model.dyn_embed == "self_attention":
         dynamic_embed = DynamicSelfAttentionEmbedding(embed_dim, sequence_dim, env)
-    elif config.model.dynamic_embedding == "ffn":
+    elif config.model.dyn_embed == "ffn":
         dynamic_embed = DynamicEmbedding(embed_dim, sequence_dim, env)
     else:
         raise ValueError(f"Unsupported dynamic embedding type: {config.model.dynamic_embedding}")
