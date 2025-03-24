@@ -50,6 +50,7 @@ model:
   dropout_rate: 0.008972135903337364
   embed_dim: 128
   encoder_type: mlp
+  dynamic_embedding: self_attention # ffn
   hidden_dim: 512
   init_dim: 8
   logger: wandb

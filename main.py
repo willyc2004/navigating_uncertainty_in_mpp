@@ -124,10 +124,15 @@ def initialize_policy_and_critic(config, env, device):
     sequence_dim = env.K * env.T if env.action_spec.shape[0] > env.P-1 else env.P - 1
 
     # Embedding initialization
+    critic_embed = CriticEmbedding(action_dim, embed_dim, sequence_dim, env,)
     init_embed = CargoEmbedding(action_dim, embed_dim, sequence_dim, env)
     context_embed = ContextEmbedding(action_dim, embed_dim, sequence_dim, env,)
-    dynamic_embed = DynamicSelfAttentionEmbedding(embed_dim, sequence_dim, env) # DynamicEmbedding(embed_dim, sequence_dim, env)
-    critic_embed = CriticEmbedding(action_dim, embed_dim, sequence_dim, env,)
+    if config.model.dynamic_embedding == "self_attention":
+        dynamic_embed = DynamicSelfAttentionEmbedding(embed_dim, sequence_dim, env)
+    elif config.model.dynamic_embedding == "ffn":
+        DynamicEmbedding(embed_dim, sequence_dim, env)
+    else:
+        raise ValueError(f"Unsupported dynamic embedding type: {config.model.dynamic_embedding}")
 
     # Model arguments
     decoder_args = {

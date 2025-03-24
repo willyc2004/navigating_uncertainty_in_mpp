@@ -35,6 +35,7 @@ class MLPEncoder(nn.Module):
         net: nn.Module = None,
         sdpa_fn = None,
         moe_kwargs: dict = None,
+        **kwargs,
     ):
         super(MLPEncoder, self).__init__()
         self.env_name = env_name
