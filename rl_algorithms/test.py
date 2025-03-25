@@ -72,6 +72,7 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     n_step = test_env.T * test_env.K  # Maximum steps per episode (T x K)
     feas_threshold = 1.0
     delta = 1.0
+    num_rollouts = 5  # Number of rollouts per episode
 
     # Set policy to evaluation mode
     policy.eval()  # Set policy to evaluation mode
@@ -97,90 +98,88 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
                 auto_reset=True,
             )
 
-    num_rollouts = 5  # Number of rollouts per episode
+        for episode in tqdm(range(num_episodes), desc="Episodes"):
+            seed = config.env.seed + episode + 1
+            set_unique_seed(seed)
+            config.env.seed = seed
 
-    for episode in tqdm(range(num_episodes), desc="Episodes"):
-        seed = config.env.seed + episode + 1
-        set_unique_seed(seed)
-        config.env.seed = seed
+            # Setup new environment
+            gen_env = make_env(config.env, batch_size=[max_paths], device='cpu')
+            td = gen_env.reset().to(device)
 
-        # Setup new environment
-        gen_env = make_env(config.env, batch_size=[max_paths], device='cpu')
-        td = gen_env.reset().to(device)
+            torch.cuda.synchronize() if device.type == "cuda" else None
+            start_time = time.perf_counter()
 
-        torch.cuda.synchronize() if device.type == "cuda" else None
-        start_time = time.perf_counter()
+            feasible_rollouts = []
+            fallback_rollouts = []
 
-        feasible_rollouts = []
-        fallback_rollouts = []
+            for r in range(num_rollouts):
+                print(f"Rollout {r + 1}/{num_rollouts}")
+                td_r = td.clone()
 
-        for r in range(num_rollouts):
-            print(f"Rollout {r + 1}/{num_rollouts}")
-            td_r = td.clone()
+                traj = test_env.rollout(
+                    policy=policy,
+                    max_steps=n_step,
+                    auto_reset=False,
+                    tensordict=td_r,
+                )
 
-            traj = test_env.rollout(
-                policy=policy,
-                max_steps=n_step,
-                auto_reset=False,
-                tensordict=td_r,
-            )
+                # Post-process violations
+                zero_idx = torch.where((traj["action"][0] == 0.0) & (traj["clip_max"][0] == 0.0))
+                traj["violation"][0][zero_idx] = 0.0
 
-            # Post-process violations
-            zero_idx = torch.where((traj["action"][0] == 0.0) & (traj["clip_max"][0] == 0.0))
-            traj["violation"][0][zero_idx] = 0.0
+                profit = traj["profit"][0].sum().item()
 
-            profit = traj["profit"][0].sum().item()
+                # Feasibility check (same as your logic)
+                violation_adjusted = traj["violation"][0].clone()
+                v_mask = violation_adjusted[:, :-4] < delta
+                violation_adjusted[:, :-4][v_mask] = 0.0
+                violation_adjusted[:, -4:][~test_env.next_port_mask] = 0.0
+                total_violation = violation_adjusted.sum().item()
+                is_feasible = total_violation <= feas_threshold
 
-            # Feasibility check (same as your logic)
-            violation_adjusted = traj["violation"][0].clone()
+                rollout_info = {
+                    "trajectory": traj,
+                    "profit": profit,
+                    "total_violation": total_violation,
+                    "feasible": is_feasible,
+                }
+
+                if is_feasible:
+                    feasible_rollouts.append(rollout_info)
+                fallback_rollouts.append(rollout_info)
+
+            # Choose best feasible rollout (or fallback to best overall)
+            if feasible_rollouts:
+                best = max(feasible_rollouts, key=lambda x: x["profit"])
+            else:
+                best = max(fallback_rollouts, key=lambda x: x["profit"])  # optional fallback
+
+            trajectory = best["trajectory"]
+
+            torch.cuda.synchronize() if device.type == "cuda" else None
+            end_time = time.perf_counter()
+
+            # Metrics
+            metrics["total_profit"][episode] = best["profit"]
+            metrics["total_violations"][episode] = best["total_violation"]
+            metrics["inference_times"][episode] = end_time - start_time
+            metrics["feasible_instance"][episode] = 1.0 if best["feasible"] else 0.0
+
+            # Detailed violation metrics
+            violation_adjusted = trajectory["violation"][0].clone()
             v_mask = violation_adjusted[:, :-4] < delta
             violation_adjusted[:, :-4][v_mask] = 0.0
             violation_adjusted[:, -4:][~test_env.next_port_mask] = 0.0
-            total_violation = violation_adjusted.sum().item()
-            is_feasible = total_violation <= feas_threshold
 
-            rollout_info = {
-                "trajectory": traj,
-                "profit": profit,
-                "total_violation": total_violation,
-                "feasible": is_feasible,
-            }
+            metrics["demand_violations"][episode] = violation_adjusted[:, 0].sum()
+            metrics["capacity_violations"][episode] = violation_adjusted[:, 1:-4].sum()
+            metrics["stability_violations"][episode] = violation_adjusted[:, -4:].sum()
+            metrics["pbs_violations"][episode] = trajectory["observation", "excess_pod_locations"][0].sum()
 
-            if is_feasible:
-                feasible_rollouts.append(rollout_info)
-            fallback_rollouts.append(rollout_info)
-
-        # Choose best feasible rollout (or fallback to best overall)
-        if feasible_rollouts:
-            best = max(feasible_rollouts, key=lambda x: x["profit"])
-        else:
-            best = max(fallback_rollouts, key=lambda x: x["profit"])  # optional fallback
-
-        trajectory = best["trajectory"]
-
-        torch.cuda.synchronize() if device.type == "cuda" else None
-        end_time = time.perf_counter()
-
-        # Metrics
-        metrics["total_profit"][episode] = best["profit"]
-        metrics["total_violations"][episode] = best["total_violation"]
-        metrics["inference_times"][episode] = end_time - start_time
-        metrics["feasible_instance"][episode] = 1.0 if best["feasible"] else 0.0
-
-        # Detailed violation metrics
-        violation_adjusted = trajectory["violation"][0].clone()
-        v_mask = violation_adjusted[:, :-4] < delta
-        violation_adjusted[:, :-4][v_mask] = 0.0
-        violation_adjusted[:, -4:][~test_env.next_port_mask] = 0.0
-
-        metrics["demand_violations"][episode] = violation_adjusted[:, 0].sum()
-        metrics["capacity_violations"][episode] = violation_adjusted[:, 1:-4].sum()
-        metrics["stability_violations"][episode] = violation_adjusted[:, -4:].sum()
-        metrics["pbs_violations"][episode] = trajectory["observation", "excess_pod_locations"][0].sum()
-
-        # Cleanup
-        gen_env.close()
-        del gen_env
+            # Cleanup
+            gen_env.close()
+            del gen_env
 
     # Summarize episode-level metrics (mean and std)
     summary_stats = compute_summary_stats(metrics)
