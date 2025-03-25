@@ -4,7 +4,7 @@ capacity_violations:
   mean: 0.0
   median: 0.0
   min: 0.0
-  std: .nan
+  std: 0.0
   ub_ci: 0.0
 demand_violations:
   lb_ci: 0.0
@@ -12,7 +12,7 @@ demand_violations:
   mean: 0.0
   median: 0.0
   min: 0.0
-  std: .nan
+  std: 0.0
   ub_ci: 0.0
 feasible_instance:
   lb_ci: 0.8425467654482932
@@ -23,29 +23,29 @@ feasible_instance:
   std: 0.2537081241607666
   ub_ci: 1.024120028374949
 inference_times:
-  lb_ci: 51.32353963167256
-  max: 62.546939849853516
-  mean: 52.708229064941406
-  median: 51.673030853271484
-  min: 45.04007339477539
-  std: 3.86958909034729
-  ub_ci: 54.09291849821025
+  lb_ci: 50.94674881391345
+  max: 62.28416442871094
+  mean: 52.334312438964844
+  median: 51.50141525268555
+  min: 44.47602844238281
+  std: 3.8776211738586426
+  ub_ci: 53.721876064016236
 pbs_violations:
   lb_ci: 0.0
   max: 0.0
   mean: 0.0
   median: 0.0
   min: 0.0
-  std: .nan
+  std: 0.0
   ub_ci: 0.0
 stability_violations:
-  lb_ci: 0.0
-  max: 0.0
-  mean: 0.0
+  lb_ci: -3.1423307269198286
+  max: 144.7891082763672
+  mean: 7.671689033508301
   median: 0.0
   min: 0.0
-  std: .nan
-  ub_ci: 0.0
+  std: 30.220359802246094
+  ub_ci: 18.485708793936432
 total_profit:
   lb_ci: 34074.65072000612
   max: 36732.0625
