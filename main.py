@@ -218,7 +218,7 @@ def main(config: Optional[DotMap] = None, **kwargs):
         # Initialize
         config = load_trained_hyperparameters(path)
 
-        for slack_penalty in [10]: #, 100, 1000, 10000, 100000]:
+        for slack_penalty in [10, 100, 1000, 10000, 100000]:
             print(f"Testing slack penalty: {slack_penalty}")
             config.training.projection_kwargs.slack_penalty = slack_penalty
             policy, critic = initialize_policy_and_critic(config, env, device)
