@@ -37,7 +37,7 @@ env:
   long_crane_costs: 0.5
   normalize_obs: true
   perturbation: 0.2
-  ports: 4
+  ports: 5
   seed: 42
   spot_percentage: 0.3
   stability_difference: 0.1
@@ -48,6 +48,7 @@ model:
   critic_temperature: 1.0
   decoder_type: attention
   dropout_rate: 0.008972135903337364
+  dyn_embed: self_attention
   embed_dim: 128
   encoder_type: attention
   hidden_dim: 512
