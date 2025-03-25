@@ -72,7 +72,7 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
     n_step = test_env.T * test_env.K  # Maximum steps per episode (T x K)
     feas_threshold = 1.0
     delta = 1.0
-    num_rollouts = 10  # Number of rollouts per episode
+    num_rollouts = 5  # Number of rollouts per episode
 
     # Set policy to evaluation mode
     policy.eval()  # Set policy to evaluation mode
