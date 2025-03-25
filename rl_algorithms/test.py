@@ -114,7 +114,6 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
             fallback_rollouts = []
 
             for r in range(num_rollouts):
-                print(f"Rollout {r + 1}/{num_rollouts}")
                 td_r = td.clone()
 
                 traj = test_env.rollout(
