@@ -133,9 +133,9 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
             violation_adjusted[:, :-4][v_mask] = 0.0 # Do not apply this to stability constraints
             violation_adjusted[:, -4:][~test_env.next_port_mask] = 0.0  # Only care about feasibility between ports
             metrics["feasible_instance"][episode] = 1.0 if violation_adjusted.sum() <= feas_threshold else 0.0
-            print("Demand viol", violation_adjusted[:, 0].sum())#, violation_adjusted[:, 0])
-            print("Stability viol", violation_adjusted[:, -4:].sum())#, violation_adjusted[:, -4:].sum(dim=-1))
-            print("Cap viol", violation_adjusted[:, 1:-4].sum())#, violation_adjusted[:, 1:-4].sum(dim=-1))
+            # print("Demand viol", violation_adjusted[:, 0].sum())#, violation_adjusted[:, 0])
+            # print("Stability viol", violation_adjusted[:, -4:].sum())#, violation_adjusted[:, -4:].sum(dim=-1))
+            # print("Cap viol", violation_adjusted[:, 1:-4].sum())#, violation_adjusted[:, 1:-4].sum(dim=-1))
 
             # Close the generated environment
             gen_env.close()
