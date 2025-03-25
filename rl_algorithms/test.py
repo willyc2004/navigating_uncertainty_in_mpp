@@ -43,6 +43,7 @@ def compute_summary_stats(metrics, confidence_level=0.95):
             "max": values.max().item(),
             "lb_ci": mean - margin_of_error,  # Lower bound of the CI
             "ub_ci": mean + margin_of_error,  # Upper bound of the CI
+            "value": values,  # Store the tensor for further analysis
         }
     return summary_stats
 
