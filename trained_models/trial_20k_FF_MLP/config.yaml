@@ -79,8 +79,8 @@ training:
     n_action: 80
     n_constraints: 85
     scale: 0.00025463040788043916
-    slack_penalty: 100000
-  projection_type: linear_violation
+    slack_penalty: 1000
+  projection_type: convex_program
   test_data_size: 5000
   train_data_size: 7200000
   val_data_size: 5000
