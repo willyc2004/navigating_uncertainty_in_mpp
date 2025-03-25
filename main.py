@@ -218,29 +218,29 @@ def main(config: Optional[DotMap] = None, **kwargs):
         # Initialize
         config = load_trained_hyperparameters(path)
 
-        for slack_penalty in [10, 100, 1000, 10000, 100000]:
-            print(f"Testing slack penalty: {slack_penalty}")
-            config.training.projection_kwargs.slack_penalty = slack_penalty
-            policy, critic = initialize_policy_and_critic(config, env, device)
+        # for slack_penalty in [10, 100, 1000, 10000, 100000]:
+        #     print(f"Testing slack penalty: {slack_penalty}")
+        # config.training.projection_kwargs.slack_penalty = slack_penalty
+        policy, critic = initialize_policy_and_critic(config, env, device)
 
-            # Evaluate policy
-            policy_load_path = f"{path}/policy.pth"
-            policy.load_state_dict(torch.load(policy_load_path, map_location=device))
+        # Evaluate policy
+        policy_load_path = f"{path}/policy.pth"
+        policy.load_state_dict(torch.load(policy_load_path, map_location=device))
 
-            metrics, summary_stats = evaluate_model(policy, config, device=device, **config.testing)
-            print(summary_stats)
+        metrics, summary_stats = evaluate_model(policy, config, device=device, **config.testing)
+        print(summary_stats)
 
-            # Save summary statistics in path
-            if "feasibility_recovery" in config.testing:
-                file_name = f"summary_stats_P{config.env.ports}_feas_recov{config.testing.feasibility_recovery}_" \
-                       f"cv{config.env.cv_demand}_gen{config.env.generalization}_{config.training.projection_type}" \
-                            f"_{config.training.projection_kwargs.slack_penalty}.yaml"
-            else:
-                file_name = f"summary_stats_P{config.env.ports}_cv{config.env.cv_demand}" \
-                            f"_gen{config.env.generalization}_{config.training.projection_type}" \
-                            f"_{config.training.projection_kwargs.slack_penalty}.yaml"
-            with open(f"{path}/{file_name}", "w") as file:
-                yaml.dump(summary_stats, file)
+        # Save summary statistics in path
+        if "feasibility_recovery" in config.testing:
+            file_name = f"summary_stats_P{config.env.ports}_feas_recov{config.testing.feasibility_recovery}_" \
+                   f"cv{config.env.cv_demand}_gen{config.env.generalization}_{config.training.projection_type}" \
+                        f"_{config.training.projection_kwargs.slack_penalty}.yaml"
+        else:
+            file_name = f"summary_stats_P{config.env.ports}_cv{config.env.cv_demand}" \
+                        f"_gen{config.env.generalization}_{config.training.projection_type}" \
+                        f"_{config.training.projection_kwargs.slack_penalty}.yaml"
+        with open(f"{path}/{file_name}", "w") as file:
+            yaml.dump(summary_stats, file)
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
