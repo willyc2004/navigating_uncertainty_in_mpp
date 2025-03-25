@@ -48,7 +48,7 @@ model:
   critic_temperature: 1.0
   decoder_type: mlp
   dropout_rate: 0.008972135903337364
-  dynamic_embedding: self_attention
+  dyn_embed: self_attention
   embed_dim: 128
   encoder_type: mlp
   hidden_dim: 512
