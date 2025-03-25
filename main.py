@@ -132,7 +132,7 @@ def initialize_policy_and_critic(config, env, device):
     elif config.model.dyn_embed == "ffn":
         dynamic_embed = DynamicEmbedding(embed_dim, sequence_dim, env)
     else:
-        raise ValueError(f"Unsupported dynamic embedding type: {config.model.dynamic_embedding}")
+        raise ValueError(f"Unsupported dynamic embedding type: {config.model.dyn_embed}")
 
     # Model arguments
     decoder_args = {
@@ -217,24 +217,30 @@ def main(config: Optional[DotMap] = None, **kwargs):
     elif config.model.phase == "test":
         # Initialize
         config = load_trained_hyperparameters(path)
-        policy, critic = initialize_policy_and_critic(config, env, device)
 
-        # Evaluate policy
-        policy_load_path = f"{path}/policy.pth"
-        policy.load_state_dict(torch.load(policy_load_path, map_location=device))
+        for slack_penalty in [10, 100, 1000, 10000, 100000]:
+            print(f"Testing slack penalty: {slack_penalty}")
+            config.training.projection_kwargs.slack_penalty = slack_penalty
+            policy, critic = initialize_policy_and_critic(config, env, device)
 
-        metrics, summary_stats = evaluate_model(policy, config, device=device, **config.testing)
-        print(summary_stats)
+            # Evaluate policy
+            policy_load_path = f"{path}/policy.pth"
+            policy.load_state_dict(torch.load(policy_load_path, map_location=device))
 
-        # Save summary statistics in path
-        if "feasibility_recovery" in config.testing:
-            file_name = f"summary_stats_P{config.env.ports}_feas_recov{config.testing.feasibility_recovery}_" \
-                   f"cv{config.env.cv_demand}_gen{config.env.generalization}_{config.training.projection_type}.yaml"
-        else:
-            file_name = f"summary_stats_P{config.env.ports}_cv{config.env.cv_demand}" \
-                        f"_gen{config.env.generalization}_{config.training.projection_type}.yaml"
-        with open(f"{path}/{file_name}", "w") as file:
-            yaml.dump(summary_stats, file)
+            metrics, summary_stats = evaluate_model(policy, config, device=device, **config.testing)
+            print(summary_stats)
+
+            # Save summary statistics in path
+            if "feasibility_recovery" in config.testing:
+                file_name = f"summary_stats_P{config.env.ports}_feas_recov{config.testing.feasibility_recovery}_" \
+                       f"cv{config.env.cv_demand}_gen{config.env.generalization}_{config.training.projection_type}" \
+                            f"_{config.training.projection_kwargs.slack_penalty}.yaml"
+            else:
+                file_name = f"summary_stats_P{config.env.ports}_cv{config.env.cv_demand}" \
+                            f"_gen{config.env.generalization}_{config.training.projection_type}" \
+                            f"_{config.training.projection_kwargs.slack_penalty}.yaml"
+            with open(f"{path}/{file_name}", "w") as file:
+                yaml.dump(summary_stats, file)
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
