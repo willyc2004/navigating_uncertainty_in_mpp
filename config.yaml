@@ -37,7 +37,7 @@ env:
   long_crane_costs: 0.5
   normalize_obs: true
   perturbation: 0.2
-  ports: 4
+  ports: 6
   seed: 42
   spot_percentage: 0.3
   stability_difference: 0.1
