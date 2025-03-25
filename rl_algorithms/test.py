@@ -81,6 +81,10 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
         "total_violations": torch.zeros(num_episodes, device=device),  # [num_episodes]
         "inference_times": torch.zeros(num_episodes, device=device),  # [num_episodes]
         "feasible_instance":torch.zeros(num_episodes, device=device),  # [num_episodes]
+        "demand_violations": torch.zeros(num_episodes, device=device),  # [num_episodes]
+        "capacity_violations": torch.zeros(num_episodes, device=device),  # [num_episodes]
+        "stability_violations": torch.zeros(num_episodes, device=device),  # [num_episodes]
+        "pbs_violations": torch.zeros(num_episodes, device=device),  # [num_episodes]
     }
 
     with torch.no_grad():
