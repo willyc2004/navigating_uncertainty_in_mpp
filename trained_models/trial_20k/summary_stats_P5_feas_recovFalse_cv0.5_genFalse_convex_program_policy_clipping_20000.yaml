@@ -1,0 +1,64 @@
+capacity_violations:
+  lb_ci: 0.0
+  max: 0.0
+  mean: 0.0
+  median: 0.0
+  min: 0.0
+  std: 0.0
+  ub_ci: 0.0
+demand_violations:
+  lb_ci: 0.0
+  max: 0.0
+  mean: 0.0
+  median: 0.0
+  min: 0.0
+  std: 0.0
+  ub_ci: 0.0
+feasible_instance:
+  lb_ci: 0.790813167892416
+  max: 1.0
+  mean: 0.9000000357627869
+  median: 1.0
+  min: 0.0
+  std: 0.3051285743713379
+  ub_ci: 1.0091869036331578
+inference_times:
+  lb_ci: 24.053676363339598
+  max: 27.445781707763672
+  mean: 24.516469955444336
+  median: 24.607830047607422
+  min: 22.326608657836914
+  std: 1.2933015823364258
+  ub_ci: 24.979263547549074
+pbs_violations:
+  lb_ci: 0.0
+  max: 0.0
+  mean: 0.0
+  median: 0.0
+  min: 0.0
+  std: 0.0
+  ub_ci: 0.0
+stability_violations:
+  lb_ci: -7.881374331941057
+  max: 325.3285827636719
+  mean: 13.937015533447266
+  median: 0.0
+  min: 0.0
+  std: 60.97266387939453
+  ub_ci: 35.75540539883559
+total_profit:
+  lb_ci: 33290.62521603072
+  max: 36585.84765625
+  mean: 33944.96484375
+  median: 34126.2734375
+  min: 29991.169921875
+  std: 1828.5872802734375
+  ub_ci: 34599.30447146928
+total_violations:
+  lb_ci: -7.798082048024469
+  max: 1880.91845703125
+  mean: 133.83871459960938
+  median: 0.13252930343151093
+  min: 0.030852261930704117
+  std: 395.8116455078125
+  ub_ci: 275.4755112472432
