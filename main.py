@@ -239,8 +239,8 @@ def main(config: Optional[DotMap] = None, **kwargs):
                 file_name = f"summary_stats_P{config.env.ports}_cv{config.env.cv_demand}" \
                             f"_gen{config.env.generalization}_{config.training.projection_type}" \
                             f"_{config.training.projection_kwargs.slack_penalty}.yaml"
-        with open(f"{path}/{file_name}", "w") as file:
-            yaml.dump(summary_stats, file)
+            with open(f"{path}/{file_name}", "w") as file:
+                yaml.dump(summary_stats, file)
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
