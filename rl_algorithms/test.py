@@ -31,7 +31,7 @@ def compute_summary_stats(metrics, confidence_level=0.95):
     z = get_z_score_torch(confidence_level)
     for key, values in metrics.items():
         # transform values to list:
-        val_list = values.to_list()
+        val_list = values.tolist()
 
         n = values.numel()  # Number of elements in the tensor
         mean = values.mean().item()
