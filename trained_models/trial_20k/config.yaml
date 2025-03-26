@@ -37,7 +37,7 @@ env:
   long_crane_costs: 0.5
   normalize_obs: true
   perturbtion: 0.2
-  ports: 4
+  ports: 6
   seed: 42
   spot_percentage: 0.3
   stability_difference: 0.1
@@ -80,7 +80,7 @@ training:
     n_constraints: 85
     scale: 0.00025463040788043916
     slack_penalty: 10000 # 2000
-  projection_type: linear_violation # convex_program, convex_program_policy_clipping
+  projection_type: linear_violation_policy_clipping # convex_program, convex_program_policy_clipping
   test_data_size: 5000
   train_data_size: 7200000
   val_data_size: 5000
