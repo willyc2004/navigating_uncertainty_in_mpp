@@ -18,7 +18,7 @@ env:
   TEU: 20000
   VCG_target: 1.05
   bays: 20
-  block_stowage_mask: true # only for one run
+  block_stowage_mask: false
   blocks: 2
   capacity:
   - 500
