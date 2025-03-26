@@ -30,6 +30,9 @@ def compute_summary_stats(metrics, confidence_level=0.95):
     summary_stats = {}
     z = get_z_score_torch(confidence_level)
     for key, values in metrics.items():
+        # transform values to list:
+        val_list = values.to_list()
+
         n = values.numel()  # Number of elements in the tensor
         mean = values.mean().item()
         std = values.std().item()
@@ -43,7 +46,7 @@ def compute_summary_stats(metrics, confidence_level=0.95):
             "max": values.max().item(),
             "lb_ci": mean - margin_of_error,  # Lower bound of the CI
             "ub_ci": mean + margin_of_error,  # Upper bound of the CI
-            "value": values,  # Store the tensor for further analysis
+            "value": val_list,  # Store the tensor for further analysis
         }
     return summary_stats
 
