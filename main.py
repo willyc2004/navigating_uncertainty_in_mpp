@@ -230,11 +230,13 @@ def main(config: Optional[DotMap] = None, **kwargs):
         if "feasibility_recovery" in config.testing:
             file_name = f"summary_stats_P{config.env.ports}_feas_recov{config.testing.feasibility_recovery}_" \
                    f"cv{config.env.cv_demand}_gen{config.env.generalization}_{config.training.projection_type}" \
-                        f"_{config.training.projection_kwargs.slack_penalty}_PBS{config.env.block_stowage_mask}.yaml"
+                        f"_{config.training.projection_kwargs.slack_penalty}_PBS{config.env.block_stowage_mask}" \
+                        f"_UR{config.env.utilization_rate_initial_demand}.yaml"
         else:
             file_name = f"summary_stats_P{config.env.ports}_cv{config.env.cv_demand}" \
                         f"_gen{config.env.generalization}_{config.training.projection_type}" \
-                        f"_{config.training.projection_kwargs.slack_penalty}_PBS{config.env.block_stowage_mask}.yaml"
+                        f"_{config.training.projection_kwargs.slack_penalty}_PBS{config.env.block_stowage_mask}" \
+                        f"_UR{config.env.utilization_rate_initial_demand}.yaml"
         with open(f"{path}/{file_name}", "w") as file:
             yaml.dump(summary_stats, file)
 
