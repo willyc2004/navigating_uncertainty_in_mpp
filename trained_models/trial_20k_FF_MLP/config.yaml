@@ -41,7 +41,7 @@ env:
   seed: 42
   spot_percentage: 0.3
   stability_difference: 0.1
-  utilization_rate_initial_demand: 0.9
+  utilization_rate_initial_demand: 1.3
   weight_classes: 3
 model:
   batch_size: 64
