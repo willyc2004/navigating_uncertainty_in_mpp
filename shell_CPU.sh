@@ -16,14 +16,15 @@ MEM_LOG="$LOG_DIR/${GROUP_NAME}_mem.log"
 # Start time
 START_TIME=$(date +%s)
 
-echo "Current working directory: $(pwd)"
 
 
 # Run the job using systemd-run (cgroup v2 compatible)
-echo "Starting job with systemd-run..."
+echo "Starting job with systemd-run in current working directory: $(pwd)"
+
 sudo systemd-run --unit=$GROUP_NAME \
     --property=MemoryMax=$MEM_LIMIT \
     --property=CPUAffinity=$CPU_RANGE \
+      --working-directory=$(pwd) \
     --pipe bash -c "$JOB_CMD" > "$OUTPUT_LOG" 2>&1 &
 
 PID=$!
