@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Script to run a Python script in the background using nohup with CPU/memory limits
+# Usage: ./shell_scenario_tree.sh [--cpu CPU_CORES] [--mem MEMORY_GB] [args]
 
-# Default values
-CPU_CORES="0-24"
-MEMORY_GB=40
+CPU_CORES="0-3"
+MEMORY_GB=4
 SCRIPT_PATH="scenario_tree_mip.py"
 LOG_FILE="output_files/output.log"
 
@@ -19,23 +19,19 @@ while [[ $# -gt 0 ]]; do
             MEMORY_GB="$2"
             shift 2
             ;;
-        --) # end of options
+        --)
             shift
             break
             ;;
-        *) # pass remaining args to the Python script
+        *)
             break
             ;;
     esac
 done
 
-# Convert GB to KB
 MEMORY_LIMIT=$((MEMORY_GB * 1024 * 1024))
-
-# Apply memory limit
 ulimit -v "$MEMORY_LIMIT"
 
-# Start the Python script with CPU affinity
 echo "Starting the script with CPU cores $CPU_CORES and memory limit ${MEMORY_GB}GB..."
 nohup taskset -c "$CPU_CORES" python3 -u "$SCRIPT_PATH" "$@" > "$LOG_FILE" 2>&1 &
 
@@ -44,12 +40,21 @@ PID=$!
 if [[ "$PID" =~ ^[0-9]+$ ]]; then
     mv "$LOG_FILE" "output_files/output$PID.log"
     LOG_FILE="output_files/output$PID.log"
+    MEMLOG="output_files/memlog_$PID.csv"
 
-    if ps -p $PID > /dev/null; then
-        echo "Script is running with PID $PID. Check $LOG_FILE for output."
-    else
-        echo "Failed to start the script."
-    fi
+    echo "timestamp,rss_kb" > "$MEMLOG"
+
+    # Start memory monitor
+    (
+        while kill -0 "$PID" 2>/dev/null; do
+            rss_kb=$(grep -i VmRSS /proc/$PID/status 2>/dev/null | awk '{print $2}')
+            timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+            echo "$timestamp,${rss_kb:-0}" >> "$MEMLOG"
+            sleep 1
+        done
+    ) &
+
+    echo "Script is running with PID $PID. Output: $LOG_FILE, Memory log: $MEMLOG"
 else
     echo "Failed to capture a valid PID. The script may not have started correctly."
 fi
