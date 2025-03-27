@@ -13,7 +13,8 @@ sudo cgcreate -g memory:/$GROUP_NAME
 echo $MEM_LIMIT | sudo tee /sys/fs/cgroup/memory/$GROUP_NAME/memory.limit_in_bytes
 
 # Start the job with taskset + cgroup
-sudo cgexec -g memory:/$GROUP_NAME taskset -c "$CPU_RANGE" bash -c "$JOB_CMD" &
+OUTPUT_LOG="./logs/${GROUP_NAME}_output.log"
+sudo cgexec -g memory:/$GROUP_NAME taskset -c "$CPU_RANGE" bash -c "$JOB_CMD" > "$OUTPUT_LOG" 2>&1 &
 PID=$!
 
 # Log memory usage
