@@ -18,7 +18,7 @@ START_TIME=$(date +%s)
 
 # Run the job using systemd-run (cgroup v2 compatible)
 echo "Starting job with systemd-run..."
-systemd-run --unit=$GROUP_NAME \
+sudo systemd-run --unit=$GROUP_NAME \
     --property=MemoryMax=$MEM_LIMIT \
     --property=CPUAffinity=$CPU_RANGE \
     --pipe bash -c "$JOB_CMD" > "$OUTPUT_LOG" 2>&1 &
