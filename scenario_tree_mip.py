@@ -570,8 +570,7 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
     mdl.parameters.emphasis.memory = 1  # Prioritize memory savings over speed
     mdl.parameters.threads = 1  # Use only 1 thread to reduce memory usage
     mdl.parameters.mip.tolerances.mipgap = 0.001  # 0.1%
-    if deterministic:
-        mdl.parameters.timelimit = 3600  # 1 hour
+    mdl.parameters.timelimit = 3600  # 1 hour
 
     # Solve the model
     solution = mdl.solve(log_output=True)
