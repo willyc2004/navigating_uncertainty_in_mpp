@@ -302,3 +302,64 @@ def plot_demand_history(demand_history, updates,
     plt.title(title)
     plt.legend(loc="lower left")
     plt.show()
+
+# visualize demand of UniformMPP_Generator
+if __name__ == "__main__":
+    # Parameters
+    import os
+    from main import load_config
+    from rl_algorithms.utils import make_env
+    from rl_algorithms.test import compute_summary_stats
+
+    file_path = "/mnt/c/Users/jaiv/PycharmProjects/DRL_master_planning_problem"
+    config = load_config(f'{file_path}/config.yaml')
+    env = make_env(config.env, device='cpu')
+    batch_size = 30
+
+    # Create generator
+    generator = env.generator
+
+    # Generate demand
+    td = generator(batch_size)
+    # demand_history = th.empty((batch_size, env.T, env.K), device="cpu")
+    td = generator(batch_size, td)
+    demand = td["observation", "realized_demand"].view(batch_size, env.T, env.K)
+
+    # EDA of all types
+    demand_dict = {}
+    for i in range(env.T):
+        for j in range(env.K):
+            demand_dict[f"transport_{i}_type_{j}"] = demand[:, i, j]
+    summary_stats = compute_summary_stats(demand_dict)
+    # print(summary_stats)
+
+    # Histogram of aggregated demand
+    demand_port = th.zeros((batch_size, env.P-1), device="cpu")
+    teu_port = th.zeros((batch_size, env.P-1), device="cpu")
+    for i in range(env.P-1):
+        for j in range(i+1, env.P):
+            condition = (env.transport_idx[:, 0] == i) & (env.transport_idx[:, 1] == j)
+            index = th.where(condition)[0]  # get indices where the condition is true
+            demand_port[:, i] += demand[:, index, :].sum(dim=(-1,)).squeeze()
+            print((env.teus * demand[:, index, :]).sum(dim=(-1,)).squeeze().shape)
+            teu_port[:, i] += (env.teus * demand[:, index, :]).sum(dim=(-1,)).squeeze()
+
+    # (Batch, port) shape;
+    # Plot boxplot at each port
+    demand_port = demand_port.detach().cpu().numpy()
+    plt.figure()
+    plt.boxplot(demand_port)
+    plt.xlabel("Port")
+    plt.ylabel("Containers")
+    plt.ylim(0, demand_port.max() + 1000)
+    plt.title("Container Demand at Each Port")
+    plt.show()
+    # Plot boxplot of TEU at each port
+    teu_port = teu_port.detach().cpu().numpy()
+    plt.figure()
+    plt.boxplot(teu_port)
+    plt.xlabel("Port")
+    plt.ylabel("TEU")
+    plt.ylim(0, teu_port.max() + 1000)
+    plt.title("TEU Demand at Each Port")
+    plt.show()
