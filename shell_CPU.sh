@@ -16,6 +16,9 @@ MEM_LOG="$LOG_DIR/${GROUP_NAME}_mem.log"
 # Start time
 START_TIME=$(date +%s)
 
+echo "Current working directory: $(pwd)"
+
+
 # Run the job using systemd-run (cgroup v2 compatible)
 echo "Starting job with systemd-run..."
 sudo systemd-run --unit=$GROUP_NAME \
