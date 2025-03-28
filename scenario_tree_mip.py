@@ -345,7 +345,7 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
                     for block in range(BL):
                         # Hatch overstowage:
                         HO[stage, node_id, bay, block] = mdl.continuous_var(name=f'HO_{stage}_{node_id}_{bay}_{block}', lb=0)
-                        HM[stage, node_id, bay, block] = mdl.binary_var(name=f'HM_{stage}_{node_id}_{bay}_{block}', lb=0)
+                        HM[stage, node_id, bay, block] = mdl.binary_var(name=f'HM_{stage}_{node_id}_{bay}_{block}')
                         for deck in range(D):
                             for cargo_class in range(K):
                                 for pol in range(stage + 1):
