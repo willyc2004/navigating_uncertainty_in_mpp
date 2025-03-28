@@ -183,9 +183,9 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
         for stage in range(stages):
             for node_id in range(num_nodes_per_stage[stage]):
                 # Crane intensity:
-                CI[stage, node_id] = mdl.continuous_var(name=f'CI_{stage}_{node_id}')
-                CI_target[stage, node_id] = mdl.continuous_var(name=f'CI_target_{stage}_{node_id}')
-                CM[stage, node_id] = mdl.continuous_var(name=f'CM_{stage}_{node_id}')
+                CI[stage, node_id] = mdl.continuous_var(name=f'CI_{stage}_{node_id}', lb=0)
+                CI_target[stage, node_id] = mdl.continuous_var(name=f'CI_target_{stage}_{node_id}', lb=0)
+                CM[stage, node_id] = mdl.continuous_var(name=f'CM_{stage}_{node_id}', lb=0)
 
                 # Stability:
                 LM[stage, node_id] = mdl.continuous_var(name=f'LM_{stage}_{node_id}')
@@ -194,7 +194,7 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
 
                 for bay in range(B):
                     # Hatch overstowage:
-                    HO[stage, node_id, bay] = mdl.integer_var(name=f'HO_{stage}_{node_id}_{bay}')
+                    HO[stage, node_id, bay] = mdl.continuous_var(name=f'HO_{stage}_{node_id}_{bay}', lb=0)
                     HM[stage, node_id, bay] = mdl.binary_var(name=f'HM_{stage}_{node_id}_{bay}')
 
                     for deck in range(D):
@@ -204,7 +204,6 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
                                     # Cargo allocation:
                                     x[stage, node_id, bay, deck, cargo_class, pol, pod] = \
                                         mdl.continuous_var(name=f'x_{stage}_{node_id}_{bay}_{deck}_{cargo_class}_{pol}_{pod}', lb=0)
-                                            # mdl.continuous_var(name=f'x_{stage}_{node_id}_{bay}_{deck}_{cargo_class}_{pol}_{pod}')
 
             # Define sets
             # Current port
@@ -333,9 +332,9 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
         for stage in range(stages):
             for node_id in range(num_nodes_per_stage[stage]):
                 # Crane intensity:
-                CI[stage, node_id] = mdl.continuous_var(name=f'CI_{stage}_{node_id}')
-                CI_target[stage, node_id] = mdl.continuous_var(name=f'CI_target_{stage}_{node_id}')
-                CM[stage, node_id] = mdl.continuous_var(name=f'CM_{stage}_{node_id}')
+                CI[stage, node_id] = mdl.continuous_var(name=f'CI_{stage}_{node_id}', lb=0)
+                CI_target[stage, node_id] = mdl.continuous_var(name=f'CI_target_{stage}_{node_id}', lb=0)
+                CM[stage, node_id] = mdl.continuous_var(name=f'CM_{stage}_{node_id}', lb=0)
 
                 # Stability:
                 LM[stage, node_id] = mdl.continuous_var(name=f'LM_{stage}_{node_id}')
@@ -345,8 +344,8 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
                 for bay in range(B):
                     for block in range(BL):
                         # Hatch overstowage:
-                        HO[stage, node_id, bay, block] = mdl.integer_var(name=f'HO_{stage}_{node_id}_{bay}_{block}')
-                        HM[stage, node_id, bay, block] = mdl.binary_var(name=f'HM_{stage}_{node_id}_{bay}_{block}')
+                        HO[stage, node_id, bay, block] = mdl.continuous_var(name=f'HO_{stage}_{node_id}_{bay}_{block}', lb=0)
+                        HM[stage, node_id, bay, block] = mdl.binary_var(name=f'HM_{stage}_{node_id}_{bay}_{block}', lb=0)
                         for deck in range(D):
                             for cargo_class in range(K):
                                 for pol in range(stage + 1):
