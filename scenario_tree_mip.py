@@ -570,7 +570,7 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
     mdl.parameters.emphasis.memory = 1  # Prioritize memory savings over speed
     mdl.parameters.threads = 1  # Use only 1 thread to reduce memory usage
     mdl.parameters.mip.tolerances.mipgap = 0.001  # 0.1%
-    mdl.parameters.timelimit = 3600  # 1 hour
+    mdl.set_time_limit(3600)  # 1 hour
 
     # Solve the model
     solution = mdl.solve(log_output=True)
@@ -701,8 +701,8 @@ if __name__ == "__main__":
     parser.add_argument("--deterministic", type=lambda x: x.lower() == "true", default=False)
     parser.add_argument("--perfect_information", type=lambda x: x.lower() == "true", default=False)
     parser.add_argument("--generalization", type=lambda x: x.lower() == "true", default=False)
-    parser.add_argument("--scenarios", type=int, default=28)
-    parser.add_argument("--scenario_range", type=lambda x: x.lower() == "true", default=True)
+    parser.add_argument("--scenarios", type=int, default=20)
+    parser.add_argument("--scenario_range", type=lambda x: x.lower() == "true", default=False)
     parser.add_argument("--num_episodes", type=int, default=30)
     # todo: add warm solution
     parser = parser.parse_args()
