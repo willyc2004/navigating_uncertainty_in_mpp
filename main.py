@@ -215,30 +215,39 @@ def main(config: Optional[DotMap] = None, **kwargs):
         run_training(policy, critic, **config)
 
     elif config.model.phase == "test":
-        # Initialize
-        config = load_trained_hyperparameters(path)
-        policy, critic = initialize_policy_and_critic(config, env, device)
+        for alpha in [0.0001, 0.0005, 0.001, 0.005, 0.01]:
+            for delta in [0.0001, 0.0005, 0.001, 0.005, 0.01]:
+                for iters in [100, 200, 300, 400, 500]:
+                    vp_str = f"{alpha}_{delta}_{iters}"
+                    print(f"Testing VP: {vp_str}")
 
-        # Evaluate policy
-        policy_load_path = f"{path}/policy.pth"
-        policy.load_state_dict(torch.load(policy_load_path, map_location=device))
+                    # Initialize
+                    config = load_trained_hyperparameters(path)
+                    config.training.projection_kwargs.alpha = alpha
+                    config.training.projection_kwargs.delta = delta
+                    config.training.projection_kwargs.max_iter = iters
+                    policy, critic = initialize_policy_and_critic(config, env, device)
 
-        metrics, summary_stats = evaluate_model(policy, config, device=device, **config.testing)
-        print(summary_stats)
+                    # Evaluate policy
+                    policy_load_path = f"{path}/policy.pth"
+                    policy.load_state_dict(torch.load(policy_load_path, map_location=device))
 
-        # Save summary statistics in path
-        if "feasibility_recovery" in config.testing:
-            file_name = f"summary_stats_P{config.env.ports}_feas_recov{config.testing.feasibility_recovery}_" \
-                   f"cv{config.env.cv_demand}_gen{config.env.generalization}_{config.training.projection_type}" \
-                        f"_{config.training.projection_kwargs.slack_penalty}_PBS{config.env.block_stowage_mask}" \
-                        f"_UR{config.env.utilization_rate_initial_demand}.yaml"
-        else:
-            file_name = f"summary_stats_P{config.env.ports}_cv{config.env.cv_demand}" \
-                        f"_gen{config.env.generalization}_{config.training.projection_type}" \
-                        f"_{config.training.projection_kwargs.slack_penalty}_PBS{config.env.block_stowage_mask}" \
-                        f"_UR{config.env.utilization_rate_initial_demand}.yaml"
-        with open(f"{path}/{file_name}", "w") as file:
-            yaml.dump(summary_stats, file)
+                    metrics, summary_stats = evaluate_model(policy, config, device=device, **config.testing)
+                    print(summary_stats)
+
+                    # Save summary statistics in path
+                    if "feasibility_recovery" in config.testing:
+                        file_name = f"summary_stats_P{config.env.ports}_feas_recov{config.testing.feasibility_recovery}_" \
+                               f"cv{config.env.cv_demand}_gen{config.env.generalization}_{config.training.projection_type}" \
+                                    f"_{config.training.projection_kwargs.slack_penalty}_PBS{config.env.block_stowage_mask}" \
+                                    f"_UR{config.env.utilization_rate_initial_demand}_VP{vp_str}.yaml"
+                    else:
+                        file_name = f"summary_stats_P{config.env.ports}_cv{config.env.cv_demand}" \
+                                    f"_gen{config.env.generalization}_{config.training.projection_type}" \
+                                    f"_{config.training.projection_kwargs.slack_penalty}_PBS{config.env.block_stowage_mask}" \
+                                    f"_UR{config.env.utilization_rate_initial_demand}_VP{vp_str}.yaml"
+                    with open(f"{path}/{file_name}", "w") as file:
+                        yaml.dump(summary_stats, file)
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
