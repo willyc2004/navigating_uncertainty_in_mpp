@@ -37,7 +37,7 @@ env:
   long_crane_costs: 0.5
   normalize_obs: true
   perturbation: 0.2
-  ports: 6
+  ports: 4
   seed: 42
   spot_percentage: 0.3
   stability_difference: 0.1
@@ -66,7 +66,7 @@ model:
   temperature: 0.11243639449117128
 testing:
   num_episodes: 30
-  folder: 'trial_20k'
+  folder: 'trial_20k_FF_AM'
   path: trained_models
   feasibility_recovery: false
 training:
