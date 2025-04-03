@@ -215,43 +215,43 @@ def main(config: Optional[DotMap] = None, **kwargs):
         run_training(policy, critic, **config)
 
     elif config.model.phase == "test":
-        # for alpha in [0.01, 0.005, 0.001, ]:
-        #     for delta in [0.01, 0.005, 0.001,]:
-        #         for max_iter in [300, 400, 500]:
+        for alpha in [0.01, 0.005, 0.001, ]:
+            for delta in [0.01, 0.005, 0.001,]:
+                for max_iter in [300, 400, 500]:
 
-        # # Initialize
-        # config.training.projection_kwargs.alpha = alpha
-        # config.training.projection_kwargs.delta = delta
-        # config.training.projection_kwargs.max_iter = max_iter
-        alpha = config.training.projection_kwargs.alpha
-        delta = config.training.projection_kwargs.delta
-        max_iter = config.training.projection_kwargs.max_iter
-        vp_str = f"{alpha}_{delta}_{max_iter}"
-        print(f"Testing VP: {vp_str}")
+                    # Initialize
+                    config.training.projection_kwargs.alpha = alpha
+                    config.training.projection_kwargs.delta = delta
+                    config.training.projection_kwargs.max_iter = max_iter
+                    # alpha = config.training.projection_kwargs.alpha
+                    # delta = config.training.projection_kwargs.delta
+                    # max_iter = config.training.projection_kwargs.max_iter
+                    vp_str = f"{alpha}_{delta}_{max_iter}"
+                    print(f"Testing VP: {vp_str}")
 
-        config = load_trained_hyperparameters(path)
-        policy, critic = initialize_policy_and_critic(config, env, device)
+                    config = load_trained_hyperparameters(path)
+                    policy, critic = initialize_policy_and_critic(config, env, device)
 
-        # Evaluate policy
-        policy_load_path = f"{path}/policy.pth"
-        policy.load_state_dict(torch.load(policy_load_path, map_location=device))
+                    # Evaluate policy
+                    policy_load_path = f"{path}/policy.pth"
+                    policy.load_state_dict(torch.load(policy_load_path, map_location=device))
 
-        metrics, summary_stats = evaluate_model(policy, config, device=device, **config.testing)
-        print(summary_stats)
+                    metrics, summary_stats = evaluate_model(policy, config, device=device, **config.testing)
+                    print(summary_stats)
 
-        # Save summary statistics in path
-        if "feasibility_recovery" in config.testing:
-            file_name = f"summary_stats_P{config.env.ports}_feas_recov{config.testing.feasibility_recovery}_" \
-                   f"cv{config.env.cv_demand}_gen{config.env.generalization}_{config.training.projection_type}" \
-                        f"_{config.training.projection_kwargs.slack_penalty}_PBS{config.env.block_stowage_mask}" \
-                        f"_UR{config.env.utilization_rate_initial_demand}_VP{vp_str}.yaml"
-        else:
-            file_name = f"summary_stats_P{config.env.ports}_cv{config.env.cv_demand}" \
-                        f"_gen{config.env.generalization}_{config.training.projection_type}" \
-                        f"_{config.training.projection_kwargs.slack_penalty}_PBS{config.env.block_stowage_mask}" \
-                        f"_UR{config.env.utilization_rate_initial_demand}_VP{vp_str}.yaml"
-        with open(f"{path}/{file_name}", "w") as file:
-                        yaml.dump(summary_stats, file)
+                    # Save summary statistics in path
+                    if "feasibility_recovery" in config.testing:
+                        file_name = f"summary_stats_P{config.env.ports}_feas_recov{config.testing.feasibility_recovery}_" \
+                               f"cv{config.env.cv_demand}_gen{config.env.generalization}_{config.training.projection_type}" \
+                                    f"_{config.training.projection_kwargs.slack_penalty}_PBS{config.env.block_stowage_mask}" \
+                                    f"_UR{config.env.utilization_rate_initial_demand}_VP{vp_str}.yaml"
+                    else:
+                        file_name = f"summary_stats_P{config.env.ports}_cv{config.env.cv_demand}" \
+                                    f"_gen{config.env.generalization}_{config.training.projection_type}" \
+                                    f"_{config.training.projection_kwargs.slack_penalty}_PBS{config.env.block_stowage_mask}" \
+                                    f"_UR{config.env.utilization_rate_initial_demand}_VP{vp_str}.yaml"
+                    with open(f"{path}/{file_name}", "w") as file:
+                                    yaml.dump(summary_stats, file)
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
