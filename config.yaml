@@ -31,13 +31,13 @@ env:
   generalization: false
   hatch_overstowage_costs: 0.333333
   hatch_overstowage_mask: false
-  block_stowage_mask: false
+  block_stowage_mask: true
   iid_demand: true
   limit_revenue: true
   long_crane_costs: 0.5
   normalize_obs: true
   perturbation: 0.2
-  ports: 4
+  ports: 6
   seed: 42
   spot_percentage: 0.3
   stability_difference: 0.1
@@ -66,7 +66,7 @@ model:
   temperature: 0.11243639449117128
 testing:
   num_episodes: 30
-  folder: 'trial_20k_FR_VP'
+  folder: 'trial_20k'
   path: trained_models
   feasibility_recovery: false
 training:
