@@ -31,7 +31,7 @@ env:
   generalization: false
   hatch_overstowage_costs: 0.333333
   hatch_overstowage_mask: false
-  block_stowage_mask: true
+  block_stowage_mask: false
   iid_demand: true
   limit_revenue: true
   long_crane_costs: 0.5
