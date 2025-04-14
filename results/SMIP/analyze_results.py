@@ -6,10 +6,10 @@ import argparse
 # Set up argument parser
 parser = argparse.ArgumentParser(description="Scenario Tree Evaluation Parameters")
 
-parser.add_argument('--s', type=int, default=4, help='Seed value (s)')
+parser.add_argument('--s', type=int, default=24, help='scenarios')
 parser.add_argument('--p', type=int, default=3, help='Planning horizon or number of periods (p)')
 parser.add_argument('--episodes', type=int, default=30, help='Number of episodes to evaluate')
-parser.add_argument('--perfect_information', type=bool, default=False)
+parser.add_argument('--perfect_information', type=bool, default=True)
 parser.add_argument('--gen', type=bool, default=False)
 parser.add_argument('--cv', type=float, default=0.5, help='Coefficient of variation (cv)')
 parser.add_argument('--teu', type=int, default=20000, help='TEU value')
@@ -26,9 +26,8 @@ cv = args.cv
 
 # folder = 'testing' if not gen else 'generalization'
 # path = f'{folder}/cv={cv}'
-# path = "scenario_tree/block_mpp"
 base_dir = os.path.dirname(os.path.abspath(__file__))
-path = os.path.join(base_dir, "AI2STOW", "teu20k", f"p{p}", "na")
+path = os.path.join(base_dir, "scenario_tree", "block_mpp",)
 
 # Data containers
 obj = []
@@ -92,6 +91,7 @@ collect_stats(total_revenue, "Revenue")
 collect_stats(total_cost, "Cost")
 
 # Save to JSON file
+path = os.path.join(base_dir, "AI2STOW", "teu20k", f"p{p}", "pi")
 output_path = f"{path}/summary_stats_teu{teu}_p{p}_s{s}_pi{perfect_information}_gen{gen}.json"
 with open(output_path, 'w') as f:
     json.dump(stats_summary, f, indent=4)
