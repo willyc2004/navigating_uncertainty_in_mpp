@@ -1,15 +1,29 @@
 import json
 import numpy as np
 import os
+import argparse
 
-# Parameters
-s = 4
-p = 4 - 1
-episodes = 30
-perfect_information = False
-gen = False
-cv = 0.5
-teu = 20000
+# Set up argument parser
+parser = argparse.ArgumentParser(description="Scenario Tree Evaluation Parameters")
+
+parser.add_argument('--s', type=int, default=4, help='Seed value (s)')
+parser.add_argument('--p', type=int, default=3, help='Planning horizon or number of periods (p)')
+parser.add_argument('--episodes', type=int, default=30, help='Number of episodes to evaluate')
+parser.add_argument('--perfect_information', type=bool, default=False)
+parser.add_argument('--gen', type=bool, default=False)
+parser.add_argument('--cv', type=float, default=0.5, help='Coefficient of variation (cv)')
+parser.add_argument('--teu', type=int, default=20000, help='TEU value')
+args = parser.parse_args()
+
+# Access arguments like variables
+s = args.s
+p = args.p
+episodes = args.episodes
+perfect_information = args.perfect_information
+gen = args.gen
+teu = args.teu
+cv = args.cv
+
 # folder = 'testing' if not gen else 'generalization'
 # path = f'{folder}/cv={cv}'
 # path = "scenario_tree/block_mpp"
