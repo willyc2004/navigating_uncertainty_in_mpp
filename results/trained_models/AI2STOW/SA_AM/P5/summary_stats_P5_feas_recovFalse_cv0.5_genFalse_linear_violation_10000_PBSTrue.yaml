@@ -1,0 +1,208 @@
+capacity_violations:
+  lb_ci: 21.446437316221015
+  max: 92.22148132324219
+  mean: 29.08650779724121
+  median: 22.60708236694336
+  min: 2.215721607208252
+  std: 21.350587844848633
+  ub_ci: 36.72657827826141
+  value: !!python/object/apply:torch._utils._rebuild_tensor_v2
+  - !!python/object/apply:torch.storage._load_from_bytes
+    - !!binary |
+      gAKKCmz8nEb5IGqoUBkugAJN6QMugAJ9cQAoWBAAAABwcm90b2NvbF92ZXJzaW9ucQFN6QNYDQAA
+      AGxpdHRsZV9lbmRpYW5xAohYCgAAAHR5cGVfc2l6ZXNxA31xBChYBQAAAHNob3J0cQVLAlgDAAAA
+      aW50cQZLBFgEAAAAbG9uZ3EHSwR1dS6AAihYBwAAAHN0b3JhZ2VxAGN0b3JjaApGbG9hdFN0b3Jh
+      Z2UKcQFYDwAAADExMTIwNTg1NDgyMTYzMnECWAYAAABjdWRhOjBxA0seTnRxBFEugAJdcQBYDwAA
+      ADExMTIwNTg1NDgyMTYzMnEBYS4eAAAAAAAAAMZ5G0I3/pBBZnG4QkoxpEFUgBRB+hD8QQbT7EBn
+      DslBE+2KQQaILUJ4ezxCgVZ2QTU/vEGkFjNCYsRcQkojIkFO3txAPvMGQtCFMUJkpTdCumcHQWLO
+      DUDEz49CSfJwQZpoQEHgrDBCTtu0QVnLi0BHVTlCgf1oQQ==
+  - 0
+  - !!python/tuple
+    - 30
+  - !!python/tuple
+    - 1
+  - false
+  - !!python/object/apply:collections.OrderedDict
+    - []
+demand_violations:
+  lb_ci: 0.0
+  max: 0.0
+  mean: 0.0
+  median: 0.0
+  min: 0.0
+  std: 0.0
+  ub_ci: 0.0
+  value: !!python/object/apply:torch._utils._rebuild_tensor_v2
+  - !!python/object/apply:torch.storage._load_from_bytes
+    - !!binary |
+      gAKKCmz8nEb5IGqoUBkugAJN6QMugAJ9cQAoWBAAAABwcm90b2NvbF92ZXJzaW9ucQFN6QNYDQAA
+      AGxpdHRsZV9lbmRpYW5xAohYCgAAAHR5cGVfc2l6ZXNxA31xBChYBQAAAHNob3J0cQVLAlgDAAAA
+      aW50cQZLBFgEAAAAbG9uZ3EHSwR1dS6AAihYBwAAAHN0b3JhZ2VxAGN0b3JjaApGbG9hdFN0b3Jh
+      Z2UKcQFYDwAAADExMTIwNTg1NDgyMTM0NHECWAYAAABjdWRhOjBxA0seTnRxBFEugAJdcQBYDwAA
+      ADExMTIwNTg1NDgyMTM0NHEBYS4eAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+      AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+      AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==
+  - 0
+  - !!python/tuple
+    - 30
+  - !!python/tuple
+    - 1
+  - false
+  - !!python/object/apply:collections.OrderedDict
+    - []
+feasible_instance:
+  lb_ci: 0.0
+  max: 0.0
+  mean: 0.0
+  median: 0.0
+  min: 0.0
+  std: 0.0
+  ub_ci: 0.0
+  value: !!python/object/apply:torch._utils._rebuild_tensor_v2
+  - !!python/object/apply:torch.storage._load_from_bytes
+    - !!binary |
+      gAKKCmz8nEb5IGqoUBkugAJN6QMugAJ9cQAoWBAAAABwcm90b2NvbF92ZXJzaW9ucQFN6QNYDQAA
+      AGxpdHRsZV9lbmRpYW5xAohYCgAAAHR5cGVfc2l6ZXNxA31xBChYBQAAAHNob3J0cQVLAlgDAAAA
+      aW50cQZLBFgEAAAAbG9uZ3EHSwR1dS6AAihYBwAAAHN0b3JhZ2VxAGN0b3JjaApGbG9hdFN0b3Jh
+      Z2UKcQFYDwAAADExMTIwNTg1NDgyMDgxNnECWAYAAABjdWRhOjBxA0seTnRxBFEugAJdcQBYDwAA
+      ADExMTIwNTg1NDgyMDgxNnEBYS4eAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+      AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+      AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==
+  - 0
+  - !!python/tuple
+    - 30
+  - !!python/tuple
+    - 1
+  - false
+  - !!python/object/apply:collections.OrderedDict
+    - []
+inference_times:
+  lb_ci: 23.420067878089192
+  max: 25.068124771118164
+  mean: 23.69758415222168
+  median: 23.683666229248047
+  min: 21.870880126953125
+  std: 0.7755341529846191
+  ub_ci: 23.975100426354167
+  value: !!python/object/apply:torch._utils._rebuild_tensor_v2
+  - !!python/object/apply:torch.storage._load_from_bytes
+    - !!binary |
+      gAKKCmz8nEb5IGqoUBkugAJN6QMugAJ9cQAoWBAAAABwcm90b2NvbF92ZXJzaW9ucQFN6QNYDQAA
+      AGxpdHRsZV9lbmRpYW5xAohYCgAAAHR5cGVfc2l6ZXNxA31xBChYBQAAAHNob3J0cQVLAlgDAAAA
+      aW50cQZLBFgEAAAAbG9uZ3EHSwR1dS6AAihYBwAAAHN0b3JhZ2VxAGN0b3JjaApGbG9hdFN0b3Jh
+      Z2UKcQFYDwAAADExMTIwNTg1NDgyMDUyOHECWAYAAABjdWRhOjBxA0seTnRxBFEugAJdcQBYDwAA
+      ADExMTIwNTg1NDgyMDUyOHEBYS4eAAAAAAAAAFvXuUHAMcFBcTzEQc04tEFLyrpBGJ67QZD3rkEj
+      J7pBCxXCQWektEE5aMJBCla3Qamhv0H9/8dBAWXBQSxntUHnI7hBihm+QYWLyEG4E7hBiGq+QTNz
+      w0G4e7tBgba5QX6nwkEmeL1BB3a9QbjjxEEv78JBcSvCQQ==
+  - 0
+  - !!python/tuple
+    - 30
+  - !!python/tuple
+    - 1
+  - false
+  - !!python/object/apply:collections.OrderedDict
+    - []
+pbs_violations:
+  lb_ci: 0.0
+  max: 0.0
+  mean: 0.0
+  median: 0.0
+  min: 0.0
+  std: 0.0
+  ub_ci: 0.0
+  value: !!python/object/apply:torch._utils._rebuild_tensor_v2
+  - !!python/object/apply:torch.storage._load_from_bytes
+    - !!binary |
+      gAKKCmz8nEb5IGqoUBkugAJN6QMugAJ9cQAoWBAAAABwcm90b2NvbF92ZXJzaW9ucQFN6QNYDQAA
+      AGxpdHRsZV9lbmRpYW5xAohYCgAAAHR5cGVfc2l6ZXNxA31xBChYBQAAAHNob3J0cQVLAlgDAAAA
+      aW50cQZLBFgEAAAAbG9uZ3EHSwR1dS6AAihYBwAAAHN0b3JhZ2VxAGN0b3JjaApGbG9hdFN0b3Jh
+      Z2UKcQFYDwAAADExMTIwNTg1NDgyOTcyOHECWAYAAABjdWRhOjBxA0seTnRxBFEugAJdcQBYDwAA
+      ADExMTIwNTg1NDgyOTcyOHEBYS4eAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+      AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+      AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==
+  - 0
+  - !!python/tuple
+    - 30
+  - !!python/tuple
+    - 1
+  - false
+  - !!python/object/apply:collections.OrderedDict
+    - []
+stability_violations:
+  lb_ci: 0.0
+  max: 0.0
+  mean: 0.0
+  median: 0.0
+  min: 0.0
+  std: 0.0
+  ub_ci: 0.0
+  value: !!python/object/apply:torch._utils._rebuild_tensor_v2
+  - !!python/object/apply:torch.storage._load_from_bytes
+    - !!binary |
+      gAKKCmz8nEb5IGqoUBkugAJN6QMugAJ9cQAoWBAAAABwcm90b2NvbF92ZXJzaW9ucQFN6QNYDQAA
+      AGxpdHRsZV9lbmRpYW5xAohYCgAAAHR5cGVfc2l6ZXNxA31xBChYBQAAAHNob3J0cQVLAlgDAAAA
+      aW50cQZLBFgEAAAAbG9uZ3EHSwR1dS6AAihYBwAAAHN0b3JhZ2VxAGN0b3JjaApGbG9hdFN0b3Jh
+      Z2UKcQFYDwAAADExMTIwNTg1NDgyMjA0OHECWAYAAABjdWRhOjBxA0seTnRxBFEugAJdcQBYDwAA
+      ADExMTIwNTg1NDgyMjA0OHEBYS4eAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+      AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+      AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==
+  - 0
+  - !!python/tuple
+    - 30
+  - !!python/tuple
+    - 1
+  - false
+  - !!python/object/apply:collections.OrderedDict
+    - []
+total_profit:
+  lb_ci: 33709.273692709394
+  max: 37410.8125
+  mean: 34326.75390625
+  median: 34508.7109375
+  min: 31243.10546875
+  std: 1725.5816650390625
+  ub_ci: 34944.234119790606
+  value: !!python/object/apply:torch._utils._rebuild_tensor_v2
+  - !!python/object/apply:torch.storage._load_from_bytes
+    - !!binary |
+      gAKKCmz8nEb5IGqoUBkugAJN6QMugAJ9cQAoWBAAAABwcm90b2NvbF92ZXJzaW9ucQFN6QNYDQAA
+      AGxpdHRsZV9lbmRpYW5xAohYCgAAAHR5cGVfc2l6ZXNxA31xBChYBQAAAHNob3J0cQVLAlgDAAAA
+      aW50cQZLBFgEAAAAbG9uZ3EHSwR1dS6AAihYBwAAAHN0b3JhZ2VxAGN0b3JjaApGbG9hdFN0b3Jh
+      Z2UKcQFYDwAAADExMTIwNTg1NDIyNzYzMnECWAYAAABjdWRhOjBxA0seTnRxBFEugAJdcQBYDwAA
+      ADExMTIwNTg1NDIyNzYzMnEBYS4eAAAAAAAAAAkeDUcyt/dG0CISRzYW9EbgAf5GcwsKRxio9kZG
+      NApH8zUBRxuTB0fMew9Htvb/Rre1Bkem/QpHJDkOR3lR9EaPtgZHxB4IR4yeBUcpyQhHZIkDR+0/
+      CkfKLQJHjsUJRxxb9kZv3Q5HtswGRyGbCEdBzApHDmAFRw==
+  - 0
+  - !!python/tuple
+    - 30
+  - !!python/tuple
+    - 1
+  - false
+  - !!python/object/apply:collections.OrderedDict
+    - []
+total_violations:
+  lb_ci: 21.44643868126802
+  max: 92.22148132324219
+  mean: 29.08650779724121
+  median: 22.60708236694336
+  min: 2.215721607208252
+  std: 21.350584030151367
+  ub_ci: 36.7265769132144
+  value: !!python/object/apply:torch._utils._rebuild_tensor_v2
+  - !!python/object/apply:torch.storage._load_from_bytes
+    - !!binary |
+      gAKKCmz8nEb5IGqoUBkugAJN6QMugAJ9cQAoWBAAAABwcm90b2NvbF92ZXJzaW9ucQFN6QNYDQAA
+      AGxpdHRsZV9lbmRpYW5xAohYCgAAAHR5cGVfc2l6ZXNxA31xBChYBQAAAHNob3J0cQVLAlgDAAAA
+      aW50cQZLBFgEAAAAbG9uZ3EHSwR1dS6AAihYBwAAAHN0b3JhZ2VxAGN0b3JjaApGbG9hdFN0b3Jh
+      Z2UKcQFYDwAAADExMTIwNTg1NDgyMDIwOHECWAYAAABjdWRhOjBxA0seTnRxBFEugAJdcQBYDwAA
+      ADExMTIwNTg1NDgyMDIwOHEBYS4eAAAAAAAAAMZ5G0I2/pBBZnG4QkkxpEFUgBRB+RD8QQbT7EBn
+      DslBE+2KQQaILUJ4ezxCgFZ2QTY/vEGkFjNCYMRcQkojIkFO3txAPvMGQtCFMUJkpTdCumcHQWLO
+      DUDDz49CSfJwQZpoQEHgrDBCTtu0QVnLi0BGVTlCgv1oQQ==
+  - 0
+  - !!python/tuple
+    - 30
+  - !!python/tuple
+    - 1
+  - false
+  - !!python/object/apply:collections.OrderedDict
+    - []
