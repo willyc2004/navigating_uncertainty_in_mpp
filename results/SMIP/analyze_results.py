@@ -6,13 +6,14 @@ import argparse
 # Set up argument parser
 parser = argparse.ArgumentParser(description="Scenario Tree Evaluation Parameters")
 
-parser.add_argument('--s', type=int, default=24, help='scenarios')
+parser.add_argument('--s', type=int, default=28, help='scenarios')
 parser.add_argument('--p', type=int, default=3, help='Planning horizon or number of periods (p)')
 parser.add_argument('--episodes', type=int, default=30, help='Number of episodes to evaluate')
-parser.add_argument('--perfect_information', type=bool, default=True)
-parser.add_argument('--gen', type=bool, default=False)
+parser.add_argument('--perfect_information', type=bool, default=False)
+parser.add_argument('--gen', type=bool, default=True)
 parser.add_argument('--cv', type=float, default=0.5, help='Coefficient of variation (cv)')
-parser.add_argument('--teu', type=int, default=20000, help='TEU value')
+parser.add_argument('--teu', type=int, default=1000, help='TEU value')
+parser.add_argument('--block_mpp', type=bool, default=False,)
 args = parser.parse_args()
 
 # Access arguments like variables
@@ -23,11 +24,21 @@ perfect_information = args.perfect_information
 gen = args.gen
 teu = args.teu
 cv = args.cv
+block_mpp = args.block_mpp
 
-# folder = 'testing' if not gen else 'generalization'
 # path = f'{folder}/cv={cv}'
 base_dir = os.path.dirname(os.path.abspath(__file__))
-path = os.path.join(base_dir, "scenario_tree", "block_mpp",)
+folder_test_gen = 'testing' if not gen else 'generalization'
+folder_pi_na = "pi" if perfect_information else "na"
+
+if teu == 1000 and not block_mpp:
+    input_path = os.path.join(base_dir, "navigating_uncertainty", folder_test_gen, )
+    output_path = os.path.join(base_dir, "navigating_uncertainty", "teu1k", folder_pi_na)
+elif teu == 20000 and block_mpp:
+    input_path = os.path.join(base_dir, "scenario_tree", "block_mpp",)
+    output_path = os.path.join(base_dir, "AI2STOW", "teu20k", f"p{p}", folder_pi_na)
+else:
+    raise ValueError("Invalid TEU or block_mpp configuration")
 
 # Data containers
 obj = []
@@ -39,7 +50,14 @@ total_cost = []
 
 # Load data
 for e in range(episodes):
-    with open(f'{path}/results_scenario_tree_teu{teu}_p{p}_e{e}_s{s}_pi{perfect_information}_gen{gen}.json', 'r') as file:
+    if teu == 1000 and not block_mpp:
+        json_path = f'{input_path}/results_scenario_tree_e{e}_s{s}_pi{perfect_information}_gen{gen}.json'
+    elif teu == 20000 and block_mpp:
+        json_path = f'{input_path}/results_scenario_tree_teu{teu}_p{p}_e{e}_s{s}_pi{perfect_information}_gen{gen}.json'
+    else:
+        raise ValueError("Invalid TEU or block_mpp configuration")
+
+    with open(json_path, 'r') as file:
         x = json.load(file)
         obj.append(x["obj"])
         time.append(x["time"])
@@ -91,9 +109,8 @@ collect_stats(total_revenue, "Revenue")
 collect_stats(total_cost, "Cost")
 
 # Save to JSON file
-path = os.path.join(base_dir, "AI2STOW", "teu20k", f"p{p}", "pi")
-output_path = f"{path}/summary_stats_teu{teu}_p{p}_s{s}_pi{perfect_information}_gen{gen}.json"
-with open(output_path, 'w') as f:
+summary_json_path = os.path.join(output_path, f"summary_s{s}_p{p}_pi{perfect_information}_gen{gen}.json")
+with open(summary_json_path, 'w') as f:
     json.dump(stats_summary, f, indent=4)
 
 print(f"\nSummary statistics saved to {output_path}")
