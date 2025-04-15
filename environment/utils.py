@@ -3,48 +3,48 @@ from typing import Any, Dict, Generator, Optional, Type, TypeVar, Union, Tuple
 import torch as th
 
 # Transport sets
-def get_transport_idx(P: int, device) -> Union[th.Tensor,]:
+def get_transport_idx(P: int, device:str) -> Union[th.Tensor,]:
     # Get above-diagonal indices of the transport matrix
     origins, destinations = th.triu_indices(P, P, offset=1, device=device)
     return th.stack((origins, destinations), dim=-1)
 
-def get_load_pods(POD: Union[th.Tensor]):
+def get_load_pods(POD: Union[th.Tensor]) -> Union[th.Tensor]:
     # Get non-zero column indices
     return (POD > 0)
 
-def get_load_transport(transport_idx, POL) -> Union[th.Tensor]:
+def get_load_transport(transport_idx:th.Tensor, POL:th.Tensor) -> Union[th.Tensor]:
     # Boolean mask for valid transports
     mask = (transport_idx[:, 0] == POL) & (transport_idx[:, 1] > POL)
     return mask
 
-def get_discharge_transport(transport_idx, POL) -> Union[th.Tensor]:
+def get_discharge_transport(transport_idx:th.Tensor, POL:th.Tensor) -> Union[th.Tensor]:
     # Boolean mask for valid transports
     mask = (transport_idx[:, 0] < POL) & (transport_idx[:, 1] == POL)
     return mask
 
-def get_on_board_transport(transport_idx, POL) -> Union[th.Tensor]:
+def get_on_board_transport(transport_idx:th.Tensor, POL:th.Tensor) -> Union[th.Tensor]:
     # Boolean mask for valid cargo groups:
     mask = (transport_idx[:, 0] <= POL) & (transport_idx[:, 1] > POL)
     return mask
 
-def get_not_on_board_transport(transport_idx, POL) -> Union[th.Tensor]:
+def get_not_on_board_transport(transport_idx:th.Tensor, POL:th.Tensor) -> Union[th.Tensor]:
     # Boolean mask for valid cargo groups:
     mask = (transport_idx[:, 0] < POL) & (transport_idx[:, 1] >= POL)
     return mask
 
-def get_remain_on_board_transport(transport_idx, POL) -> Union[th.Tensor]:
+def get_remain_on_board_transport(transport_idx:th.Tensor, POL:th.Tensor) -> Union[th.Tensor]:
     # Boolean mask for valid transport:
     mask = (transport_idx[:, 0] < POL) & (transport_idx[:, 1] > POL)
     return mask
 
-def get_pols_from_transport(transport_idx, P, dtype) -> Union[th.Tensor]:
+def get_pols_from_transport(transport_idx:th.Tensor, P:int, dtype:th.dtype) -> Union[th.Tensor]:
     # Get transform array from transport to POL:
     T = transport_idx.size(0)
     one_hot = th.zeros(T, P, device=transport_idx.device, dtype=dtype)
     one_hot[th.arange(T), transport_idx[:, 0].long()] = 1
     return one_hot
 
-def get_pods_from_transport(transport_idx, P, dtype) -> Union[th.Tensor]:
+def get_pods_from_transport(transport_idx:th.Tensor, P:int, dtype:th.dtype) -> Union[th.Tensor]:
     # Get transform array from transport to POD
     T = transport_idx.size(0)
     one_hot = th.zeros(T, P, device=transport_idx.device, dtype=dtype)
@@ -52,7 +52,7 @@ def get_pods_from_transport(transport_idx, P, dtype) -> Union[th.Tensor]:
     return one_hot
 
 # Get step variables
-def get_k_tau_pair(step, K):
+def get_k_tau_pair(step:th.Tensor, K:int) -> Tuple[th.Tensor, th.Tensor]:
     """Get the cargo class from the step number in the episode
     - step: step number in the episode
     - T: number of transports per episode
@@ -61,7 +61,7 @@ def get_k_tau_pair(step, K):
     tau = step // K
     return k, tau
 
-def get_pol_pod_pair(tau, P):
+def get_pol_pod_pair(tau:th.Tensor, P:th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
     """Get the origin-destination (pol,y) pair of the transport with index i
     - i: index of the transport
     - P: number of ports
@@ -75,7 +75,7 @@ def get_pol_pod_pair(tau, P):
     pod = tau - (P*(P-1)//2 - (P-pol)*(P-pol-1)//2) + pol + 1
     return pol, pod
 
-def get_transport_from_pol_pod(pol, pod, transport_idx):
+def get_transport_from_pol_pod(pol:th.Tensor, pod:th.Tensor, transport_idx:th.Tensor) -> th.Tensor:
     """Get the transport index from the origin-destination pair
     - pol: origin
     - pod: destination
@@ -146,7 +146,7 @@ def compute_target_long_crane(realized_demand: th.Tensor, moves: th.Tensor,
     optimal_crane_moves_per_adj_bay = 2 * total_crane_moves / B
     return CI_target * th.minimum(optimal_crane_moves_per_adj_bay, max_capacity)
 
-def compute_long_crane(utilization: th.Tensor, moves: th.Tensor, T: int, block=False) -> th.Tensor:
+def compute_long_crane(utilization: th.Tensor, moves: th.Tensor, T: int, block:bool=False) -> th.Tensor:
     """Compute long crane moves based on utilization, automatically handling both standard and block environments."""
     # Dynamically determine sum_dim and shape based on number of dimensions
     dims = utilization.dim()
@@ -162,7 +162,7 @@ def compute_long_crane_excess_cost(lc_moves:th.Tensor, target_long_crane:th.Tens
     lc_excess = th.clamp(lc_moves - target_long_crane.view(-1, 1), min=0)
     return lc_excess.sum(dim=-1, keepdim=True) * cm_costs
 
-def compute_pol_pod_locations(utilization: th.Tensor, transform_tau_to_pol, transform_tau_to_pod, eps=1e-2) -> Tuple[th.Tensor, th.Tensor]:
+def compute_pol_pod_locations(utilization: th.Tensor, transform_tau_to_pol, transform_tau_to_pod, eps:float=1e-2) -> Tuple[th.Tensor, th.Tensor]:
     """Compute POL and POD locations based on utilization"""
     if utilization.dim() == 4:
         util = utilization.permute(0, 1, 3, 2)
@@ -175,66 +175,6 @@ def compute_pol_pod_locations(utilization: th.Tensor, transform_tau_to_pol, tran
     pol_locations = (util @ transform_tau_to_pol).sum(dim=-2) > eps
     pod_locations = (util @ transform_tau_to_pod).sum(dim=-2) > eps
     return pol_locations, pod_locations
-
-def compute_excess_pod_blocks(pod_locations: th.Tensor, BL:int,) -> th.Tensor:
-    # todo: implement this function
-    """Compute excess POD locations based on PODs in blocks"""
-    # shape [B, D, BL, P]
-    # for each bay, block:
-        # first check if there are differences between d=0, d=1
-        # then check if there are more than 1 pod in a block
-    raise NotImplementedError("Function not implemented yet.")
-
-    # print(pod_locations[:, 0, ], pod_locations[:, 1, ])
-    # # for each bay, block: sum of pod locations if not the same above and below deck, or num pods > 1
-    # excess_pod_blocks = ((pod_locations[:, 0, ] != pod_locations[:, 1, ]) | (pod_locations.sum(dim=-2) > 1)).any(dim=-1)
-    #
-    # # now check if there are any excess pod blocks
-    # print(excess_pod_blocks.shape, excess_pod_blocks)
-    # breakpoint()
-
-def get_POD_ratio_mask(expected_demand: th.Tensor, residual_capacity: th.Tensor, capacity: th.Tensor,
-                        pod_locations: th.Tensor, transport_idx:th.Tensor, pod:int, batch_size:tuple) -> th.Tensor:
-    """
-    add ...
-    """
-    # Shapes
-    B, BL, D, P = pod_locations.shape[-4:]
-    T = transport_idx.size(0)
-    device = pod_locations.device
-    expected_demand = expected_demand.view(*batch_size, T, -1)
-
-    # Indicate empty locations and used locations based on pod
-    empty_locations = ~pod_locations.any(dim=-1)
-    used_pod_locations = pod_locations[..., pod] > 0
-
-    # Indicate empty locations and used locations based on pod
-    pod_idx = (transport_idx[:, 1] == pod).nonzero(as_tuple=True)[0]
-    demand_ratio = expected_demand[..., pod_idx, :].sum(dim=(-2,-1)) / expected_demand.sum(dim=(-2,-1))
-    capacity_to_fill = capacity.sum(dim=(-3,-2,-1)) * demand_ratio
-
-    # Generate mirrored random scores for each bay
-    half_B = B // 2 + (B % 2)
-    random_scores_half = th.rand((*batch_size, half_B, BL), device=device)
-    random_scores = th.cat([random_scores_half, random_scores_half.flip(dims=[-2])], dim=-2)
-    random_scores = (empty_locations.all(dim=-2) * random_scores).view(*batch_size, -1)
-    sorted_indices = random_scores.argsort(dim=-1, descending=True)
-
-    # Gather capacities based on sorted indices
-    if batch_size != ():
-        capacity = capacity.unsqueeze(0).expand(*batch_size, B, D, BL)
-    # Find the first index where cumulative capacity exceeds capacity_to_fill
-    sorted_capacities = th.gather(capacity.sum(dim=-2).view(*batch_size, -1), dim=-1, index=sorted_indices)
-    enough_capacity_mask = sorted_capacities.cumsum(dim=-1) >= capacity_to_fill.unsqueeze(-1)
-    best_k = (enough_capacity_mask.int().argmax(dim=-1) + 1 )
-    best_k_mask = th.arange(B * BL, device=device).expand(*batch_size, -1) < best_k.unsqueeze(-1)
-
-    # Get selection mask
-    mask = th.zeros((*batch_size, B*BL), dtype=th.bool, device=device)
-    mask.scatter_(-1, sorted_indices, best_k_mask)
-    output = mask.view(*batch_size, B, 1, BL, ).expand(*batch_size, B, D, BL,) | used_pod_locations
-    return output.reshape(*batch_size, -1)
-
 
 def generate_POD_mask(pod_demand: th.Tensor, residual_capacity: th.Tensor, capacity: th.Tensor,
                       pod_locations: th.Tensor, pod:int, batch_size:tuple) -> th.Tensor:
@@ -276,7 +216,7 @@ def generate_POD_mask(pod_demand: th.Tensor, residual_capacity: th.Tensor, capac
     return output.reshape(*batch_size, -1)
 
 
-def aggregate_indices(binary_matrix, get_highest=True):
+def aggregate_indices(binary_matrix:th.Tensor, get_highest:bool=True) -> th.Tensor:
     # Shape: [bays, ports]
     bays, ports = binary_matrix.shape[-2:]
 
@@ -412,7 +352,7 @@ def compute_strict_BS_mask(pod:th.Tensor, pod_locations:th.Tensor,) -> th.Tensor
     is_exclusive = (pod_block == 1) & pod_locations.any(dim=-3)[..., pod]
     return is_empty | is_exclusive
 
-def compute_violation(action, lhs_A, rhs, ) -> th.Tensor:
+def compute_violation(action:th.Tensor, lhs_A:th.Tensor, rhs:th.Tensor, ) -> th.Tensor:
     """Compute violations and loss of compact form"""
     # If dimension lhs_A is one more than action, unsqueeze action
     if (lhs_A.dim() - action.dim()) == 1:
