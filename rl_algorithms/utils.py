@@ -1,4 +1,4 @@
-from typing import Optional, Dict
+from typing import Optional, Dict, Tuple, List
 from dotmap import DotMap
 from tensordict import TensorDict
 import numpy as np
@@ -7,8 +7,8 @@ import torch
 from environment.env import MasterPlanningEnv, BlockMasterPlanningEnv
 from environment.utils import compute_violation
 
-def make_env(env_kwargs:DotMap, batch_size:Optional[list] = [], device: torch.device = torch.device("cuda")):
-    """Setup and transform the Pendulum environment."""
+def make_env(env_kwargs:DotMap, batch_size:List = [], device: torch.device = torch.device("cuda")) -> torch.nn.Module:
+    """Setup the environment."""
     if env_kwargs.env_name == "mpp":
         return MasterPlanningEnv(batch_size=batch_size, device=device, **env_kwargs).to(device)
     elif env_kwargs.env_name == "block_mpp":
