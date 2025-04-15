@@ -758,11 +758,11 @@ if __name__ == "__main__":
             result, var = main(env, demand_sub_tree, scen, stages, max_paths, seed, perfect_information, deterministic)
 
             # setup folder
-            if not os.path.exists("./test_results/scenario_tree/block_mpp/"):
-                os.makedirs("./test_results/scenario_tree/block_mpp/")
+            if not os.path.exists("results/SMIP/scenario_tree/block_mpp/"):
+                os.makedirs("results/SMIP/scenario_tree/block_mpp/")
 
             # Save results in json
-            with open(f"./test_results/scenario_tree/block_mpp/results_scenario_tree_teu{teu}_p{stages}_"
+            with open(f"results/SMIP/scenario_tree/block_mpp/results_scenario_tree_teu{teu}_p{stages}_"
                       f"e{x}_s{scen}_pi{perfect_information}"
                       f"_gen{generalization}.json", "w") as json_file:
                 json.dump(result, json_file, indent=4)
