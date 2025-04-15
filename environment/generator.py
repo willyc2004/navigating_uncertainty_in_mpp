@@ -341,8 +341,13 @@ if __name__ == "__main__":
             condition = (env.transport_idx[:, 0] == i) & (env.transport_idx[:, 1] == j)
             index = th.where(condition)[0]  # get indices where the condition is true
             demand_port[:, i] += demand[:, index, :].sum(dim=(-1,)).squeeze()
-            print((env.teus * demand[:, index, :]).sum(dim=(-1,)).squeeze().shape)
             teu_port[:, i] += (env.teus * demand[:, index, :]).sum(dim=(-1,)).squeeze()
+
+    # Give mean, std, max, min of demand at each port
+    print("Mean of demand at each port: ", demand_port.mean(dim=0))
+    print("Std of demand at each port: ", demand_port.std(dim=0))
+    print("Max of demand at each port: ", demand_port.max(dim=0))
+    print("Min of demand at each port: ", demand_port.min(dim=0))
 
     # (Batch, port) shape;
     # Plot boxplot at each port
