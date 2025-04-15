@@ -25,8 +25,9 @@ class CargoEmbedding(nn.Module):
         self.positional_encoding = DynamicSinusoidalPositionalEncoding(embed_dim)
         self.zeros = torch.zeros(1, seq_dim, embed_dim, device=self.env.device, dtype=self.env.float_type)
 
-    def _combine_cargo_parameters(self, batch_size):
+    def _combine_cargo_parameters(self, batch_size: Tuple) -> Dict[str, Tensor]:
         """Prepare cargo parameters for init embedding"""
+        # Get the batch size
         if batch_size == torch.Size([]):
             norm_features = {
                 "pol": (self.env.pol.clone() / self.env.P).view(1, -1, 1),
@@ -37,17 +38,16 @@ class CargoEmbedding(nn.Module):
             }
         else:
             norm_features = {
-                "pol": (self.env.pol.clone() / self.env.P).view(1, -1, 1).expand(batch_size, -1, -1),
-                "pod": (self.env.pod.clone() / self.env.P).view(1, -1, 1).expand(batch_size, -1, -1),
-                "weights": (self.env.weights[self.env.k].clone() / self.env.weights[self.env.k].max()).view(1, -1, 1).expand(batch_size, -1, -1),
-                "teus": (self.env.teus[self.env.k].clone() / self.env.teus[self.env.k].max()).view(1, -1, 1).expand(batch_size, -1, -1),
-                "revenues": (self.env.revenues.clone() / self.env.revenues.max()).view(1, -1, 1).expand(batch_size, -1, -1),
+                "pol": (self.env.pol.clone() / self.env.P).view(1, -1, 1).expand(*batch_size, -1, -1),
+                "pod": (self.env.pod.clone() / self.env.P).view(1, -1, 1).expand(*batch_size, -1, -1),
+                "weights": (self.env.weights[self.env.k].clone() / self.env.weights[self.env.k].max()).view(1, -1, 1).expand(*batch_size, -1, -1),
+                "teus": (self.env.teus[self.env.k].clone() / self.env.teus[self.env.k].max()).view(1, -1, 1).expand(*batch_size, -1, -1),
+                "revenues": (self.env.revenues.clone() / self.env.revenues.max()).view(1, -1, 1).expand(*batch_size, -1, -1),
             }
         return norm_features
 
-    def forward(self, td: Tensor,):
-        batch_size = td.shape[0]
-        cargo_parameters = self._combine_cargo_parameters(batch_size=batch_size)
+    def forward(self, td: TensorDict,) -> Tensor:
+        cargo_parameters = self._combine_cargo_parameters(batch_size=td.shape)
         max_demand = td["realized_demand"].max() if self.train_max_demand == None else self.train_max_demand
         if td["expected_demand"].dim() == 2:
             expected_demand = td["expected_demand"].unsqueeze(-1) / max_demand
@@ -75,7 +75,7 @@ class CriticEmbedding(nn.Module):
         self.project_context = nn.Linear(embed_dim + self.obs_dim, embed_dim,)
         self.train_max_demand = self.env.generator.train_max_demand
 
-    def normalize_obs(self, td):
+    def normalize_obs(self, td:TensorDict) -> Tensor:
         batch_size = td.batch_size
         max_demand = td["realized_demand"].max() if self.train_max_demand == None else self.train_max_demand
         return torch.cat([
@@ -90,7 +90,7 @@ class CriticEmbedding(nn.Module):
             td["action_mask"],
         ], dim=-1)
 
-    def forward(self,  latent_state: Tensor, td: TensorDict):
+    def forward(self,  latent_state: Tensor, td: TensorDict) -> Tensor:
         """Embed the context for the MPP"""
         # Get relevant init embedding
         if td["timestep"].dim() == 1:
@@ -116,7 +116,7 @@ class ContextEmbedding(nn.Module):
         self.obs_dim = 1+self.env.B*self.env.D*self.BL + self.env.B-1 + 2 + 3*self.env.B*self.env.D*self.BL
         self.project_context = nn.Linear(embed_dim + self.obs_dim, embed_dim,)
 
-    def normalize_obs(self, td):
+    def normalize_obs(self, td:TensorDict) -> Tensor:
         batch_size = td.batch_size
         return torch.cat([
             td["total_profit"] / (td["max_total_profit"]+1e-6),
@@ -130,7 +130,7 @@ class ContextEmbedding(nn.Module):
             # td["gate"]
         ], dim=-1)
 
-    def forward(self, latent_state: Tensor, td: TensorDict):
+    def forward(self, latent_state: Tensor, td: TensorDict) -> Tensor:
         """Embed the context for the MPP"""
         # Get relevant init embedding
         if td["timestep"].dim() == 1:
@@ -152,7 +152,7 @@ class DemandSelfAttention(nn.Module):
         self.attention = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=n_heads, batch_first=True)
         self.fc = nn.Linear(embed_dim, embed_dim)  # Projection layer
 
-    def forward(self, demand):
+    def forward(self, demand: Tensor) -> Tensor:
         """
         Inputs:
             demand_emb: Tensor of shape [batch_size, time_steps, embed_dim]
@@ -176,7 +176,7 @@ class DynamicSelfAttentionEmbedding(nn.Module):
         # self.project_dynamic = nn.Linear(embed_dim + 1, 3 * embed_dim)
         self.project_dynamic = nn.Linear(2 * embed_dim, 3 * embed_dim)
 
-    def forward(self, latent_state: Optional[Tensor], td: Tensor):
+    def forward(self, latent_state: Optional[Tensor], td: TensorDict) -> Tuple[Tensor, Tensor, Tensor]:
         """Embed the dynamic demand for MPP using self-attention"""
         max_demand = td["realized_demand"].max() if self.train_max_demand is None else self.train_max_demand
         if td["observed_demand"].dim() == 2:
@@ -202,7 +202,7 @@ class DynamicEmbedding(nn.Module):
         self.project_dynamic = nn.Linear(embed_dim + 1, 3 * embed_dim)
         self.train_max_demand = self.env.generator.train_max_demand
 
-    def forward(self, latent_state: Optional[Tensor], td: Tensor):
+    def forward(self, latent_state: Optional[Tensor], td: TensorDict) -> Tuple[Tensor, Tensor, Tensor]:
         """Embed the dynamic demand for the MPP"""
         # Get relevant demand embeddings
         max_demand = td["realized_demand"].max() if self.train_max_demand == None else self.train_max_demand

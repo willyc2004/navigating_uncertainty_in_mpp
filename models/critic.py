@@ -90,7 +90,7 @@ class CriticNetwork(nn.Module):
 
 def create_critic_from_actor(
     policy: nn.Module, backbone: str = "encoder", **critic_kwargs
-):
+) -> nn.Module:
     # we reuse the network of the policy's backbone, such as an encoder
     encoder = getattr(policy, backbone, None)
     if encoder is None:

@@ -100,7 +100,7 @@ class AttentionDecoderWithCache(nn.Module):
         glimpse_q = glimpse_q.unsqueeze(1) if glimpse_q.ndim == 2 else glimpse_q
         return glimpse_q
 
-    def _compute_kvl(self, cached: PrecomputedCache, td: TensorDict):
+    def _compute_kvl(self, cached: PrecomputedCache, td: TensorDict) -> Tuple[Tensor, Tensor, Tensor]:
         # Compute dynamic embeddings and add to kv embeddings
         node_embeds_cache = cached.init_embeddings
         glimpse_k_stat, glimpse_v_stat, logit_k_stat = (cached.glimpse_key, cached.glimpse_val, cached.logit_key,)
@@ -157,7 +157,7 @@ class AttentionDecoderWithCache(nn.Module):
             std = torch.where(mask, std.squeeze(), 1.0)
         return mean.squeeze(), std.squeeze()
 
-    def pre_decoder_hook(self, td: TensorDict, env, embeddings: Tensor, num_starts: int = 0):
+    def pre_decoder_hook(self, td: TensorDict, env, embeddings: Tensor, num_starts: int = 0) -> Tuple[TensorDict, TensorDict, PrecomputedCache]:
         return td, env, self._precompute_cache(embeddings, num_starts)
 
     def _precompute_cache(self, embeddings: Tensor, num_starts: int = 0) -> PrecomputedCache:
@@ -223,7 +223,7 @@ class MLPDecoderWithCache(nn.Module):
         self.temperature = temperature
         self.scale_max = scale_max
 
-    def forward(self, obs, hidden:Optional=None) -> Dict[str, Tensor]:
+    def forward(self, obs, hidden:Optional=None) -> Tuple[Tensor, Tensor]:
         # Use the observation embedding to process the input
         hidden = self.obs_embedding(hidden, obs)
         # Compute mask and logits

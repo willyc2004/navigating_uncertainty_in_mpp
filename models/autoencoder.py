@@ -1,5 +1,6 @@
 from torch import nn
 from models.decoder import AttentionDecoderWithCache
+from tensordict import TensorDict
 
 class Autoencoder(nn.Module):
     """Autoencoder model that takes in an observation and returns the decoded output."""
@@ -9,7 +10,7 @@ class Autoencoder(nn.Module):
         self.decoder = decoder
         self.env = env
 
-    def forward(self, obs):
+    def forward(self, obs:TensorDict) -> TensorDict:
         hidden, init_h = self.encoder(obs)
         if isinstance(self.decoder, AttentionDecoderWithCache):
             _, _, hidden = self.decoder.pre_decoder_hook(obs, self.env, hidden)
