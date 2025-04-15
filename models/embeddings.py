@@ -38,11 +38,11 @@ class CargoEmbedding(nn.Module):
             }
         else:
             norm_features = {
-                "pol": (self.env.pol.clone() / self.env.P).view(1, -1, 1).expand(*batch_size, -1, -1),
-                "pod": (self.env.pod.clone() / self.env.P).view(1, -1, 1).expand(*batch_size, -1, -1),
-                "weights": (self.env.weights[self.env.k].clone() / self.env.weights[self.env.k].max()).view(1, -1, 1).expand(*batch_size, -1, -1),
-                "teus": (self.env.teus[self.env.k].clone() / self.env.teus[self.env.k].max()).view(1, -1, 1).expand(*batch_size, -1, -1),
-                "revenues": (self.env.revenues.clone() / self.env.revenues.max()).view(1, -1, 1).expand(*batch_size, -1, -1),
+                "pol": (self.env.pol.clone() / self.env.P).view(1, -1, 1).expand(batch_size[0], -1, -1),
+                "pod": (self.env.pod.clone() / self.env.P).view(1, -1, 1).expand(batch_size[0], -1, -1),
+                "weights": (self.env.weights[self.env.k].clone() / self.env.weights[self.env.k].max()).view(1, -1, 1).expand(batch_size[0], -1, -1),
+                "teus": (self.env.teus[self.env.k].clone() / self.env.teus[self.env.k].max()).view(1, -1, 1).expand(batch_size[0], -1, -1),
+                "revenues": (self.env.revenues.clone() / self.env.revenues.max()).view(1, -1, 1).expand(batch_size[0], -1, -1),
             }
         return norm_features
 
@@ -55,8 +55,7 @@ class CargoEmbedding(nn.Module):
         else:
             expected_demand = td["expected_demand"][..., 0, :].unsqueeze(-1) / max_demand
             std_demand = td["std_demand"][..., 0, :].unsqueeze(-1) / max_demand
-        combined_input = torch.cat([
-            expected_demand, std_demand, *cargo_parameters.values()], dim=-1)
+        combined_input = torch.cat([expected_demand, std_demand, *cargo_parameters.values()], dim=-1)
         combined_emb = self.fc(combined_input)
 
         # Positional encoding
