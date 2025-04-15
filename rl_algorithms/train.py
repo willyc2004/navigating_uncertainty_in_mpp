@@ -7,7 +7,7 @@ import yaml
 from dotmap import DotMap
 from tensordict import TensorDict
 from tensordict.nn import TensorDictModule, TensorDictSequential
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, Tuple, Optional, List, Union
 
 # Torch
 import torch
@@ -89,7 +89,7 @@ class EarlyStopping:
         return False
 
 # Functions
-def convert_to_dict(obj:object) -> Optional[Dict, List]:
+def convert_to_dict(obj:object) -> Union[Dict, List]:
     """Recursively convert DotMap or other custom objects to standard Python dictionaries."""
     if isinstance(obj, DotMap):
         return {key: convert_to_dict(value) for key, value in obj.items()}

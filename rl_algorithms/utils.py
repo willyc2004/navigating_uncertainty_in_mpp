@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Tuple, List
+from typing import Optional, Dict, Tuple, List, Union
 from dotmap import DotMap
 from tensordict import TensorDict
 import numpy as np
@@ -7,7 +7,7 @@ import torch
 from environment.env import MasterPlanningEnv, BlockMasterPlanningEnv
 from environment.utils import compute_violation
 
-def make_env(env_kwargs:DotMap, batch_size:Optional[Tuple,List] = [], device: str = torch.device("cuda")) -> torch.nn.Module:
+def make_env(env_kwargs:DotMap, batch_size:Union[Tuple,List] = [], device: str = "cuda") -> torch.nn.Module:
     """Setup the environment."""
     if env_kwargs.env_name == "mpp":
         return MasterPlanningEnv(batch_size=batch_size, device=device, **env_kwargs).to(device)
