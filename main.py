@@ -38,7 +38,7 @@ def load_config(config_path: str) -> DotMap:
         config = adapt_env_kwargs(config)
     return config
 
-def setup_torch():
+def setup_torch() -> None:
     """Initialize Torch settings for deterministic behavior and efficiency."""
     torch.set_num_threads(1)
     torch.backends.cudnn.deterministic = True
@@ -47,7 +47,7 @@ def setup_torch():
         torch.cuda.empty_cache()
         torch._dynamo.config.cache_size_limit = 64
 
-def load_trained_hyperparameters(path):
+def load_trained_hyperparameters(path: str) -> DotMap:
     """Load hyperparameters from a previously trained model."""
     config_path = f"{path}/config.yaml"
     config = load_config(config_path)
@@ -61,7 +61,7 @@ def load_trained_hyperparameters(path):
     return config
 
 
-def initialize_encoder(encoder_type, encoder_args, device):
+def initialize_encoder(encoder_type:str, encoder_args:Dict, device:str) -> nn.Module:
     """Initialize the encoder based on the type."""
     if encoder_type == "attention":
         return AttentionEncoder(**encoder_args).to(device)
@@ -70,7 +70,7 @@ def initialize_encoder(encoder_type, encoder_args, device):
     else:
         raise ValueError(f"Unsupported encoder type: {encoder_type}")
 
-def initialize_decoder(decoder_type, decoder_args, device):
+def initialize_decoder(decoder_type:str, decoder_args:Dict, device:str) -> nn.Module:
     """Initialize the decoder based on the type."""
     if decoder_type == "attention":
         return AttentionDecoderWithCache(**decoder_args).to(device)
@@ -79,7 +79,7 @@ def initialize_decoder(decoder_type, decoder_args, device):
     else:
         raise ValueError(f"Unsupported decoder type: {decoder_type}")
 
-def initialize_critic(algorithm_type, encoder, critic_args, device):
+def initialize_critic(algorithm_type:str, encoder:nn.Module, critic_args:Dict, device:str) -> nn.Module:
     """Initialize the critic based on the algorithm type."""
     if algorithm_type == "sac":
         return TensorDictModule(
@@ -94,14 +94,15 @@ def initialize_critic(algorithm_type, encoder, critic_args, device):
             out_keys=["state_value"]
         )
 
-def initialize_projection_layer(projection_type, projection_kwargs, action_dim, n_constraints):
+def initialize_projection_layer(projection_type:str, projection_kwargs:DotMap,
+                                action_dim:int, n_constraints:int) -> nn.Module:
     """Initialize the projection layer based on the projection type."""
     projection_type = (projection_type or "").lower()  # Normalize to lowercase and handle None
     projection_kwargs["n_action"] = action_dim
     projection_kwargs["n_constraints"] = n_constraints
     return ProjectionFactory.create_class(projection_type, projection_kwargs)
 
-def initialize_policy_and_critic(config, env, device):
+def initialize_policy_and_critic(config: DotMap, env:nn.Module, device:str) -> Tuple[nn.Module, nn.Module]:
     """
     Initializes the policy and critic models based on the given configuration and environment.
 
@@ -193,7 +194,7 @@ def initialize_policy_and_critic(config, env, device):
 
 
 # Main function
-def main(config: Optional[DotMap] = None, **kwargs):
+def main(config: Optional[DotMap] = None, **kwargs) -> None:
     """
     Main function to train or test the model based on the configuration.
     """
@@ -215,14 +216,6 @@ def main(config: Optional[DotMap] = None, **kwargs):
         run_training(policy, critic, **config)
 
     elif config.model.phase == "test":
-        # for alpha in [0.01, 0.005, 0.001, ]:
-        #     for delta in [0.01, 0.005, 0.001,]:
-        #         for max_iter in [300, 400, 500]:
-        #
-        #             # Initialize
-        #             config.training.projection_kwargs.alpha = alpha
-        #             config.training.projection_kwargs.delta = delta
-        #             config.training.projection_kwargs.max_iter = max_iter
         alpha = config.training.projection_kwargs.alpha
         delta = config.training.projection_kwargs.delta
         max_iter = config.training.projection_kwargs.max_iter
