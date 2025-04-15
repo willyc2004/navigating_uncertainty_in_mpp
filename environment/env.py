@@ -340,7 +340,7 @@ class MasterPlanningEnv(EnvBase):
         return seed
 
     # Extraction functions
-    def _extract_from_td(self, td, batch_size:Tuple) -> Tuple:
+    def _extract_from_td(self, td:TensorDict, batch_size:Tuple) -> Tuple:
         """Extract action, reward and step from the TensorDict."""
         # Must clone to avoid in-place operations!
         timestep = td["observation", "timestep"].view(-1).clone()
@@ -373,7 +373,7 @@ class MasterPlanningEnv(EnvBase):
         }
         return action, demand, vessel, timestep
 
-    def _extract_cargo_parameters_for_step(self, time) -> Tuple:
+    def _extract_cargo_parameters_for_step(self, time:Tensor) -> Tuple:
         """Extract cargo-related parameters"""
         pol = self.pol[time]
         pod = self.pod[time]
@@ -384,8 +384,8 @@ class MasterPlanningEnv(EnvBase):
         return pol, pod, tau, k, rev_t, step
 
 
-    def _get_observation(self, next_state_dict, residual_capacity,
-                         agg_pol_location, agg_pod_location, time, batch_size:Tuple) -> Tensor:
+    def _get_observation(self, next_state_dict:Dict, residual_capacity:Tensor,
+                         agg_pol_location:Tensor, agg_pod_location:Tensor, time:Tensor, batch_size:Tuple) -> Tensor:
         """Get observation from the TensorDict."""
         if self.normalize_obs:
             # Normalize demand and clip max demand based on train range
@@ -475,14 +475,14 @@ class MasterPlanningEnv(EnvBase):
         }
 
     # Compact formulation
-    def _compact_form_shapes(self, ):
+    def _compact_form_shapes(self, ) -> None:
         """Define shapes for compact form"""
         self.n_demand = 1
         self.n_stability = 4
         self.n_locations = self.B * self.D
         self.n_constraints = self.n_demand + self.n_locations + self.n_stability
 
-    def _create_constraint_matrix(self, shape: Tuple[int, int, int, int], rhs=True):
+    def _create_constraint_matrix(self, shape: Tuple[int, int, int, int], rhs:bool=True) -> Tensor:
         """Create constraint matrix A for compact constraints Au <= b"""
         # [1, LM-TW, TW-LM, VM-TW, TW-VM]
         A = th.ones(shape, device=self.device, dtype=self.float_type)
@@ -492,7 +492,7 @@ class MasterPlanningEnv(EnvBase):
         A[self.n_locations + self.n_demand:self.n_locations + self.n_demand + self.n_stability] *= self.stability_params_lhs.view(self.n_stability, self.B*self.D, 1, self.K,)
         return A.view(self.n_constraints, self.B*self.D, -1)
 
-    def create_lhs_A(self, A, time:Tensor) -> Tensor:
+    def create_lhs_A(self, A:Tensor, time:Tensor) -> Tensor:
         """Get A_t based on batch of steps to prevent expanding A_t for each step"""
         steps = self.steps[time]
         return A[..., steps].permute((2, 0, 1,)).contiguous()
@@ -518,7 +518,7 @@ class MasterPlanningEnv(EnvBase):
         return rhs
 
     # Initializations
-    def _initialize_capacity(self, capacity):
+    def _initialize_capacity(self, capacity:float,) -> None:
         """Initialize capacity (TEU) parameters"""
         self.capacity = th.full((self.B, self.D,), capacity, device=self.device, dtype=self.float_type)
         self.total_capacity = th.sum(self.capacity)
@@ -526,7 +526,7 @@ class MasterPlanningEnv(EnvBase):
             .repeat_interleave(self.W).repeat(self.CC)
         self.teus_episode = th.cat([self.teus.repeat(self.T)])
 
-    def _initialize_stability(self, ):
+    def _initialize_stability(self, ) -> None:
         """Initialize stability parameters"""
         self.weights = th.arange(1, self.W + 1, device=self.device, dtype=self.float_type).repeat(self.K // self.W)
         self.longitudinal_position = th.arange(1 / self.B, self.B * 2 / self.B, 2 / self.B, device=self.device,
@@ -537,7 +537,7 @@ class MasterPlanningEnv(EnvBase):
         self.vp_weight = th.einsum("d, c -> cd", self.weights, self.vertical_position).unsqueeze(0)
         self.stability_params_lhs = self._precompute_stability_parameters()
 
-    def _initialize_step_parameters(self, ):
+    def _initialize_step_parameters(self, ) -> None:
         """Initialize step parameters"""
         self.steps = self._precompute_order_standard()
         # self.steps = self._precompute_order_long_transport_first()
@@ -549,7 +549,7 @@ class MasterPlanningEnv(EnvBase):
         self.transform_tau_to_pol = get_pols_from_transport(self.transport_idx, self.P, dtype=self.float_type)
         self.transform_tau_to_pod = get_pods_from_transport(self.transport_idx, self.P, dtype=self.float_type)
 
-    def _initialize_constraints(self, ):
+    def _initialize_constraints(self, ) -> None:
         """Initialize constraint-related parameters."""
         self.constraint_signs = th.ones(self.n_constraints, device=self.device, dtype=self.float_type)
         self.constraint_signs[th.tensor([-3, -1], device=self.device)] *= -1  # Flip signs for specific constraints
@@ -563,13 +563,13 @@ class MasterPlanningEnv(EnvBase):
         self.A_rhs = self._create_constraint_matrix(shape=(self.n_constraints, self.n_locations, self.T, self.K), rhs=True)
 
     # Precomputes
-    def _precompute_order_standard(self):
+    def _precompute_order_standard(self) -> Tensor:
         """Get standard order of steps;
         - POL, POD are in ascending order
         - K is in ascending order but based on priority"""
         return th.arange(self.T*self.K, device=self.device, dtype=th.int64)
 
-    def _precompute_order_long_transport_first(self):
+    def _precompute_order_long_transport_first(self) -> Tensor:
         """Precompute order of steps by considering long-term transport first:
         - For each POL, POD is descending order; K is based on priority"""
         # todo: remove loops and do as pytorch operations
@@ -592,7 +592,7 @@ class MasterPlanningEnv(EnvBase):
         moves_idx = self.moves_idx[pol]
         return load_idx, disc_idx, moves_idx
 
-    def _precompute_revenues(self, reduce_long_revenue=0.3) -> Tensor:
+    def _precompute_revenues(self, reduce_long_revenue:float=0.3) -> Tensor:
         """Precompute matrix of revenues with shape [K, T]"""
         # Initialize revenues and pod_grid
         revenues = th.zeros((self.K, self.P, self.P), device=self.device, dtype=self.float_type) # Shape: [K, P, P]
@@ -607,7 +607,7 @@ class MasterPlanningEnv(EnvBase):
         # Add 0.1 for variable revenue per container, regardless of (k,tau)
         return revenues[..., i, j] + 0.1 # Shape: [K, T], where T = P*(P-1)/2
 
-    def _precompute_transport_sets(self):
+    def _precompute_transport_sets(self) -> None:
         """Precompute transport sets based on POL with shape(s): [P, T]"""
         # Note: transport sets in the environment do not depend on batches for efficiency.
         # Hence, implementation only works for batches with the same episodic step (e.g., single-step MDP)
@@ -622,7 +622,7 @@ class MasterPlanningEnv(EnvBase):
         self.remain_on_board_transport = get_remain_on_board_transport(self.transport_idx, p)
         self.moves_idx = self.load_transport + self.discharge_transport
 
-    def _precompute_transport_sets_episode(self):
+    def _precompute_transport_sets_episode(self) -> None:
         """Precompute transport sets based on POL with shape(s): [Seq, T]"""
         # Get transport sets for demand
         pol_t = self.pol[:-1].view(-1,1)
@@ -633,7 +633,7 @@ class MasterPlanningEnv(EnvBase):
         self.remain_on_board_transport_episode = get_remain_on_board_transport(self.transport_idx, pol_t)
         self.moves_idx_episode = self.load_transport_episode + self.discharge_transport_episode
 
-    def _precompute_next_port_mask(self):
+    def _precompute_next_port_mask(self) -> Tensor:
         """Precompute next port based on POL with shape: [P, T]
         - Next port happens when POD = POL+1
         """
@@ -644,7 +644,7 @@ class MasterPlanningEnv(EnvBase):
         next_port[indices] = True
         return next_port
 
-    def _precompute_stability_parameters(self,):
+    def _precompute_stability_parameters(self,) -> Tensor:
         """Precompute lhs stability parameters for compact constraints. Get rhs by negating lhs."""
         lp_weight = self.lp_weight.unsqueeze(2).expand(-1,-1,self.D,-1)
         vp_weight = self.vp_weight.unsqueeze(1).expand(-1,self.B,-1,-1)
@@ -657,7 +657,7 @@ class MasterPlanningEnv(EnvBase):
         return output.view(-1, self.B*self.D, self.K,)
 
     # Compute functions
-    def _compute_violation(self, lhs_A, rhs, action, batch_size:Tuple):
+    def _compute_violation(self, lhs_A:Tensor, rhs:Tensor, action:Tensor, batch_size:Tuple) -> Tensor:
         if lhs_A.dim() == 2:
             violation = lhs_A @ action.view(*batch_size, -1) - rhs
         elif lhs_A.dim() == 3:
@@ -667,12 +667,13 @@ class MasterPlanningEnv(EnvBase):
 
         return torch.clamp(violation, min=0).view(*batch_size, -1)
 
-    def _compute_revenue(self, sum_action, demand_state, rev):
+    def _compute_revenue(self, sum_action:Tensor, demand_state:TensorDict, rev:Tensor) -> Tensor:
         if self.limit_revenue:
             return torch.clamp(sum_action, min=self.zero, max=demand_state["current_demand"]) * rev
         return sum_action * rev
 
-    def _compute_cost(self, revenue, vessel_state, moves, ac_transport, step, block=False):
+    def _compute_cost(self, revenue:Tensor, vessel_state:TensorDict, moves:Tensor,
+                      ac_transport:Tensor, step:Tensor, block:bool=False) -> Tuple[Tensor, Tensor]:
         """Compute profit based on revenue and cost, where cost = overstowage costs + excess_crane_moves costs.
         Costs are based on utilization, long crane moves and target long crane"""
         profit = revenue.clone()
@@ -688,7 +689,8 @@ class MasterPlanningEnv(EnvBase):
             cost = th.zeros_like(profit)
         return profit, cost
 
-    def _compute_final_reward(self, revenue, cost, demand_state, step, time, batch_size:Tuple):
+    def _compute_final_reward(self, revenue:Tensor, cost:Tensor, demand_state:TensorDict,
+                              step:Tensor, time:Tensor, batch_size:Tuple) -> Tensor:
         """Compute final reward based on normalized revenue and cost."""
         # Normalize revenue \in [0,1]: revenue_norm = rev_t / max(rev_t) * min(q_t, sum(x_t)) / q_t
         norm_revenue = self.revenues.max() * demand_state["current_demand"]
@@ -700,11 +702,11 @@ class MasterPlanningEnv(EnvBase):
         # We have spikes over delayed costs, but per port the revenue and costs are normalized.
         return (revenue.clone() / norm_revenue) - (cost.clone() / norm_cost)
 
-    def _compute_residual_capacity(self, utilization):
+    def _compute_residual_capacity(self, utilization:Tensor) -> Tensor:
         """Compute residual capacity based on utilization"""
         return th.clamp(self.capacity - utilization.sum(dim=-2) @ self.teus, min=self.zero)
 
-    def _compute_clip_max(self, residual_capacity, next_state_dict, batch_size, step):
+    def _compute_clip_max(self, residual_capacity:Tensor, next_state_dict:Dict, batch_size:Tuple, step:Tensor) -> Tensor:
         """Compute clip max based on residual capacity and next state"""
         dims = residual_capacity.dim()-1 if residual_capacity.dim() > 3 else 2 # if dim <= 3, then 2D locations
         teu = self.teus_episode[step].view((1,) * dims)
@@ -999,7 +1001,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         self.reward_spec = Unbounded(shape=(*batch_size,1,))
         self.done_spec = Unbounded(shape=(*batch_size,1,), dtype=th.bool)
 
-    def _extract_from_block_td(self, td, batch_size:Tuple) -> Tuple:
+    def _extract_from_block_td(self, td:TensorDict, batch_size:Tuple) -> Tuple:
         """Extract action, reward and step from the TensorDict."""
         # Environment-related parameters
         timestep = td["observation", "timestep"].view(-1).clone()
@@ -1034,7 +1036,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         return action, demand, vessel, timestep
 
     # Constraints
-    def _compact_form_block_shapes(self, ):
+    def _compact_form_block_shapes(self, ) -> None:
         """Define shapes for compact form"""
         self.n_demand = 1
         self.n_block_locations = self.B * self.D * self.BL
@@ -1042,7 +1044,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         self.n_block_stow = self.n_block_locations + 1
         self.n_constraints = self.n_demand + self.n_block_locations + self.n_stability #+ self.n_block_stow
 
-    def _create_constraint_matrix_block(self, shape: Tuple[int, int, int, int], rhs=True):
+    def _create_constraint_matrix_block(self, shape: Tuple[int, int, int, int], rhs:bool=True) -> Tensor:
         """Create constraint matrix A for compact constraints Au <= b"""
         # [1, LM-TW, TW-LM, VM-TW, TW-VM]
         A = th.ones(shape, device=self.device, dtype=self.float_type)
@@ -1053,7 +1055,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         return A.view(self.n_constraints, self.n_block_locations, -1)
 
     # Initialize
-    def _initialize_block_capacity(self, capacity):
+    def _initialize_block_capacity(self, capacity:Tensor) -> None:
         """Initialize capacity parameters for block environment"""
         self.capacity = th.zeros((self.B, self.D, self.BL), device=self.device, dtype=self.float_type)
         block_ratios = [2 / (self.BL + 1)] + [1 / (self.BL + 1)] * (self.BL - 1)
@@ -1064,11 +1066,11 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             self.capacity[...,0] = th.ceil(self.capacity[...,0]/2)*2
             self.capacity[...,1] = th.floor(self.capacity[...,1]/2)*2
 
-    def _initialize_block_stability(self, ):
+    def _initialize_block_stability(self, ) -> None:
         """Initialize stability parameters"""
         self.block_stability_params_lhs = self._precompute_block_stability_parameters()
 
-    def _initialize_block_constraints(self, ):
+    def _initialize_block_constraints(self, ) -> None:
         """Initialize constraint-related parameters."""
         self.block_constraint_signs = th.ones(self.n_constraints, device=self.device, dtype=self.float_type)
         self.block_constraint_signs[th.tensor([-3, -1], device=self.device)] *= -1  # Flip signs for specific constraints
@@ -1082,7 +1084,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         self.block_A_lhs = self._create_constraint_matrix_block(shape=(self.n_constraints, self.n_block_locations, self.T, self.K), rhs=False)
 
     # Precomputes
-    def _precompute_block_stability_parameters(self,):
+    def _precompute_block_stability_parameters(self,) -> Tensor:
         """Precompute lhs block stability parameters for compact constraints. Get rhs by negating lhs."""
         lp_weight = self.lp_weight.view(-1, self.B, 1, 1, self.K).expand(-1,-1,self.D,self.BL,-1)
         vp_weight = self.vp_weight.view(-1, 1, self.D, 1, self.K).expand(-1,self.B,-1,self.BL,-1)
