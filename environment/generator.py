@@ -8,67 +8,98 @@ import matplotlib.pyplot as plt
 
 # Classes
 class MPP_Generator(Generator):
-    """Class for generating demand for stowage plans"""
+    """
+    Demand generator for the master planning problem (MPP) in container stowage planning.
+
+    This generator simulates cargo demands across multiple transport legs
+    and allows configurations for uncertainty, customer and cargo classes, and different sampling strategies.
+    """
     def __init__(self, device="cuda", **kwargs):
+        """
+        Initialize the MPP_Generator.
+
+        Args:
+            device (str): Device to run computations on ('cuda' or 'cpu').
+            **kwargs: Configuration parameters for the generator:
+                - seed (int): Random seed.
+                - ports (int): Number of ports in the voyage.
+                - bays (int): Number of bays in the vessel.
+                - decks (int): Number of decks (0=deck, 1=hold).
+                - customer_classes (int): Number of customer contract classes.
+                - cargo_classes (int): Number of cargo types per customer.
+                - weight_classes (int): Number of weight classes.
+                - capacity (list[int] or torch.Tensor): Per-bay/deck capacity.
+                - utilization_rate_initial_demand (float): Capacity utilization target.
+                - spot_percentage (float): Ratio of spot contract cargo.
+                - iid_demand (bool): Use IID sampling if True, otherwise GBM.
+                - cv_demand (float): Coefficient of variation for demand.
+                - demand_uncertainty (bool): Enable demand uncertainty.
+                - generalization (bool): Enable uniform distribution sampling.
+                - perturbation (float): Perturbation scale for stochastic effects.
+        """
         super().__init__(**kwargs)
         # Input simulation
         self.device = th.device(device)
         self.seed = kwargs.get("seed")
         self.rng = th.Generator(device=self.device).manual_seed(self.seed)
 
-        # Input env
-        self.P = kwargs.get("ports")  # Number of ports
-        self.B = kwargs.get("bays")  # Number of bays
-        self.D = kwargs.get("decks")  # Number of decks (on-deck=0, hold=1)
-        self.T = int((self.P ** 2 - self.P) / 2) # Number of (POL,POD) transport groups
-        self.CC = kwargs.get("customer_classes")  # Number of customer contracts
-        self.K = kwargs.get("cargo_classes") * self.CC  # Number of cargo types
-        self.W = kwargs.get("weight_classes")  # Number of weight classes
+        # Configuration
+        self.P = kwargs.get("ports")
+        self.B = kwargs.get("bays")
+        self.D = kwargs.get("decks")
+        self.CC = kwargs.get("customer_classes")
+        self.K = kwargs.get("cargo_classes") * self.CC
+        self.W = kwargs.get("weight_classes")
         c = kwargs.get("capacity")
-        self.c = th.full((self.B, self.D,), c[0]) if len(c) == 1 else c  # Container capacity per bay/deck
+        self.c = th.full((self.B, self.D,), c[0]) if len(c) == 1 else c
         self.total_capacity = th.sum(self.c)
+
+        # Derived values
+        self.T = int((self.P ** 2 - self.P) / 2)
         self.teus = th.arange(1, self.K // (self.CC * self.W) + 1, dtype=th.float16, device=self.device)\
             .repeat_interleave(self.W).repeat(self.CC)
 
-        # Precompute
+        # Demand control
         self.utilization_rate_initial_demand = kwargs.get("utilization_rate_initial_demand", 1.2)
         self.spot_percentage = kwargs.get("spot_percentage", 0.3)
         self.spot_lc_percentage = th.cat([
-                     th.full((self.K//2,), 2*(1 - self.spot_percentage), device=self.device, dtype=th.float32),
-                     th.full((self.K//2,), 2*(self.spot_percentage), device=self.device, dtype=th.float32)],  dim=0)
+            th.full((self.K // 2,), 2 * (1 - self.spot_percentage), device=self.device),
+            th.full((self.K // 2,), 2 * self.spot_percentage, device=self.device)
+        ])
         self.iid_demand = kwargs.get("iid_demand", True)
         self.cv_demand = kwargs.get("cv_demand", 0.5)
         self.demand_uncertainty = kwargs.get("demand_uncertainty", False)
         self.generalization = kwargs.get("generalization", False)
         self.perturbation = kwargs.get("perturbation", 0.1)
 
-        # Get cv vector
-        self.cv = th.empty((self.K,), device=self.device, dtype=th.float16,)
-        self.cv[:self.K//2] = 0.5
-        self.cv[self.K//2:] = 0.3
+        # Demand variability
+        self.cv = th.empty((self.K,), device=self.device, dtype=th.float16)
+        self.cv[:self.K // 2] = 0.5
+        self.cv[self.K // 2:] = 0.3
 
-        # Precompute wave and transport
-        self.wave = self._create_wave(self.P-1,)
+        # Precomputations
+        self.train_max_demand = 0
+        self.wave = self._create_wave(self.P - 1)
         self.transport_idx = get_transport_idx(self.P, device=self.device)
         self.num_loads = self._get_num_loads_in_voyage(self.transport_idx, self.P)
         self.num_discharges = self.num_loads.flip(0)
-        POL = th.arange(self.P, device=self.device,).unsqueeze(1).unsqueeze(1) # Shape: [P, 1, 1]
-        self.num_ac = self._get_num_AC_in_voyage(self.transport_idx, POL,)
-        self.num_ob = self._get_num_OB_in_voyage(self.transport_idx, POL,)
-        # Transform in shape [T]
+        POL = th.arange(self.P, device=self.device).unsqueeze(1).unsqueeze(1)
+        self.num_ac = self._get_num_AC_in_voyage(self.transport_idx, POL)
+        self.num_ob = self._get_num_OB_in_voyage(self.transport_idx, POL)
         self.tr_wave = th.repeat_interleave(self.wave, self.num_loads)
         self.tr_loads = th.repeat_interleave(self.num_loads, self.num_loads)
         self.tr_discharges = th.repeat_interleave(self.num_discharges, self.num_loads)
         self.tr_ac = th.repeat_interleave(self.num_ac, self.num_loads)
         self.tr_ob = th.repeat_interleave(self.num_ob, self.num_loads)
-        self.train_max_demand = 0
 
-    def __call__(self, batch_size, td: Optional[TensorDict] = None, rng:Optional=None) -> TensorDict:
+    def __call__(self, batch_size:Tuple[int, ...], td: Optional[TensorDict] = None, rng:Optional=None) -> TensorDict:
+        """Generate demand for the MPP."""
         batch_size = [batch_size] if isinstance(batch_size, int) else batch_size
         return self._generate(batch_size, td)
 
     ## Generate demand
-    def _gbm_lognormal_distribution(self, t:th.Tensor, s0:th.Tensor, mu=th.tensor(0.0000), sigma=th.tensor(0.01),):
+    def _gbm_lognormal_distribution(self, t:th.Tensor, s0:th.Tensor, mu=th.tensor(0.0000), sigma=th.tensor(0.01),) \
+            -> Tuple[th.Tensor, th.Tensor, th.distributions.LogNormal]:
         """
         Obtain a log-normal distribution that corresponds to the GBM process for each element in s0.
 
@@ -94,15 +125,15 @@ class MPP_Generator(Generator):
         log_dist = th.distributions.LogNormal(loc=mu_log, scale=sigma_log)
         return mean, std_dev, log_dist
 
-    def _iid_normal_distribution(self, e_x, std_x,):
+    def _iid_normal_distribution(self, e_x: th.Tensor, std_x: th.Tensor,) -> Tuple[th.Tensor, th.Tensor, th.distributions.Normal]:
         """Get normal distribution for demand"""
         return e_x, std_x, th.distributions.Normal(loc=e_x, scale=std_x)
 
-    def _create_std_x(self, e_x, cv=0.5):
+    def _create_std_x(self, e_x:th.Tensor, cv:float=0.5) -> th.Tensor:
         """Create std_x from coefficient of variation: cv < 0.1 is low, 0.3<x<0.5 is moderate, >0.5 is high"""
         return e_x * cv
 
-    def _generalization_uniform_distribution(self, mu, sigma):
+    def _generalization_uniform_distribution(self, mu:th.Tensor, sigma:th.Tensor) -> th.distributions.Uniform:
         """Provided the mu and sigma of a Gaussian distribution, we can create an equivalent uniform distribution.
         Let's equate mu and sigma^2 to a,b parameters of the uniform distribution:
         - mu = (a + b) / 2
@@ -118,7 +149,7 @@ class MPP_Generator(Generator):
         dist = th.distributions.Uniform(a, b)
         return dist
 
-    def _generate(self, batch_size, td:Optional=None,) -> TensorDict:
+    def _generate(self, batch_size:Tuple[int, ...], td:Optional=None,) -> TensorDict:
         """Generate demand matrix for voyage with GBM process"""
         # Get initial demand if not provided
         if td is None or td.is_empty():
@@ -152,7 +183,7 @@ class MPP_Generator(Generator):
                                 "batch_updates":batch_updates.clone(),}}, batch_size=batch_size, device=self.device,)
 
     ## Initial demand
-    def _initialize_demand_bound_on_capacity(self, batch_size,):
+    def _initialize_demand_bound_on_capacity(self, batch_size:Tuple[int, ...],) -> th.Tensor:
         """Get initial demand bound based on capacity
 
         Bound without wave:
@@ -177,12 +208,13 @@ class MPP_Generator(Generator):
         # Get bound with spot, lc using self.spot_lc_percentage
         return th.ger(utilization_bound, self.spot_lc_percentage) / self.teus.view(1, -1,)
 
-    def _random_perturbation(self, input, perturb_factor=0.1):
+    def _random_perturbation(self, input:th.Tensor, perturb_factor=0.1) -> th.Tensor:
         """Apply a random perturbation to bound while keeping it close to the original value."""
         perturbation = 1 + (th.rand_like(input) * 2 - 1) * perturb_factor  # U(1-α, 1+α)
         return th.clamp(input * perturbation, min=1.0)  # Ensure positive output
 
-    def _generate_initial_moments(self, batch_size, bound, cv, eps=1e-2) -> Tuple[th.Tensor, th.Tensor]:
+    def _generate_initial_moments(self, batch_size:Tuple[int, ...], bound:th.Tensor,
+                                  cv:th.Tensor, eps:float=1e-2) -> Tuple[th.Tensor, th.Tensor]:
         """Generate initial E[X] and V[X] for spot and longterm contracts.
         - E[X] = Uniform sample * bound
         - V[X] = (E[X] * cv)^2"""
@@ -197,7 +229,7 @@ class MPP_Generator(Generator):
         return th.where(expected < eps, eps, expected), variance
 
     # Support functions
-    def _create_wave(self, length, param=0.3, ) -> th.Tensor:
+    def _create_wave(self, length:int, param:float=0.3, ) -> th.Tensor:
         """Create a wave function for the bound"""
         mid_index = length // 2
         increasing_values = 1 + param * th.cos(th.linspace(th.pi, th.pi / 2, steps=mid_index + 1,
@@ -206,7 +238,7 @@ class MPP_Generator(Generator):
                                                            device=self.device, dtype=th.float32, ))
         return th.cat([increasing_values[:-1], decreasing_values, th.zeros((1,), device=self.device, dtype=th.float32)])
 
-    def _get_num_loads_in_voyage(self, transport_idx, P, ):
+    def _get_num_loads_in_voyage(self, transport_idx:th.Tensor, P:int, ) -> th.Tensor:
         """Get number of transports loaded per POL"""
         # Create a boolean mask for load pairs using broadcasting and advanced indexing
         load_mask = th.zeros((P, P), dtype=th.bool, device=self.device, )
@@ -214,28 +246,28 @@ class MPP_Generator(Generator):
         # Count loads for each port
         return load_mask.sum(dim=1)
 
-    def _get_num_AC_in_voyage(self, transport_idx, POL, ):
+    def _get_num_AC_in_voyage(self, transport_idx:th.Tensor, POL:int, ) -> th.Tensor:
         """Get number of transport in arrival condition per POL"""
         mask = (transport_idx[:, 0] < POL) & (transport_idx[:, 1] > POL)
         return mask.sum(dim=-1).squeeze()  # Shape: [num_POL]
 
-    def _get_num_OB_in_voyage(self, transport_idx, POL, ):
+    def _get_num_OB_in_voyage(self, transport_idx:th.Tensor, POL:int, ) -> th.Tensor:
         """Get number of transports in onbord per POL"""
         mask = (transport_idx[:, 0] <= POL) & (transport_idx[:, 1] > POL)
         return mask.sum(dim=-1).squeeze()  # Shape: [num_POL]
 
-    def _get_ub_demand_normalization(self, bound, eps=1e-2):
+    def _get_ub_demand_normalization(self, bound:th.Tensor, eps:float=1e-2) -> th.Tensor:
         """Get upper bound for demand normalization"""
         return (bound + 4 * (bound / 2 * 0.5)).max()
 
 class UniformMPP_Generator(MPP_Generator):
     """Class for generating demand for stowage plans using uniform distribution."""
 
-    def __call__(self, batch_size, td: Optional[TensorDict] = None, rng:Optional=None) -> TensorDict:
+    def __call__(self, batch_size:Tuple[int, ...], td: Optional[TensorDict] = None, rng:Optional=None) -> TensorDict:
         batch_size = [batch_size] if isinstance(batch_size, int) else batch_size
         return self._generate(batch_size, td)
 
-    def _generate(self, batch_size, td: Optional = None, ) -> TensorDict:
+    def _generate(self, batch_size:Tuple[int, ...], td: Optional[TensorDict] = None, ) -> TensorDict:
         """Generate demand matrix for voyage with uniform distribution"""
         # Get initial demand if not provided
         if td is None or td.is_empty():
@@ -271,9 +303,8 @@ class UniformMPP_Generator(MPP_Generator):
                                 "batch_updates": batch_updates.clone(), }}, batch_size=batch_size,
                           device=self.device, )
 
-def plot_demand_history(demand_history, updates,
-                        y_label="Containers", title="Container Demand History",
-                        summarize=False):
+def plot_demand_history(demand_history:th.Tensor, updates:int,
+                        y_label:str="Containers", title:str="Container Demand History", summarize:bool=False):
     """Plot demand history"""
     plt.figure()
     demand_history = demand_history.detach().cpu().numpy()
