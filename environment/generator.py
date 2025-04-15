@@ -261,7 +261,7 @@ class MPP_Generator(Generator):
         return (bound + 4 * (bound / 2 * 0.5)).max()
 
 class UniformMPP_Generator(MPP_Generator):
-    """Class for generating demand for stowage plans using uniform distribution."""
+    """Subclass for generating demand for stowage plans using uniform distribution."""
 
     def __call__(self, batch_size:Tuple[int, ...], td: Optional[TensorDict] = None, rng:Optional=None) -> TensorDict:
         batch_size = [batch_size] if isinstance(batch_size, int) else batch_size
