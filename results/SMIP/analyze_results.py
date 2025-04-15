@@ -109,7 +109,7 @@ collect_stats(total_revenue, "Revenue")
 collect_stats(total_cost, "Cost")
 
 # Save to JSON file
-summary_json_path = os.path.join(output_path, f"summary_s{s}_p{p}_pi{perfect_information}_gen{gen}.json")
+summary_json_path = os.path.join(output_path, f"summary_stats_teu{teu}_p{p}_s{s}_pi{perfect_information}_gen{gen}.json")
 with open(summary_json_path, 'w') as f:
     json.dump(stats_summary, f, indent=4)
 
