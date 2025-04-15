@@ -8,6 +8,7 @@ from tensordict.utils import NestedKey
 import torch
 from torch import nn, Tensor
 import torch.nn.functional as F
+from torch.distributions import Distribution, TransformedDistribution
 
 # TorchRL
 from torchrl.modules import ProbabilisticActor
@@ -41,13 +42,13 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         clip_max = spec.space.high
         self.clipped_gaussian = ClippedGaussian(initial_loc, initial_scale, clip_min, clip_max)
 
-    def get_logprobs(self, action, dist):
+    def get_logprobs(self, action:Tensor, dist:Distribution) -> Tensor:
         """Compute the log probabilities of the actions given the distribution."""
         return dist.base_dist.log_prob(action) # Shape: [Batch, Features]
 
     # Projections
     @staticmethod
-    def weighted_scaling(sample, ub, epsilon=1e-8):
+    def weighted_scaling(sample:Tensor, ub:Tensor, epsilon:float=1e-8) -> Tensor:
         sum_sample = sample.sum(dim=-1, keepdim=True)
         upper_bound = ub.unsqueeze(-1)
         scaling_factor = upper_bound / (sum_sample + epsilon)  # Avoid division by zero
@@ -58,42 +59,41 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         )
         return out
 
-    def weighted_scaling_projection(self, out):
+    def weighted_scaling_projection(self, out:TensorDict) -> Tensor:
         return self.weighted_scaling(out["action"], ub=out["ub"])
 
-    def policy_clipping_projection(self, out):
+    def policy_clipping_projection(self, out:TensorDict) -> Tensor:
         return out["action"].clamp(min=out["clip_min"], max=out["clip_max"])
 
-    def weighted_scaling_policy_clipping_projection(self, out):
+    def weighted_scaling_policy_clipping_projection(self, out:TensorDict) -> Tensor:
         out["action"] = self.weighted_scaling_projection(out)
         return self.policy_clipping_projection(out)
 
-    def quadratic_program(self, out):
+    def quadratic_program(self, out:TensorDict) -> Tensor:
         return self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
 
-    def convex_program(self, out):
+    def convex_program(self, out:TensorDict) -> Tensor:
         out["action"] = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
         return out["action"]
 
-    def convex_program_policy_clipping(self, out):
-        # tried difference configurations, but this one is best!
-        out["action"] = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
-        out["action"] = self.policy_clipping_projection(out)
-        return out["action"]
-
-    def violation_projection(self, out):
-        out["action"] = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
-        return out["action"]
-
-    def violation_projection_policy_clipping(self, out):
+    def convex_program_policy_clipping(self, out:TensorDict) -> Tensor:
         out["action"] = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
         out["action"] = self.policy_clipping_projection(out)
         return out["action"]
 
-    def identity_fn(self, out):
+    def violation_projection(self, out:TensorDict) -> Tensor:
+        out["action"] = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
         return out["action"]
 
-    def handle_action_projection(self, out):
+    def violation_projection_policy_clipping(self, out:TensorDict) -> Tensor:
+        out["action"] = self.projection_layer(out["action"], out["lhs_A"], out["rhs"])
+        out["action"] = self.policy_clipping_projection(out)
+        return out["action"]
+
+    def identity_fn(self, out:TensorDict) -> Tensor:
+        return out["action"]
+
+    def handle_action_projection(self, out:TensorDict) -> Tensor:
         """Handle with policy projection"""
         projection_methods = {
             "weighted_scaling": self.weighted_scaling_projection,
@@ -108,7 +108,7 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         projection_fn = projection_methods.get(self.projection_type, self.identity_fn)
         return projection_fn(out)
 
-    def jacobian_weighted_scaling(self, out, epsilon=1e-8):
+    def jacobian_weighted_scaling(self, out:TensorDict, epsilon:float=1e-8) -> Tensor:
         """Compute the Jacobian of the direct scaling projection:
             J_g(x) = y / sum(x)^2 * (diag(sum(x)) - x * 1^T)"""
         # Input
@@ -126,7 +126,7 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         jacobian = scaling_factor.unsqueeze(-1) * (kronecker_delta * sum_x.unsqueeze(-1)) - x_product # Shape: (batch_size, n, n)
         return jacobian
 
-    def jacobian_violation(self, out):
+    def jacobian_violation(self, out:TensorDict) -> Tensor:
         """Compute the Jacobian of the violation projection:
             J_g(x) = I + alpha * A^T D A, where D = diag((Ax-b) > 0)"""
         # Input
@@ -156,9 +156,11 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
             jacobian = I + alpha * torch.bmm(A.transpose(-2, -1), D).bmm(A)
         elif A.dim() > 3:
             jacobian = I + alpha * torch.matmul(A.transpose(-2, -1), torch.matmul(D, A))
+        else:
+            raise ValueError(f"Invalid dimension of A: {A.dim()}")
         return jacobian
 
-    def handle_jacobian_adjustment(self, out):
+    def handle_jacobian_adjustment(self, out:TensorDict) -> Optional[Tensor]:
         """Handle with Jacobian adjustment of projection methods;
         We only have Jacobian for weighted scaling and linear violation."""
         jacobian_methods = {
@@ -169,7 +171,7 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         jacobian_fn = jacobian_methods.get(self.projection_type, None)
         return jacobian_fn(out) if jacobian_fn else None
 
-    def jacobian_adaptation(self, logprob, jacobian, epsilon=1e-8) -> Tensor:
+    def jacobian_adaptation(self, logprob:Tensor, jacobian:Tensor, epsilon:float=1e-8) -> Tensor:
         """Perform logprob adaptation for invertible and differentiable (bijective) functions with non-singular Jacobians.
         - log pi'(x|s) = log pi(x|s) - log|det(J_g(x))|
         """
@@ -183,7 +185,7 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         # This is appropriate for our projection functions, as the actions are transformed globally rather than per element
         return logprob_ # Apply reduction for loss computations. Shape: [Batch]
 
-    def forward(self, *args, **kwargs,):
+    def forward(self, *args, **kwargs,) -> TensorDict:
         if "action" in kwargs:
             out = args[0]
             out["action"] = out["unprojected_action"].clone()

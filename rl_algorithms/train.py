@@ -5,9 +5,13 @@ import wandb
 import tqdm
 import yaml
 from dotmap import DotMap
+from tensordict import TensorDict
+from tensordict.nn import TensorDictModule, TensorDictSequential
+from typing import Dict, Tuple, Optional, List
 
 # Torch
 import torch
+import torch.nn as nn
 
 # TorchRL
 from torchrl.envs import EnvBase
@@ -40,7 +44,7 @@ class EarlyStopping:
         self.val_counter = 0
         self.val_rewards_history = []
 
-    def update_rewards(self, reward):
+    def update_rewards(self, reward:float) -> None:
         """
         Add a new validation reward to the history.
         Args:
@@ -48,7 +52,7 @@ class EarlyStopping:
         """
         self.val_rewards_history.append(reward)
 
-    def validation_check(self):
+    def validation_check(self) -> bool:
         """
         Check for early stopping based on consecutive decreases in validation rewards.
         Returns:
@@ -67,7 +71,7 @@ class EarlyStopping:
         # Stop if consecutive decreases exceed patience
         return self.val_counter >= self.validation_patience
 
-    def divergence_check(self, loss):
+    def divergence_check(self, loss:torch.Tensor) -> bool:
         """Check for early stopping based on a threshold for the loss value."""
         if torch.isnan(loss):
             print(f"Early stopping due to nan in loss.")
@@ -85,7 +89,7 @@ class EarlyStopping:
         return False
 
 # Functions
-def convert_to_dict(obj):
+def convert_to_dict(obj:object) -> Optional[Dict, List]:
     """Recursively convert DotMap or other custom objects to standard Python dictionaries."""
     if isinstance(obj, DotMap):
         return {key: convert_to_dict(value) for key, value in obj.items()}
@@ -95,7 +99,7 @@ def convert_to_dict(obj):
         return [convert_to_dict(item) for item in obj]
     return obj  # Return primitive data types as-is
 
-def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
+def run_training(policy: ProbabilisticActor, critic: TensorDictModule, device:str="cuda", **kwargs) -> None:
     """Train the policy using the specified algorithm."""
     # Algorithm hyperparameters
     lr = kwargs["training"]["lr"]
@@ -249,6 +253,8 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
                         loss_module.parameters(), kwargs["algorithm"]["max_grad_norm"])
                     actor_optim.step()
                     actor_optim.zero_grad()
+            else:
+                raise ValueError(f"Algorithm {kwargs['algorithm']['type']} not recognized.")
 
         # Log metrics
         train_performance = get_performance_metrics(subdata, td, train_env)
@@ -316,7 +322,7 @@ def run_training(policy, critic, device=torch.device("cuda"), **kwargs):
     save_models(policy, loss_module, critic, kwargs["algorithm"]["type"], kwargs)
     train_env.close()
 
-def get_performance_metrics(subdata, td, env):
+def get_performance_metrics(subdata:Dict, td:TensorDict, env:nn.Module) -> Dict:
     """Compute performance metrics for the policy."""
     return {# Return
             "return": subdata["next", "reward"].mean().item(),
@@ -346,7 +352,7 @@ def get_performance_metrics(subdata, td, env):
             "mean_std[x]_demand": subdata["observation", "std_demand"][:, 0, :].std(dim=-1).mean(),
         }
 
-def validate_policy(env: EnvBase, policy_module: ProbabilisticActor, num_episodes: int = 10, n_step: int = 100,):
+def validate_policy(env: nn.Module, policy_module: ProbabilisticActor, num_episodes: int = 10, n_step: int = 100,) -> Dict:
     """Validate the policy using the environment."""
     # Perform a rollout to evaluate the policy
     with torch.no_grad():

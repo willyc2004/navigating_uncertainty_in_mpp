@@ -1,13 +1,15 @@
 import torch
 import torch.nn as nn
+from torch import Tensor
 import cvxpy as cp
 from cvxpylayers.torch import CvxpyLayer
+from typing import Optional
 
 class EmptyLayer(nn.Module):
     def __init__(self, **kwargs):
         super(EmptyLayer, self).__init__()
 
-    def forward(self, x, **kwargs):
+    def forward(self, x:Tensor, **kwargs) -> Tensor:
         return x
 
 class LinearViolationAdaption(nn.Module):
@@ -21,7 +23,7 @@ class LinearViolationAdaption(nn.Module):
         self.max_iter = kwargs.get('max_iter', 100)
         self.use_early_stopping = kwargs.get('use_early_stopping', True)
 
-    def forward(self, x, A, b, **kwargs):
+    def forward(self, x:Tensor, A:Tensor, b:Tensor, **kwargs) -> Tensor:
         # Raise error is dimensions are invalid
         if b.dim() not in [2, 3] or A.dim() not in [3, 4]:
             raise ValueError("Invalid dimensions: 'b' must have dim 2 or 3 and 'A' must have dim 3 or 4.")
@@ -119,7 +121,7 @@ class CvxpyProjectionLayer(nn.Module):
             variables=[x]
         )
 
-    def forward(self, x_raw, A, b, lower=None, upper=None):
+    def forward(self, x_raw:Tensor, A:Tensor, b:Tensor, lower:Optional[Tensor]=None, upper:Optional[Tensor]=None) -> Tensor:
         """
         x_raw: [batch, n]
         A: [batch, m, n]
@@ -155,7 +157,7 @@ class ProjectionFactory:
     }
 
     @staticmethod
-    def create_class(class_type: str, kwargs:dict):
+    def create_class(class_type: str, kwargs:dict) -> nn.Module:
         if class_type in ProjectionFactory._class_map:
             return ProjectionFactory._class_map[class_type](**kwargs)
         else:

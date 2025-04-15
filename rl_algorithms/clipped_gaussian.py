@@ -1,13 +1,14 @@
 import torch
+from torch import Tensor
 import math
 
-def elementwise_gaussian_log_pdf(x, mean, var):
+def elementwise_gaussian_log_pdf(x:Tensor, mean:Tensor, var:Tensor) -> Tensor:
     # log N(x|mean,var)
     return -0.5 * torch.log(2 * torch.tensor(torch.pi, device=x.device)) - \
         0.5 * torch.log(var) - ((x - mean) ** 2) / (2 * var)
 
 
-def _ndtr(a):
+def _ndtr(a:Tensor) -> Tensor:
     """CDF of the standard normal distribution."""
     x = a / (2 ** 0.5)
     z = x.abs()
@@ -23,12 +24,12 @@ def _ndtr(a):
     )
 
 
-def _safe_log(x, epsilon=1e-4):
+def _safe_log(x:Tensor, epsilon:float=1e-4) -> Tensor:
     """Logarithm function that won't backprop inf to input."""
     x = torch.clamp(x, min=epsilon) # avoid log(0)
     return torch.log(torch.where(x > 0, x, torch.full_like(x, float('nan'), device=x.device)))
 
-def _log_ndtr(x):
+def _log_ndtr(x:Tensor) -> Tensor:
     """Log CDF of the standard normal distribution."""
     return torch.where(
         x > 6,
@@ -40,12 +41,12 @@ def _log_ndtr(x):
         )
     )
 
-def _gaussian_log_cdf(x, mu, sigma):
+def _gaussian_log_cdf(x:Tensor, mu:Tensor, sigma:Tensor) -> Tensor:
     """Log CDF of a normal distribution."""
     return _log_ndtr((x - mu) / sigma)
 
 
-def _gaussian_log_sf(x, mu, sigma):
+def _gaussian_log_sf(x:Tensor, mu:Tensor, sigma:Tensor) -> Tensor:
     """Log SF of a normal distribution."""
     return _log_ndtr(-(x - mu) / sigma)
 
@@ -59,11 +60,11 @@ class ClippedGaussian:
         self.low = low
         self.high = high
 
-    def sample(self):
+    def sample(self) -> Tensor:
         unclipped = torch.normal(self.mean, self.var.sqrt())
         return torch.clamp(unclipped, self.low, self.high)
 
-    def log_prob(self, x):
+    def log_prob(self, x:Tensor) -> Tensor:
         unclipped_elementwise_log_prob = elementwise_gaussian_log_pdf(x, self.mean, self.var)
         std = self.var.sqrt()
         low_log_prob = _gaussian_log_cdf(self.low, self.mean, std)
@@ -80,8 +81,8 @@ class ClippedGaussian:
         )
         return elementwise_log_prob
 
-    def prob(self, x):
+    def prob(self, x:Tensor) -> Tensor:
         return torch.exp(self.log_prob(x))
 
-    def copy(self):
+    def copy(self) -> 'ClippedGaussian':
         return ClippedGaussian(self.mean.clone(), self.var.clone(), self.low.clone(), self.high.clone())

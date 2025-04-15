@@ -1,14 +1,17 @@
 import time
 import torch
+import torch.nn as nn
 import math
 from tqdm import tqdm
 from tensordict import TensorDict
+from dotmap import DotMap
+from typing import Dict, Optional, Tuple
 from rl_algorithms.utils import make_env
 from rl_algorithms.train import get_performance_metrics
 from rl_algorithms.utils import set_unique_seed
 
 # Functions
-def get_z_score_torch(confidence_level):
+def get_z_score_torch(confidence_level:float) -> float:
     """
     Compute the z-score for a given confidence level using PyTorch.
     Args:
@@ -19,7 +22,7 @@ def get_z_score_torch(confidence_level):
     alpha = 1 - confidence_level
     return torch.distributions.Normal(0, 1).icdf(torch.tensor(1 - alpha / 2)).item()
 
-def compute_summary_stats(metrics, confidence_level=0.95):
+def compute_summary_stats(metrics:Dict, confidence_level:float=0.95) -> Dict:
     """
     Compute mean, median, std, min, and max for each metric in the dictionary.
     Args:
@@ -51,25 +54,20 @@ def compute_summary_stats(metrics, confidence_level=0.95):
     return summary_stats
 
 # Main function
-def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
+def evaluate_model(policy:nn.Module, config:DotMap, device:str="cuda", **kwargs) -> Tuple[Dict, Dict]:
     """
     Evaluate the policy and critic on the test environment.
-
     Args:
-        policy (ProbabilisticActor): The policy to evaluate.
-        env_kwargs (dict): Environment configuration.
-        device (torch.device): Device to perform computations.
-        num_episodes (int): Number of episodes for evaluation.
-        n_step (int): Maximum steps per episode.
-
-    Returns:
-        dict: A dictionary of evaluation metrics.
+        policy (nn.Module): The policy to evaluate.
+        config: Configuration object with environment parameters.
+        device (torch.device): Device to run the evaluation on.
+        **kwargs: Additional arguments for evaluation.
     """
     # Extract evaluation hyperparameters
     env_kwargs = config.env
     num_episodes = kwargs.get("num_episodes", 10)
 
-    # Create the test environment # todo: would using multiple paths as scenario tree change results?
+    # Create the test environment
     max_paths = 2 # Run small batch, as we care about instances
     test_env = make_env(env_kwargs, batch_size=[max_paths], device=device)
     n_step = test_env.T * test_env.K  # Maximum steps per episode (T x K)
@@ -110,7 +108,7 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
             gen_env = make_env(config.env, batch_size=[max_paths], device='cpu')
             td = gen_env.reset().to(device)
 
-            torch.cuda.synchronize() if device.type == "cuda" else None
+            torch.cuda.synchronize() if device == "cuda" else None
             start_time = time.perf_counter()
 
             feasible_rollouts = []
@@ -159,7 +157,7 @@ def evaluate_model(policy, config, device=torch.device("cuda"), **kwargs):
 
             trajectory = best["trajectory"]
 
-            torch.cuda.synchronize() if device.type == "cuda" else None
+            torch.cuda.synchronize() if device == "cuda" else None
             end_time = time.perf_counter()
 
             # Metrics

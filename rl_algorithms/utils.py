@@ -7,14 +7,14 @@ import torch
 from environment.env import MasterPlanningEnv, BlockMasterPlanningEnv
 from environment.utils import compute_violation
 
-def make_env(env_kwargs:DotMap, batch_size:List = [], device: str = torch.device("cuda")) -> torch.nn.Module:
+def make_env(env_kwargs:DotMap, batch_size:Optional[Tuple,List] = [], device: str = torch.device("cuda")) -> torch.nn.Module:
     """Setup the environment."""
     if env_kwargs.env_name == "mpp":
         return MasterPlanningEnv(batch_size=batch_size, device=device, **env_kwargs).to(device)
     elif env_kwargs.env_name == "block_mpp":
         return BlockMasterPlanningEnv(batch_size=batch_size, device=device, **env_kwargs).to(device)
 
-def adapt_env_kwargs(config):
+def adapt_env_kwargs(config:DotMap) -> DotMap:
     """Adapt environment kwargs based on configuration"""
     if type(config.env.cargo_classes) == DotMap:
         config_env = config.env.value
@@ -27,7 +27,7 @@ def adapt_env_kwargs(config):
     config_env.blocks = 1 if config_env.TEU == 1000 else 2
     return config
 
-def recursive_check_for_nans(td, parent_key=""):
+def recursive_check_for_nans(td:TensorDict, parent_key="") -> None:
     """Recursive check for NaNs and Infs in e.g. TensorDicts and raise an error if found."""
     for key, value in td.items():
         full_key = f"{parent_key}.{key}" if parent_key else key

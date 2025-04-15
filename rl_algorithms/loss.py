@@ -45,7 +45,8 @@ from torchrl.objectives.sac import SACLoss, _delezify, compute_log_prob
 from environment.utils import compute_violation
 
 
-def loss_feasibility(td, action, lagrange_multiplier=None, aggregate_feasibility="sum",):
+def loss_feasibility(td:TensorDictBase, action:Tensor, lagrange_multiplier:Optional[Tensor]=None,
+                     aggregate_feasibility:str="sum",) -> Tuple[Tensor, Tensor]:
     """ Compute feasibility loss based on the action and the lagrange multiplier."""
     lhs_A = td.get("lhs_A")
     rhs = td.get("rhs")
@@ -348,14 +349,14 @@ class FeasibilityClipPPOLoss(PPOLoss):
         self.register_buffer("lagrangian_multiplier", lagrangian_multiplier)
 
     @property
-    def _clip_bounds(self):
+    def _clip_bounds(self) -> Tuple[Tensor, Tensor]:
         return (
             (-self.clip_epsilon).log1p(),
             self.clip_epsilon.log1p(),
         )
 
     @property
-    def out_keys(self):
+    def out_keys(self) -> List[str]:
         if self._out_keys is None:
             keys = ["loss_objective", "clip_fraction"]
             if self.entropy_bonus:
@@ -369,7 +370,7 @@ class FeasibilityClipPPOLoss(PPOLoss):
         return self._out_keys
 
     @out_keys.setter
-    def out_keys(self, values):
+    def out_keys(self, values) -> None:
         self._out_keys = values
 
     @dispatch
@@ -438,7 +439,7 @@ class FeasibilityClipPPOLoss(PPOLoss):
 
     def _log_weight(
         self, tensordict: TensorDictBase
-    ) -> Tuple[torch.Tensor, d.Distribution]:
+    ) -> Tuple[torch.Tensor, d.Distribution, torch.Tensor]:
         # either "unprojected_action" or "action"
         action = tensordict.get("unprojected_action", self.tensor_keys.action)
 
