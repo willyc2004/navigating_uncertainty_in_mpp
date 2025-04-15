@@ -66,8 +66,8 @@ model:
   temperature: 0.11243639449117128
 testing:
   num_episodes: 30
-  folder: 'trial_20k_FR_PBS'
-  path: trained_models
+  folder: 'SA_AM'
+  path: results/trained_models/AI2STOW
   feasibility_recovery: false
 training:
   lr: 0.00014690714579803494
