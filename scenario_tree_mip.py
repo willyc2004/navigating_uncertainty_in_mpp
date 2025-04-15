@@ -1,6 +1,7 @@
 # Imports
 import numpy as np
 import torch as th
+import torch.nn as nn
 import random
 import yaml
 from dotmap import DotMap
@@ -9,6 +10,7 @@ import sys
 import os
 import json
 import argparse
+from typing import List, Dict, Tuple, Optional
 
 path = 'add path to cplex here'
 sys.path.append(path)
@@ -22,7 +24,7 @@ from rl_algorithms.utils import set_unique_seed
 
 
 # Precompute functions
-def precompute_node_list(stages, scenarios_per_stage, deterministic=False):
+def precompute_node_list(stages:int, scenarios_per_stage:int, deterministic=False) -> List:
     """Precompute the list of nodes and their coordinates in the scenario tree"""
     node_list = []  # List to store the coordinates of all nodes
     # Loop over each stage, starting from stage 1 (root is stage 1)
@@ -36,7 +38,7 @@ def precompute_node_list(stages, scenarios_per_stage, deterministic=False):
 
     return node_list
 
-def precompute_demand(node_list, max_paths, stages, env):
+def precompute_demand(node_list:List, max_paths:int, stages:int, env:nn.Module) -> Tuple[Dict, Dict]:
     """Precompute the demand scenarios for each node in the scenario tree"""
     td = env.reset()
     pregen_demand = td["observation", "realized_demand"].detach().cpu().numpy().reshape(-1, env.T, env.K)
@@ -67,7 +69,7 @@ def precompute_demand(node_list, max_paths, stages, env):
 
     return demand_scenarios, real_demand
 
-def get_scenario_tree_indices(scenario_tree, num_scenarios):
+def get_scenario_tree_indices(scenario_tree:Dict, num_scenarios:int) -> Dict:
     """
     Extracts data from a scenario tree structure, keeping all stages but limiting nodes
     according to the number of scenarios.
@@ -90,7 +92,7 @@ def get_scenario_tree_indices(scenario_tree, num_scenarios):
     return filtered_tree
 
 # Support functions
-def get_demand_history(stage, demand, num_nodes_per_stage):
+def get_demand_history(stage:int, demand:np.array, num_nodes_per_stage:List) -> np.array:
     """Get the demand history up to the given stage for the given scenario"""
     if stage > 0:
         demand_history = []
@@ -113,8 +115,8 @@ def onboard_groups(ports:int, pol:int, transport_indices:list) -> np.array:
     return np.array(on_board), port_moves, load
 
 # Main function
-def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
-         perfect_information=False, deterministic=False, warm_solution=None,):
+def main(env:nn.Module, demand:np.array, scenarios_per_stage:int=28, stages:int=3, max_paths:int=784, seed:int=42,
+         perfect_information:bool=False, deterministic:bool=False, warm_solution:bool=False,) -> Tuple[Dict, Dict]:
     # Scenario tree parameters
     M = 10 ** 3 # Big M
     num_nodes_per_stage = [1*scenarios_per_stage**stage for stage in range(stages)]
@@ -159,7 +161,7 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
     all_load_moves = []
     transport_indices = [(i, j) for i in range(P) for j in range(P) if i < j]
 
-    def _get_warm_start_dict(x):
+    def _get_warm_start_dict(x:Optional[Dict]) -> Dict:
         """Function to get the warm start dictionary"""
         warm_start_dict = {}
 
@@ -178,7 +180,7 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
         breakpoint()
         return warm_start_dict
 
-    def build_tree_mpp(stages, demand, warm_solution=None):
+    def build_tree_mpp(stages:int, demand:np.array, warm_solution:Optional[Dict]=None) -> None:
         """Function to build the scenario tree; with decisions and constraints for each node"""
         for stage in range(stages):
             for node_id in range(num_nodes_per_stage[stage]):
@@ -324,10 +326,11 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
 
         # Add mip start
         if warm_solution:
+            # todo: add warm solution
             start_dict = _get_warm_start_dict(warm_solution)
             mdl.add_mip_start({x[key]: value for key, value in start_dict.items()}, write_level=1)
 
-    def build_tree_block_mpp(stages, demand, warm_solution=None):
+    def build_tree_block_mpp(stages:int, demand:np.array, warm_solution:Optional[Dict]=None) -> None:
         """Function to build the scenario tree; with decisions and constraints for each node"""
         for stage in range(stages):
             for node_id in range(num_nodes_per_stage[stage]):
@@ -507,6 +510,7 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
 
         # Add mip start
         if warm_solution:
+            # todo: add warm solution
             start_dict = _get_warm_start_dict(warm_solution)
             mdl.add_mip_start({x[key]: value for key, value in start_dict.items()}, write_level=1)
 
@@ -563,6 +567,8 @@ def main(env, demand, scenarios_per_stage=28, stages=3, max_paths=784, seed=42,
             for stage in range(stages)  # Iterate over all stages
             for node_id in range(num_nodes_per_stage[stage])  # Iterate over nodes at each stage
         )
+    else:
+        raise ValueError("Invalid environment name")
     mdl.maximize(objective)
     mdl.context.cplex_parameters.read.datacheck = 2
     mdl.parameters.mip.strategy.file = 3
