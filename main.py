@@ -5,7 +5,7 @@ import copy
 # Datatypes
 import yaml
 from dotmap import DotMap
-from typing import Optional
+from typing import Optional, Union
 from tensordict.nn import TensorDictModule, TensorDictSequential
 
 # Machine learning
@@ -102,7 +102,7 @@ def initialize_projection_layer(projection_type:str, projection_kwargs:DotMap,
     projection_kwargs["n_constraints"] = n_constraints
     return ProjectionFactory.create_class(projection_type, projection_kwargs)
 
-def initialize_policy_and_critic(config: DotMap, env:nn.Module, device:str) -> Tuple[nn.Module, nn.Module]:
+def initialize_policy_and_critic(config: DotMap, env:nn.Module, device:Union[str,torch.device]) -> Tuple[nn.Module, nn.Module]:
     """
     Initializes the policy and critic models based on the given configuration and environment.
 

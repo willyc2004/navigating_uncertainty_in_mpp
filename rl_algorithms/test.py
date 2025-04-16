@@ -5,7 +5,7 @@ import math
 from tqdm import tqdm
 from tensordict import TensorDict
 from dotmap import DotMap
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Union
 from rl_algorithms.utils import make_env
 from rl_algorithms.train import get_performance_metrics
 from rl_algorithms.utils import set_unique_seed
@@ -54,7 +54,7 @@ def compute_summary_stats(metrics:Dict, confidence_level:float=0.95) -> Dict:
     return summary_stats
 
 # Main function
-def evaluate_model(policy:nn.Module, config:DotMap, device:str="cuda", **kwargs) -> Tuple[Dict, Dict]:
+def evaluate_model(policy:nn.Module, config:DotMap, device:Union[str,torch.device]="cuda", **kwargs) -> Tuple[Dict, Dict]:
     """
     Evaluate the policy and critic on the test environment.
     Args:
