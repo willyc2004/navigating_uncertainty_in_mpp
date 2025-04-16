@@ -180,7 +180,8 @@ class MPP_Generator(Generator):
                                 "expected_demand": e_x.view(*batch_size, self.T*self.K),
                                 "std_demand":std_x.view(*batch_size, self.T*self.K),
                                 "init_expected_demand": e_x_init_demand.view(*batch_size, self.T*self.K),
-                                "batch_updates":batch_updates.clone(),}}, batch_size=batch_size, device=self.device,)
+                                "batch_updates":batch_updates.clone(),
+                                }}, batch_size=batch_size, device=self.device,)
 
     ## Initial demand
     def _initialize_demand_bound_on_capacity(self, batch_size:Tuple[int, ...],) -> th.Tensor:
@@ -298,10 +299,10 @@ class UniformMPP_Generator(MPP_Generator):
         return TensorDict({"observation":
                                {"realized_demand": demand.view(*batch_size, self.T * self.K),
                                 "expected_demand": e_x.view(*batch_size, self.T * self.K),
-                                "init_expected_demand": init_e_x.view(*batch_size, self.T * self.K),
                                 "std_demand": std_x.view(*batch_size, self.T * self.K),
-                                "batch_updates": batch_updates.clone(), }}, batch_size=batch_size,
-                          device=self.device, )
+                                "init_expected_demand": init_e_x.view(*batch_size, self.T * self.K),
+                                "batch_updates": batch_updates.clone(),
+                                }}, batch_size=batch_size, device=self.device, )
 
 def plot_demand_history(demand_history:th.Tensor, updates:int,
                         y_label:str="Containers", title:str="Container Demand History", summarize:bool=False):
