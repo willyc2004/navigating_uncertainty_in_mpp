@@ -79,17 +79,30 @@ class CriticEmbedding(nn.Module):
     def normalize_obs(self, td:TensorDict) -> Tensor:
         batch_size = td.batch_size
         max_demand = td["realized_demand"].max() if self.train_max_demand == None else self.train_max_demand
-        return torch.cat([
-            td["total_profit"] / (td["max_total_profit"]+1e-6),
-            (td["observed_demand"] / max_demand ).view(*batch_size, -1),
-            (td["residual_capacity"] / self.env.capacity.view(1, -1)).view(*batch_size, -1),
-            (td["residual_lc_capacity"] / td["target_long_crane"].unsqueeze(0)).view(*batch_size, -1),
-            td["lcg"],
-            td["vcg"],
-            td["agg_pol_location"] / self.env.P,
-            td["agg_pod_location"] / self.env.P,
-            td["action_mask"],
-        ], dim=-1)
+
+        if hasattr(self.env, 'BL'):
+            return torch.cat([
+                td["total_profit"] / (td["max_total_profit"]+1e-6),
+                (td["observed_demand"] / max_demand ).view(*batch_size, -1),
+                (td["residual_capacity"] / self.env.capacity.view(1, -1)).view(*batch_size, -1),
+                (td["residual_lc_capacity"] / td["target_long_crane"].unsqueeze(0)).view(*batch_size, -1),
+                td["lcg"],
+                td["vcg"],
+                td["agg_pol_location"] / self.env.P,
+                td["agg_pod_location"] / self.env.P,
+                td["action_mask"],
+            ], dim=-1)
+        else:
+            return torch.cat([
+                (td["observed_demand"] / max_demand ).view(*batch_size, -1),
+                (td["residual_capacity"] / self.env.capacity.view(1, -1)).view(*batch_size, -1),
+                (td["residual_lc_capacity"] / td["target_long_crane"].unsqueeze(0)).view(*batch_size, -1),
+                td["lcg"],
+                td["vcg"],
+                td["agg_pol_location"] / self.env.P,
+                td["agg_pod_location"] / self.env.P,
+            ], dim=-1)
+
 
     def forward(self,  latent_state: Tensor, td: TensorDict) -> Tensor:
         """Embed the context for the MPP"""
@@ -121,17 +134,26 @@ class ContextEmbedding(nn.Module):
 
     def normalize_obs(self, td:TensorDict) -> Tensor:
         batch_size = td.batch_size
-        return torch.cat([
-            td["total_profit"] / (td["max_total_profit"]+1e-6),
-            (td["residual_capacity"] / self.env.capacity.view(1, -1)).view(*batch_size, -1),
-            (td["residual_lc_capacity"] / td["target_long_crane"].unsqueeze(0)).view(*batch_size, -1),
-            td["lcg"],
-            td["vcg"],
-            td["agg_pol_location"] / self.env.P,
-            td["agg_pod_location"] / self.env.P,
-            td["action_mask"],
-            # td["gate"]
-        ], dim=-1)
+        if hasattr(self.env, 'BL'):
+            return torch.cat([
+                td["total_profit"] / (td["max_total_profit"]+1e-6),
+                (td["residual_capacity"] / self.env.capacity.view(1, -1)).view(*batch_size, -1),
+                (td["residual_lc_capacity"] / td["target_long_crane"].unsqueeze(0)).view(*batch_size, -1),
+                td["lcg"],
+                td["vcg"],
+                td["agg_pol_location"] / self.env.P,
+                td["agg_pod_location"] / self.env.P,
+                td["action_mask"],
+            ], dim=-1)
+        else:
+            return torch.cat([
+                (td["residual_capacity"] / self.env.capacity.view(1, -1)).view(*batch_size, -1),
+                (td["residual_lc_capacity"] / td["target_long_crane"].unsqueeze(0)).view(*batch_size, -1),
+                td["lcg"],
+                td["vcg"],
+                td["agg_pol_location"] / self.env.P,
+                td["agg_pod_location"] / self.env.P,
+            ], dim=-1)
 
     def forward(self, latent_state: Tensor, td: TensorDict) -> Tensor:
         """Embed the context for the MPP"""
