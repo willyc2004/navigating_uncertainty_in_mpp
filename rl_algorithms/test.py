@@ -153,7 +153,7 @@ def evaluate_model(policy:nn.Module, config:DotMap, device:Union[str,torch.devic
             if feasible_rollouts:
                 best = max(feasible_rollouts, key=lambda x: x["profit"])
             else:
-                best = max(fallback_rollouts, key=lambda x: x["profit"])  # optional fallback
+                best = max(fallback_rollouts, key=lambda x: x["profit"])
 
             trajectory = best["trajectory"]
 
