@@ -63,7 +63,8 @@ class MasterPlanningEnv(EnvBase):
         # Seed and generator
         self._set_seed(kwargs.get("seed"))
         self.demand_uncertainty = kwargs.get("demand_uncertainty", False)
-        self.generator = UniformMPP_Generator(device=device, **kwargs) # MPP_Generator(device=device,**kwargs)
+        # self.generator = UniformMPP_Generator(device=device, **kwargs)
+        self.generator = MPP_Generator(device=device,**kwargs)
         if td_gen == None:
             self.td_gen = self.generator(batch_size=batch_size,)
         # Data type and shapes
@@ -91,6 +92,8 @@ class MasterPlanningEnv(EnvBase):
             realized_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
             expected_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
             std_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
+            init_expected_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
+            batch_updates=Unbounded(shape=(*batch_size, 1), dtype=torch.float32),
             # Vessel
             utilization=Unbounded(shape=(*batch_size,self.B*self.D*self.T*self.K), dtype=self.float_type),
             target_long_crane=Unbounded(shape=(*batch_size,1), dtype=self.float_type),
@@ -219,7 +222,7 @@ class MasterPlanningEnv(EnvBase):
         load_idx = self.load_transport[pol]
 
         # Demand state
-        demand_state = td["observation"].clone().exclude("batch_updates", "init_expected_demand")
+        demand_state = td["observation"].clone()#.exclude("batch_updates", "init_expected_demand")
         realized_demand = td["observation", "realized_demand"].view(*batch_size, self.T, self.K).clone()
         if self.demand_uncertainty:
             observed = torch.zeros_like(realized_demand)
@@ -313,6 +316,8 @@ class MasterPlanningEnv(EnvBase):
             "realized_demand": td["observation", "realized_demand"].view(*batch_size, self.T, self.K).clone(),
             "observed_demand": td["observation", "observed_demand"].view(*batch_size, self.T, self.K).clone(),
             "current_demand": td["observation", "realized_demand"].clone()[..., timestep[0]].view(*batch_size, 1),
+            "init_expected_demand": td["observation", "init_expected_demand"].view(*batch_size, self.T, self.K).clone(),
+            "batch_updates": td["observation", "batch_updates"].view(*batch_size, 1).clone(),
         }
         # Vessel-related variables
         vessel = {
@@ -412,11 +417,15 @@ class MasterPlanningEnv(EnvBase):
 
         # Get output
         out = TensorDict({
+            # Demand
             "current_demand": demand_state["realized_demand"][..., tau, k],
             "observed_demand": demand_state["observed_demand"],
             "expected_demand": demand_state["expected_demand"],
             "std_demand":demand_state["std_demand"],
+            "init_expected_demand": demand_state["init_expected_demand"],
+            "batch_updates": demand_state["batch_updates"],
             "realized_demand": demand_state["realized_demand"],
+            # Vessel
             "utilization": vessel_state["utilization"],
             "residual_capacity": vessel_state["residual_capacity"],
             "lcg": lcg,
@@ -816,7 +825,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         load_idx = self.load_transport[pol]
 
         # Demand state
-        demand_state = td["observation"].clone().exclude("batch_updates", "init_expected_demand")
+        demand_state = td["observation"].clone()#.exclude("batch_updates", "init_expected_demand")
         realized_demand = td["observation", "realized_demand"].view(*batch_size, self.T, self.K).clone()
         if self.demand_uncertainty:
             observed = torch.zeros_like(realized_demand)
@@ -888,6 +897,8 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             realized_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
             expected_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
             std_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
+            init_expected_demand=Unbounded(shape=(*batch_size, self.T * self.K), dtype=torch.float32),
+            batch_updates=Unbounded(shape=(*batch_size, 1), dtype=torch.float32),
             # Vessel
             utilization=Unbounded(shape=(*batch_size,self.B*self.D*self.BL*self.T*self.K), dtype=self.float_type),
             target_long_crane=Unbounded(shape=(*batch_size,1), dtype=self.float_type),
@@ -955,13 +966,15 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             "realized_demand": td["observation", "realized_demand"].view(*batch_size, self.T, self.K).clone(),
             "observed_demand": td["observation", "observed_demand"].view(*batch_size, self.T, self.K).clone(),
             "current_demand": td["observation", "realized_demand"].clone()[..., timestep[0]].view(*batch_size, 1),
+            "init_expected_demand": td["observation", "init_expected_demand"].view(*batch_size, self.T, self.K).clone(),
+            "batch_updates": td["observation", "batch_updates"].view(*batch_size, 1).clone(),
         }
         # Vessel-related variables
         vessel = {
-        "utilization": td["observation", "utilization"].view(*batch_size, self.B, self.D, self.BL, self.T, self.K).clone(),
-        "target_long_crane": td["observation", "target_long_crane"].view(*batch_size, 1).clone(),
-        "long_crane_moves_discharge":td["observation", "long_crane_moves_discharge"].view(*batch_size, self.B-1).clone(),
-        "residual_capacity": td["observation", "residual_capacity"].view(*batch_size, self.B, self.D, self.BL).clone(),
+            "utilization": td["observation", "utilization"].view(*batch_size, self.B, self.D, self.BL, self.T, self.K).clone(),
+            "target_long_crane": td["observation", "target_long_crane"].view(*batch_size, 1).clone(),
+            "long_crane_moves_discharge":td["observation", "long_crane_moves_discharge"].view(*batch_size, self.B-1).clone(),
+            "residual_capacity": td["observation", "residual_capacity"].view(*batch_size, self.B, self.D, self.BL).clone(),
         }
         return action, demand, vessel, timestep
 
