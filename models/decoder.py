@@ -84,7 +84,6 @@ class AttentionDecoderWithCache(nn.Module):
         self.output_norm = add_normalization_layer(normalization, embed_dim * 2)
         self.mean_head = nn.Linear(embed_dim * 2, action_dim) # Mean head
         self.std_head = nn.Linear(embed_dim * 2, action_dim) # Standard deviation head
-        self.multiplier_head = nn.Linear(embed_dim * 2, 1) # Multiplier head
 
         # Temperature for the policy
         self.temperature = temperature
@@ -141,7 +140,6 @@ class AttentionDecoderWithCache(nn.Module):
         # Use mean and std heads for the policy
         mean = F.softplus(self.mean_head(combined_output))
         std = F.softplus(self.std_head(combined_output))
-        # multiplier = F.softplus(self.multiplier_head(combined_output))
 
         # Apply temperature scaling and max scaling
         if self.temperature is not None:
