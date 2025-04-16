@@ -26,6 +26,7 @@ env:
   cv_demand: 0.5
   demand_uncertainty: True
   generalization: False
+  env_name: "mpp" # mpp, block_mpp
 
 # Model settings
 model:
