@@ -165,7 +165,7 @@ class MasterPlanningEnv(EnvBase):
         # Transition to next step
         is_done = done.any()
         time = th.where(is_done, time, time+1)
-        next_state_dict = self._update_next_state(vessel_state, demand_state, action_state, time, batch_size)
+        next_state_dict = self._update_next_state(vessel_state, demand_state, action_state, time, batch_size, is_done=is_done)
 
         if not is_done:
             # Update feasibility constraints
@@ -414,7 +414,7 @@ class MasterPlanningEnv(EnvBase):
 
     # Update state
     def _update_next_state(self, vessel_state:Dict, demand_state:Dict, action_state:Dict,
-                           time:Tensor, batch_size:Tuple, block:bool=False) -> Union[Dict[str, Tensor],TensorDict]:
+                           time:Tensor, batch_size:Tuple, block:bool=False, is_done:Tensor=False) -> Union[Dict[str, Tensor],TensorDict]:
         """Update next state, following options:
         - Next step moves to new port POL+1
         - Next step moves to new transport (POL, POD-1)
@@ -436,11 +436,18 @@ class MasterPlanningEnv(EnvBase):
             if self.demand_uncertainty:
                 demand_state["observed_demand"][..., load_idx, :] = demand_state["realized_demand"][..., load_idx, :]
 
+        # Compute action mask
         if k == 0 and self.block_stowage_mask:
             action_state["action_mask"] = generate_POD_mask(
                 demand_state["realized_demand"][..., tau, :] @ self.teus,
                 vessel_state["residual_capacity"], self.capacity,
                 vessel_state["pod_locations"], pod, batch_size)
+        action_mask = action_state.pop("action_mask")
+
+        # Update residual capacity
+        # todo: check if residual capacity before mask is correct!
+        vessel_state["residual_capacity"] = self._compute_residual_capacity(vessel_state["utilization"]) if not is_done else \
+            torch.zeros_like(vessel_state["residual_capacity"], dtype=self.float_type).view(*batch_size, self.B,self.D,self.BL )
 
         # Update residual lc capacity: target - actual load and discharge moves
         vessel_state["long_crane_moves"] = vessel_state["long_crane_moves_load"] + vessel_state["long_crane_moves_discharge"]
@@ -448,7 +455,6 @@ class MasterPlanningEnv(EnvBase):
 
         # Compute stability
         lcg, vcg = compute_stability(vessel_state["utilization"], self.weights, self.longitudinal_position, self.vertical_position, block=block)
-        action_mask = action_state.pop("action_mask")
 
         # Get output
         return TensorDict({
@@ -458,6 +464,7 @@ class MasterPlanningEnv(EnvBase):
             "std_demand":demand_state["std_demand"],
             "realized_demand": demand_state["realized_demand"],
             "utilization": vessel_state["utilization"],
+            "residual_capacity": vessel_state["residual_capacity"],
             "lcg": lcg,
             "vcg": vcg,
             "target_long_crane": vessel_state["target_long_crane"],
@@ -468,6 +475,29 @@ class MasterPlanningEnv(EnvBase):
             "excess_pod_locations": vessel_state["excess_pod_locations"],
             "action_mask": action_mask,
         }, batch_size=batch_size, device=self.device)
+
+    def _update_action_state(self, action_state:Dict, next_state_dict:TensorDict,
+                             step:Tensor, time:Tensor, batch_size:Tuple[int,...], is_done:Tensor) -> Dict:
+        """Update action state for the next step."""
+        current_demand = next_state_dict.pop("current_demand")
+        if not is_done:
+            # Update feasibility constraints
+            action_state["lhs_A"] = self.create_lhs_A(self.block_A_lhs, time).view(*batch_size, self.n_constraints, self.n_block_locations)
+            action_state["rhs"] = self.create_rhs(
+                next_state_dict["utilization"], current_demand, self.swap_signs_block_stability,
+                self.block_A_rhs, self.n_constraints, self.n_demand, self.n_block_locations, batch_size)
+
+        # Update action state
+        action_state["clip_max"] = self._compute_clip_max(next_state_dict["residual_capacity"], current_demand, batch_size, step)
+        action_state["action"] = action_state["action"].view(*batch_size, self.n_block_locations)
+        return action_state
+
+    # def _update_performance_metrics(self, profit:Tensor, revenue:Tensor,  cost:Tensor, demand_state:Dict, step:Tensor,
+    #                                 time:Tensor, batch_size:Tuple) -> Tensor:
+    #     """Update performance metrics for the next step."""
+    #
+    #     return reward, profit, cost, total_profit, max_total_profit
+
 
     # Compact formulation
     def _compact_form_shapes(self, ) -> None:
@@ -746,10 +776,10 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
 
         # Compute long crane moves & od-pairs
         vessel_state["long_crane_moves_load"] = compute_long_crane(vessel_state["utilization"], moves, self.T, block=True)
-        vessel_state["pol_locations"], vessel_state["pod_locations"] = compute_pol_pod_locations(
-            vessel_state["utilization"], self.transform_tau_to_pol, self.transform_tau_to_pod)
-        vessel_state["agg_pol_location"], vessel_state["agg_pod_location"] = aggregate_pol_pod_location(
-            vessel_state["pol_locations"], vessel_state["pod_locations"], self.float_type, block=True)
+        vessel_state["pol_locations"], vessel_state["pod_locations"] = \
+            compute_pol_pod_locations(vessel_state["utilization"], self.transform_tau_to_pol, self.transform_tau_to_pod)
+        vessel_state["agg_pol_location"], vessel_state["agg_pod_location"] = \
+            aggregate_pol_pod_location(vessel_state["pol_locations"], vessel_state["pod_locations"], self.float_type, block=True)
 
         # Compute unique number of pods at each bay,block
         vessel_state["excess_pod_locations"] = th.clamp((vessel_state["pod_locations"].sum(dim=-3) > 0).sum(dim=-1) - 1, min=0.0)
@@ -764,39 +794,25 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         # Transition to next step
         is_done = done.any()
         time = th.where(is_done, time, time + 1)
-        next_state_dict = self._update_next_state(vessel_state, demand_state, action_state, time, batch_size, block=True)
-        current_demand = next_state_dict.pop("current_demand")
-        if not is_done:
-            # Update feasibility constraints
-            action_state["lhs_A"] = self.create_lhs_A(self.block_A_lhs, time).view(*batch_size, self.n_constraints, self.n_block_locations)
-            action_state["rhs"] = self.create_rhs(
-                next_state_dict["utilization"], current_demand, self.swap_signs_block_stability,
-                self.block_A_rhs, self.n_constraints, self.n_demand, self.n_block_locations, batch_size)
-        else:
+        next_state_dict = self._update_next_state(vessel_state, demand_state, action_state, time, batch_size, block=True, is_done=is_done)
+        action_state = self._update_action_state(action_state, next_state_dict, step, time, batch_size, is_done=is_done)
+
+        # Update performance metrics
+        if is_done:
             # Compute crane cost at last port (only discharging)
+            # NOTE: Use vessel_state["utilization"] and moves to compute crane moves at last port!
             lc_moves_last_port = compute_long_crane(vessel_state["utilization"], moves, self.T, block=True)
             cm_costs_last_port = compute_long_crane_excess_cost(lc_moves_last_port, next_state_dict["target_long_crane"], self.cm_costs)
             profit -= cm_costs_last_port
             cost += cm_costs_last_port
-
-        # Compute performance metrics
         reward = self._compute_final_reward(revenue, cost, demand_state, step, time, batch_size)
-        total_profit = td["observation", "total_profit"] + profit
-        max_total_profit = td["observation", "max_total_profit"] + self.revenues.max() * demand_state["current_demand"]
-
-        # Update action state and residual capacity
-        next_state_dict["residual_capacity"] = self._compute_residual_capacity(next_state_dict["utilization"]) if not is_done else \
-            torch.zeros_like(td["observation"]["residual_capacity"], dtype=self.float_type).view(*batch_size, self.B,self.D,self.BL )
-        action_state["clip_max"] = self._compute_clip_max(next_state_dict["residual_capacity"], current_demand, batch_size, step)
-        action_state["clip_min"] = td["clip_min"]
-        action_state["action"] = action_state["action"].view(*batch_size, self.n_block_locations)
 
         # Get output td
         out = TensorDict({
             "observation": {
                 **flatten_values_td(next_state_dict, batch_size=batch_size),
-                "total_profit":total_profit,
-                "max_total_profit":max_total_profit,
+                "total_profit": td["observation", "total_profit"] + profit,
+                "max_total_profit":td["observation", "max_total_profit"] + self.revenues.max() * demand_state["current_demand"],
                 "timestep": time,
             },
             **action_state,
@@ -853,11 +869,6 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
 
         # Action state
         action_state = TensorDict({}, batch_size=batch_size, device=device)
-        if self.block_stowage_mask:
-            action_mask = generate_POD_mask(realized_demand[..., tau, :] @ self.teus,
-                                            vessel_state["residual_capacity"], self.capacity, pod_locations, pod, batch_size)
-        else:
-            action_mask = th.ones((*batch_size, self.n_block_locations), dtype=th.bool, device=device)
         action_state["action"] = th.zeros(self.action_spec.shape, dtype=self.float_type, device=device)
         action_state["clip_min"] = th.zeros(self.action_spec.shape, dtype=self.float_type, device=device)
         action_state["clip_max"] = vessel_state["residual_capacity"].view(*batch_size, self.n_block_locations)
@@ -866,6 +877,11 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             vessel_state["utilization"].to(self.float_type), current_demand, self.swap_signs_block_stability,
             self.block_A_rhs, self.n_constraints, self.n_demand, self.n_block_locations, batch_size)
         action_state["violation"] = th.zeros_like(action_state["rhs"], dtype=self.float_type)
+        if self.block_stowage_mask:
+            action_mask = generate_POD_mask(realized_demand[..., tau, :] @ self.teus, vessel_state["residual_capacity"],
+                                            self.capacity, pod_locations, pod, batch_size)
+        else:
+            action_mask = th.ones((*batch_size, self.n_block_locations), dtype=th.bool, device=device)
 
         # Init tds
         initial_state = TensorDict({
@@ -954,6 +970,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             "lhs_A": td["lhs_A"].clone(),
             "rhs": td["rhs"].clone(),
             "clip_max": td["clip_max"].view(*batch_size, self.B, self.D, self.BL).clone(),
+            "clip_min": td["clip_min"].view(*batch_size, -1).clone(),
         }
 
         # Demand-related variables
