@@ -50,7 +50,7 @@ def loss_feasibility(td:TensorDictBase, action:Tensor, lagrange_multiplier:Optio
     """ Compute feasibility loss based on the action and the lagrange multiplier."""
     lhs_A = td.get("lhs_A")
     rhs = td.get("rhs")
-    excess_pod_locations = td["observation"].get("excess_pod_locations")
+    excess_pod_locations = td["observation"].get("excess_pod_locations", None)
     violations = compute_violation(action, lhs_A, rhs)
 
     if lagrange_multiplier is not None:
@@ -404,7 +404,6 @@ class FeasibilityClipPPOLoss(PPOLoss):
         log_weight_clip = log_weight.clamp(*self._clip_bounds)
         clip_fraction = (log_weight_clip != log_weight).to(log_weight.dtype).mean()
         ratio = log_weight_clip.exp()
-        print("ratio", ratio.mean(), ratio.shape)
         gain2 = ratio * advantage
 
         gain = torch.stack([gain1, gain2], -1).min(dim=-1)[0]
