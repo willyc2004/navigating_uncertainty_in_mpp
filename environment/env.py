@@ -17,14 +17,23 @@ from environment.generator import MPP_Generator, UniformMPP_Generator
 from environment.utils import *
 
 class MasterPlanningEnv(EnvBase):
-    """Master Planning Problem environment for locations with coordinates (Bay, Deck).
-    # todo: add problem description with citations for camera-ready paper
+    """Reinforcement learning environment for solving the Master Planning Problem (MPP) in container vessel stowage planning.
+    The locations of the MPP have coordinates (Bay, Deck).
 
-    Explanation of episode parameters:
-    - Time: The discrete time step, ranging from 0 to (T*K - 1).
-    - Step: A specific ordering of (tau, k)-pairs, extracted from ordered_steps.
-    - Pol: The port of load at a given time t.
+    This environment simulates realistic stowage scenarios characterized by uncertain cargo demand, vessel capacity constraints,
+    seaworthiness requirements, and operational cost minimization. It models the problem as a Markov Decision Process (MDP)
+    and is designed for training and evaluating RL policies, such as AI2STOW.
 
+    Key Features:
+        - Demand uncertainty modeling across multiple time steps and ports.
+        - Revenue optimization and cost evaluation, including penalties for overstowage and excess crane operations.
+        - Projection layers to enforce feasibility under convex constraints.
+        - Scalable interface suitable for realistic-sized vessel planning horizons.
+
+    The environment provides a platform for testing ML4CO (Machine Learning for Combinatorial Optimization) methods
+    with emphasis on the objective value, feasibility, and computational efficiency.
+
+    For more details, please refer to the paper: https://arxiv.org/abs/2502.12756
     """
     name = "mpp"
     batch_locked = False
@@ -164,65 +173,36 @@ class MasterPlanningEnv(EnvBase):
 
         # Transition to next step
         is_done = done.any()
-        time = th.where(is_done, time, time+1)
-        next_state_dict = self._update_next_state(vessel_state, demand_state, action_state, time, batch_size, is_done=is_done)
+        time = th.where(is_done, time, time + 1)
+        next_state_dict = self._update_next_state(vessel_state, demand_state, action_state, time, batch_size, block=True, is_done=is_done)
+        action_state = self._update_action_state(action_state, next_state_dict, step, time, batch_size, is_done=is_done)
 
-        if not is_done:
-            # Update feasibility constraints
-            action_state["lhs_A"] = self.create_lhs_A(self.A_lhs, time,)
-            action_state["rhs"] = self.create_rhs(
-                next_state_dict["utilization"], next_state_dict["current_demand"], self.swap_signs_stability, self.A_rhs,
-                self.n_constraints, self.n_demand, self.n_locations,batch_size)
-        else:
-            # Compute crane excess at last port (only discharging)
-            lc_moves_last_port = compute_long_crane(vessel_state["utilization"], moves, self.T)
+        # Update performance metrics
+        if is_done:
+            # Compute crane cost at last port (only discharging)
+            # NOTE: Use vessel_state["utilization"] and moves to compute crane moves at last port!
+            lc_moves_last_port = compute_long_crane(vessel_state["utilization"], moves, self.T, block=True)
             cm_costs_last_port = compute_long_crane_excess_cost(lc_moves_last_port, next_state_dict["target_long_crane"], self.cm_costs)
+            # Update profit and cost
             profit -= cm_costs_last_port
             cost += cm_costs_last_port
-
-        # Update td output
+        # Compute the final reward after all adjustments.
         reward = self._compute_final_reward(revenue, cost, demand_state, step, time, batch_size)
-        residual_capacity = self._compute_residual_capacity(next_state_dict["utilization"]) if not is_done else \
-            torch.zeros_like(td["observation"]["residual_capacity"], dtype=self.float_type).view(*batch_size, self.B, self.D,)
-        clip_max = self._compute_clip_max(residual_capacity, current_demand, batch_size, step)
 
-        # todo: hardcoded shapes; use spec instead
-        out =  TensorDict({
-            "observation":{
-                # Vessel
-                "utilization": next_state_dict["utilization"].view(*batch_size, self.B*self.D*self.T*self.K),
-                "target_long_crane": next_state_dict["target_long_crane"],
-                "long_crane_moves_discharge": next_state_dict["long_crane_moves_discharge"].view(*batch_size, self.B - 1),
-                # Demand
-                "observed_demand": next_state_dict["observed_demand"].view(*batch_size, self.T * self.K),
-                "realized_demand": td["observation", "realized_demand"].view(*batch_size, self.T * self.K),
-                "expected_demand": next_state_dict["expected_demand"].view(*batch_size, self.T * self.K),
-                "std_demand": next_state_dict["std_demand"].view(*batch_size, self.T * self.K),
-                "init_expected_demand": td["observation", "init_expected_demand"].view(*batch_size, self.T * self.K),
-                "batch_updates": td["observation", "batch_updates"],
-                # Vessel
-                "lcg": next_state_dict["lcg"].view(*batch_size, 1),
-                "vcg": next_state_dict["vcg"].view(*batch_size, 1),
-                "residual_capacity": residual_capacity.view(*batch_size, self.B * self.D),
-                "residual_lc_capacity": next_state_dict["residual_lc_capacity"].view(*batch_size, self.B - 1),
-                "agg_pol_location": vessel_state["agg_pol_location"].view(*batch_size, self.B * self.D),
-                "agg_pod_location": vessel_state["agg_pod_location"].view(*batch_size, self.B * self.D),
+        # Get output td
+        out = TensorDict({
+            "observation": {
+                **flatten_values_td(next_state_dict, batch_size=batch_size),
+                "total_profit": td["observation", "total_profit"] + profit,
+                "max_total_profit":td["observation", "max_total_profit"] + self.revenues.max() * demand_state["current_demand"],
                 "timestep": time,
             },
+            **action_state,
 
-            # # Feasibility and constraints
-            "lhs_A": action_state["lhs_A"].view(*batch_size, self.n_constraints, self.B*self.D),
-            "rhs": action_state["rhs"].view(*batch_size, self.n_constraints),
-            "violation": action_state["violation"].view(*batch_size, self.n_constraints),
-            # in containers
-            "clip_min": th.zeros_like(residual_capacity, dtype=self.float_type).view(*batch_size, self.B*self.D),
-            "clip_max": clip_max.view(*batch_size, self.B*self.D),
-            # Profit metrics
+            # Performance and environment
             "profit": profit,
             "revenue": revenue,
             "cost": cost,
-            # Action, reward, done and step
-            "action": action_state["action"].view(*batch_size, self.B*self.D),
             "reward": reward,
             "done": done,
         }, td.shape)
@@ -732,9 +712,26 @@ class MasterPlanningEnv(EnvBase):
         return out
 
 class BlockMasterPlanningEnv(MasterPlanningEnv):
-    """Master Planning Problem environment for locations with coordinates (Bay, Deck, Block).
+    """Reinforcement learning environment for solving the Master Planning Problem (MPP) in container vessel stowage planning.
+    The environment extends the MasterPlanningEnv class and implements a block-based stowage representation, hence
+    the locations of the MPP have coordinates (Bay, Deck, Block).
 
-    # todo: add problem description with citations
+
+    This environment simulates realistic stowage scenarios characterized by uncertain cargo demand, vessel capacity constraints,
+    seaworthiness requirements, paired block stowage patterns, and operational cost minimization.
+    It models the problem as a Markov Decision Process (MDP) and is designed for training and evaluating  RL policies, such as AI2STOW.
+
+    Key Features:
+        - Block-based stowage representation, including support for paired block stowage patterns.
+        - Demand uncertainty modeling across multiple time steps and ports.
+        - Revenue optimization and cost evaluation, including penalties for overstowage and excess crane operations.
+        - Action masking for non-convex constraints, and projection layers to enforce feasibility under convex constraints.
+        - Scalable interface suitable for realistic-sized vessel planning horizons.
+
+    The environment provides a platform for testing ML4CO (Machine Learning for Combinatorial Optimization) methods
+    with emphasis on the objective value, feasibility, and computational efficiency.
+
+    For more details, please refer to the original paper: https://arxiv.org/abs/2504.04469
     """
     name = "block_mpp"
     batch_locked = False
