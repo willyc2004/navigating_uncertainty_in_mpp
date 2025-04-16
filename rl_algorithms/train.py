@@ -285,7 +285,6 @@ def run_training(policy: ProbabilisticActor, critic: TensorDictModule, device:st
             f"loss_critic:  {log['loss_critic']: 4.4f}, "
             f"feasibility_loss: {log['loss_feasibility']: 4.4f}, "
             f"mean_violation: {log['mean_total_violation']: 4.4f}, "  
-            f"excess_POD_violation: {log['excess_POD_violation']: 4.4f}, "
             # Prediction
             f"x: {log['x']: 4.4f}, "
             f"loc(x): {log['loc(x)']: 4.4f}, "
@@ -294,6 +293,8 @@ def run_training(policy: ProbabilisticActor, critic: TensorDictModule, device:st
             f"total_profit: {log['total_profit']: 4.4f}, "
             f"violation: {log['total_violation']: 4.4f}, "
         )
+        if "excess_POD_violation" in log:
+            pbar.set_description(f"excess_POD_violation: {log['excess_POD_violation']: 4.4f}, ")
 
         # Validation step
         if (step + 1) % int(train_updates * validation_freq) == 0:
@@ -324,7 +325,7 @@ def run_training(policy: ProbabilisticActor, critic: TensorDictModule, device:st
 
 def get_performance_metrics(subdata:Dict, td:TensorDict, env:nn.Module) -> Dict:
     """Compute performance metrics for the policy."""
-    return {# Return
+    out = {# Return
             "return": subdata["next", "reward"].mean().item(),
             "traj_return": subdata["next", "reward"].sum(dim=(-2, -1)).mean().item(),
 
@@ -339,7 +340,6 @@ def get_performance_metrics(subdata:Dict, td:TensorDict, env:nn.Module) -> Dict:
             "capacity_violation": subdata["violation"][...,1:-4].sum(dim=(1)).mean().item(),
             "LCG_violation": subdata["violation"][..., env.next_port_mask, -4:-2].sum(dim=(1,2)).mean().item(),
             "VCG_violation": subdata["violation"][..., env.next_port_mask, -2:].sum(dim=(1,2)).mean().item(),
-            "excess_POD_violation": subdata["observation", "excess_pod_locations"].sum(dim=(1)).mean().item(),
 
             # Environment
             "total_revenue": subdata["revenue"].sum(dim=(-2,-1)).mean().item(),
@@ -351,6 +351,9 @@ def get_performance_metrics(subdata:Dict, td:TensorDict, env:nn.Module) -> Dict:
             "total_e[x]_demand": td["observation", "init_expected_demand"][:, 0, :].sum(dim=-1).mean(),
             "mean_std[x]_demand": subdata["observation", "std_demand"][:, 0, :].std(dim=-1).mean(),
         }
+    if "excess_POD_violation" in subdata["observation"]:
+        out["excess_POD_violation"] = subdata["observation", "excess_POD_violation"].sum(dim=(1)).mean().item()
+    return out
 
 def validate_policy(env: nn.Module, policy_module: ProbabilisticActor, num_episodes: int = 10, n_step: int = 100,) -> Dict:
     """Validate the policy using the environment."""
