@@ -394,7 +394,7 @@ class MasterPlanningEnv(EnvBase):
 
         # Update residual capacity
         vessel_state["residual_capacity"] = self._compute_residual_capacity(vessel_state["utilization"]) if not is_done else \
-            torch.zeros_like(vessel_state["residual_capacity"], dtype=self.float_type).view(*batch_size, self.B,self.D,self.BL )
+            torch.zeros_like(vessel_state["residual_capacity"], dtype=self.float_type).view(vessel_state["residual_capacity"].shape)
 
         # Compute action mask
         if k == 0 and self.block_stowage_mask:
