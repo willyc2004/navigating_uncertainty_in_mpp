@@ -204,19 +204,30 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         else:
             out = super().forward(*args, **kwargs)
 
-        # Get distribution and full log probabilities
-        dist = self.get_dist(out)
-        out["log_prob"] = self.get_logprobs(out["action"], dist)
-        out["unprojected_action"] = out["action"].clone()
-
-        if "action_mask" in out["observation"]:
-            out["action"] = torch.where(out["observation", "action_mask"], out["action"],  0)
-
         # Raise error for projection layers without log prob adaptation implementations
         if self.projection_type not in ["linear_violation", "linear_violation_policy_clipping",
                                         "weighted_scaling_policy_clipping", "none", "quadratic_program",
                                         "convex_program", "convex_program_policy_clipping"]:
             raise ValueError(f"Log prob adaptation for projection type \'{self.projection_type}\' not supported.")
+
+        # Get distribution
+        dist = self.get_dist(out)
+        out["unprojected_action"] = out["action"].clone()
+
+        # Get log probabilities
+        if self.projection_type in ["policy_clipping", "weighted_scaling_policy_clipping"]:
+            # Apply log_prob adjustment of clipping based on https://arxiv.org/pdf/1802.07564v2.pdf
+            self.clipped_gaussian.mean = out["loc"]
+            self.clipped_gaussian.var = out["scale"]
+            self.clipped_gaussian.low = out["clip_min"]
+            self.clipped_gaussian.high = out["clip_max"]
+            out["log_prob"] = self.clipped_gaussian.log_prob(out["action"])
+        else:
+            out["log_prob"] = self.get_logprobs(out["action"], dist)
+
+        # Mask out the action
+        if "action_mask" in out["observation"]:
+            out["action"] = torch.where(out["observation", "action_mask"], out["action"], 0)
 
         # Pre-compute upper bound for weighted_scaling
         timestep_idx = out["observation", "timestep"].squeeze(0)
@@ -225,18 +236,9 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         # Projection and log probs adjustment
         out["action"] = self.handle_action_projection(out)
         jacobian = self.handle_jacobian_adjustment(out)
-        out["log_prob"] = self.jacobian_adaptation(out["log_prob"], jacobian=jacobian)
-        if "action_mask" in out["observation"]:
-            out["action"] = torch.where(out["observation", "action_mask"], out["action"], 1e-6)
+        out["log_prob"] = self.jacobian_adaptation(out["log_prob"], jacobian=jacobian).clamp(min=-50)
 
-        # Apply log_prob adjustment of clipping based on https://arxiv.org/pdf/1802.07564v2.pdf
-        if self.projection_type in ["policy_clipping", "weighted_scaling_policy_clipping"]:
-            self.clipped_gaussian.mean = out["loc"]
-            self.clipped_gaussian.var = out["scale"]
-            self.clipped_gaussian.low = out["clip_min"]
-            self.clipped_gaussian.high = out["clip_max"]
-            out["log_prob"] = self.clipped_gaussian.log_prob(out["action"])
-
+        # Mask out the action again; after projection
         if "action_mask" in out["observation"]:
             out["action"] = torch.where(out["observation", "action_mask"], out["action"],  1e-6)
             out["log_prob"] = torch.where(out["observation", "action_mask"], out["log_prob"], torch.tensor(-100, device=out["log_prob"].device))
