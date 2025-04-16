@@ -802,8 +802,10 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
             # NOTE: Use vessel_state["utilization"] and moves to compute crane moves at last port!
             lc_moves_last_port = compute_long_crane(vessel_state["utilization"], moves, self.T, block=True)
             cm_costs_last_port = compute_long_crane_excess_cost(lc_moves_last_port, next_state_dict["target_long_crane"], self.cm_costs)
+            # Update profit and cost
             profit -= cm_costs_last_port
             cost += cm_costs_last_port
+        # Compute the final reward after all adjustments.
         reward = self._compute_final_reward(revenue, cost, demand_state, step, time, batch_size)
 
         # Get output td
