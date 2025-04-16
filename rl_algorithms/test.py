@@ -175,7 +175,9 @@ def evaluate_model(policy:nn.Module, config:DotMap, device:Union[str,torch.devic
             metrics["demand_violations"][episode] = violation_adjusted[:, 0].sum()
             metrics["capacity_violations"][episode] = violation_adjusted[:, 1:-4].sum()
             metrics["stability_violations"][episode] = violation_adjusted[:, -4:].sum()
-            metrics["pbs_violations"][episode] = trajectory["observation", "excess_pod_locations"][0].sum()
+            if "excess_pod_locations" in trajectory["observation"]:
+                # Assuming excess_pod_locations is a tensor in the observation
+                metrics["pbs_violations"][episode] = trajectory["observation", "excess_pod_locations"][0].sum()
 
             # Cleanup
             gen_env.close()
