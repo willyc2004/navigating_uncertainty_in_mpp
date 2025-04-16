@@ -211,8 +211,7 @@ class MasterPlanningEnv(EnvBase):
         batch_size = getattr(td, 'batch_size', self.batch_size)
         td = self.generator(batch_size=batch_size, td=td)
 
-        # Initialize
-        # Parameters
+        # Parameters and indices:
         device = td.device
         if batch_size == torch.Size([]): time = th.zeros(1, dtype=th.int64, device=device)
         else: time = th.zeros(*batch_size, dtype=th.int64, device=device)
@@ -694,7 +693,6 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
     planning. The environment extends the MasterPlanningEnv class and implements a block-based stowage
     representation, hence the locations of the MPP have coordinates (Bay, Deck, Block).
 
-
     This environment simulates realistic stowage scenarios characterized by uncertain cargo demand, vessel capacity
     constraints, seaworthiness requirements, paired block stowage patterns, and operational cost minimization. It
     models the problem as a Markov Decision Process (MDP) and is designed for training and evaluating  RL policies,
@@ -810,7 +808,6 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
         batch_size = getattr(td, 'batch_size', self.batch_size)
         td = self.generator(batch_size=batch_size, td=td)
 
-        # Initialize
         # Parameters and indices:
         device = td.device
         if batch_size == torch.Size([]): time = th.zeros(1, dtype=th.int64, device=device)
