@@ -1,6 +1,7 @@
 from dotmap import DotMap
 from typing import Any, Dict, Generator, Optional, Type, TypeVar, Union, Tuple
 import torch as th
+from tensordict import TensorDict
 
 # Transport sets
 def get_transport_idx(P: int, device:str) -> Union[th.Tensor,]:
@@ -360,6 +361,9 @@ def compute_violation(action:th.Tensor, lhs_A:th.Tensor, rhs:th.Tensor, ) -> th.
     lhs = (lhs_A * action).sum(dim=(-1))
     output = th.clamp(lhs-rhs, min=0)
     return output
+
+def flatten_values_td(td: TensorDict, batch_size:Tuple[int, ...]) -> TensorDict:
+    return td.apply(lambda x: x.view(*batch_size, -1))
 
 if __name__ == "__main__":
     # Test the transport sets
