@@ -216,6 +216,11 @@ def main(config: Optional[DotMap] = None, **kwargs) -> None:
         run_training(policy, critic, **config)
 
     elif config.model.phase == "test":
+        alpha = config.training.projection_kwargs.alpha
+        delta = config.training.projection_kwargs.delta
+        max_iter = config.training.projection_kwargs.max_iter
+        vp_str = f"{alpha}_{delta}_{max_iter}"
+
         # Use if you want to load config from a trained model folder:
         # config = load_trained_hyperparameters(path)
         policy, critic = initialize_policy_and_critic(config, env, device)
