@@ -4,7 +4,7 @@ import torch as th
 from tensordict import TensorDict
 
 # Transport sets
-def get_transport_idx(P: int, device:str) -> Union[th.Tensor,]:
+def get_transport_idx(P: int, device:th.device) -> Union[th.Tensor,]:
     # Get above-diagonal indices of the transport matrix
     origins, destinations = th.triu_indices(P, P, offset=1, device=device)
     return th.stack((origins, destinations), dim=-1)
