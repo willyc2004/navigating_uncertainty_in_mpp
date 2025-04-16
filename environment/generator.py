@@ -288,8 +288,8 @@ class UniformMPP_Generator(MPP_Generator):
         else:
             demand = td["observation", "realized_demand"].view(-1, self.T, self.K)
             e_x = td["observation", "expected_demand"].view(-1, self.T, self.K)
-            init_e_x = td["observation", "init_expected_demand"].view(-1, self.T, self.K)
             std_x = td["observation", "std_demand"].view(-1, self.T, self.K)
+            init_e_x = td["observation", "init_expected_demand"].view(-1, self.T, self.K)
             batch_updates = td["observation", "batch_updates"].clone() + 1
 
         if not self.iid_demand:
