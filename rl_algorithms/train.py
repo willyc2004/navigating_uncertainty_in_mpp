@@ -99,7 +99,7 @@ def convert_to_dict(obj:object) -> Union[Dict, List]:
         return [convert_to_dict(item) for item in obj]
     return obj  # Return primitive data types as-is
 
-def run_training(policy: ProbabilisticActor, critic: TensorDictModule, device:str="cuda", **kwargs) -> None:
+def run_training(policy: nn.Module, critic: nn.Module, device:str="cuda", **kwargs) -> None:
     """Train the policy using the specified algorithm."""
     # Algorithm hyperparameters
     lr = kwargs["training"]["lr"]
