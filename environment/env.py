@@ -436,6 +436,10 @@ class MasterPlanningEnv(EnvBase):
             if self.demand_uncertainty:
                 demand_state["observed_demand"][..., load_idx, :] = demand_state["realized_demand"][..., load_idx, :]
 
+        # Update residual capacity
+        vessel_state["residual_capacity"] = self._compute_residual_capacity(vessel_state["utilization"]) if not is_done else \
+            torch.zeros_like(vessel_state["residual_capacity"], dtype=self.float_type).view(*batch_size, self.B,self.D,self.BL )
+
         # Compute action mask
         if k == 0 and self.block_stowage_mask:
             action_state["action_mask"] = generate_POD_mask(
@@ -443,11 +447,6 @@ class MasterPlanningEnv(EnvBase):
                 vessel_state["residual_capacity"], self.capacity,
                 vessel_state["pod_locations"], pod, batch_size)
         action_mask = action_state.pop("action_mask")
-
-        # Update residual capacity
-        # todo: check if residual capacity before mask is correct!
-        vessel_state["residual_capacity"] = self._compute_residual_capacity(vessel_state["utilization"]) if not is_done else \
-            torch.zeros_like(vessel_state["residual_capacity"], dtype=self.float_type).view(*batch_size, self.B,self.D,self.BL )
 
         # Update residual lc capacity: target - actual load and discharge moves
         vessel_state["long_crane_moves"] = vessel_state["long_crane_moves_load"] + vessel_state["long_crane_moves_discharge"]
