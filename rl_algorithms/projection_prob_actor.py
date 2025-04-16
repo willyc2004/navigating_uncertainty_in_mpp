@@ -214,7 +214,8 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         out["action"] = self.handle_action_projection(out)
         jacobian = self.handle_jacobian_adjustment(out)
         out["log_prob"] = self.jacobian_adaptation(out["log_prob"], jacobian=jacobian)
-        out["action"] = torch.where(out["observation", "action_mask"], out["action"], 1e-6)
+        if "action_mask" in out["observation"]:
+            out["action"] = torch.where(out["observation", "action_mask"], out["action"], 1e-6)
 
         # Apply log_prob adjustment of clipping based on https://arxiv.org/pdf/1802.07564v2.pdf
         if self.projection_type in ["policy_clipping", "weighted_scaling_policy_clipping"]:
