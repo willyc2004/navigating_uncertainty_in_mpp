@@ -17,12 +17,12 @@ from environment.generator import MPP_Generator, UniformMPP_Generator
 from environment.utils import *
 
 class MasterPlanningEnv(EnvBase):
-    """Reinforcement learning environment for solving the Master Planning Problem (MPP) in container vessel stowage planning.
-    The locations of the MPP have coordinates (Bay, Deck).
+    """Reinforcement learning environment for solving the Master Planning Problem (MPP) in container vessel stowage
+    planning. The locations of the MPP have coordinates (Bay, Deck).
 
-    This environment simulates realistic stowage scenarios characterized by uncertain cargo demand, vessel capacity constraints,
-    seaworthiness requirements, and operational cost minimization. It models the problem as a Markov Decision Process (MDP)
-    and is designed for training and evaluating RL policies, such as AI2STOW.
+    This environment simulates realistic stowage scenarios characterized by uncertain cargo demand, vessel capacity
+    constraints, seaworthiness requirements, and operational cost minimization. It models the problem as a Markov
+    Decision Process (MDP) and is designed for training and evaluating RL policies, such as AI2STOW.
 
     Key Features:
         - Demand uncertainty modeling across multiple time steps and ports.
@@ -38,7 +38,7 @@ class MasterPlanningEnv(EnvBase):
     name = "mpp"
     batch_locked = False
 
-    def __init__(self, device="cuda", batch_size=[], td_gen=None, **kwargs):
+    def __init__(self, device="cuda", batch_size=(), td_gen=None, **kwargs):
         super().__init__(device=device, batch_size=batch_size)
         # Kwargs
         self.P = kwargs.get("ports") # Number of ports
@@ -221,83 +221,150 @@ class MasterPlanningEnv(EnvBase):
         if batch_size == torch.Size([]): time = th.zeros(1, dtype=th.int64, device=device)
         else: time = th.zeros(*batch_size, dtype=th.int64, device=device)
         pol, pod, tau, k, rev, step = self._extract_cargo_parameters_for_step(time[0])
+        load_idx = self.load_transport[pol]
 
-        # Demand:
+        # Demand state
+        demand_state = td["observation"].clone().exclude("batch_updates", "init_expected_demand")
         realized_demand = td["observation", "realized_demand"].view(*batch_size, self.T, self.K).clone()
         if self.demand_uncertainty:
-            observed_demand = th.zeros_like(realized_demand)
-            load_idx = self.load_transport[pol]
-            observed_demand[..., load_idx, :] = realized_demand[..., load_idx, :]
-            expected_demand = td["observation", "expected_demand"].clone()
-            std_demand = td["observation", "std_demand"].clone()
+            observed = torch.zeros_like(realized_demand)
+            observed[..., load_idx, :] = realized_demand[..., load_idx, :]
         else:
-            observed_demand = realized_demand.clone()
-            expected_demand = td["observation", "expected_demand"].clone()
-            std_demand = td["observation", "std_demand"].clone()
-        current_demand = observed_demand[..., tau, k].view(*batch_size, 1).clone() # clone to prevent in-place!
+            observed = realized_demand.clone()
+        demand_state["observed_demand"] = observed.view(*batch_size, self.T * self.K)
+        current_demand = observed[..., tau, k].view(*batch_size, 1).clone()
 
-        # State and mask
-        action_mask = th.ones((*batch_size, self.B*self.D), dtype=th.bool, device=device)
-        # Vessel
-        utilization = th.zeros((*batch_size, self.B, self.D, self.T, self.K), device=device, dtype=self.float_type)
-        residual_capacity = th.clamp(self.capacity - utilization.sum(dim=-2) @ self.teus, min=self.zero)
-        target_long_crane = compute_target_long_crane(realized_demand.to(self.float_type), self.moves_idx[time[0]],
+        # Vessel state
+        vessel_state = TensorDict({}, batch_size=batch_size, device=device)
+        vessel_state["utilization"] = th.zeros((*batch_size, self.B, self.D, self.BL, self.T, self.K), device=device, dtype=self.float_type)
+        vessel_state["residual_capacity"] = th.clamp(self.capacity - vessel_state["utilization"].sum(dim=-2) @ self.teus, min=self.zero)
+        vessel_state["target_long_crane"] = compute_target_long_crane(realized_demand.to(self.float_type), self.moves_idx[time[0]],
                                                         self.capacity, self.B, self.CI_target).view(*batch_size, 1)
-        residual_lc_capacity = target_long_crane.repeat(1, self.B - 1)
-        locations_utilization = th.zeros_like(action_mask, dtype=self.float_type)
+        vessel_state["residual_lc_capacity"] = vessel_state["target_long_crane"].repeat(1, self.B - 1)
+        vessel_state["long_crane_moves_discharge"] = th.zeros_like(vessel_state["residual_lc_capacity"])
+        vessel_state["agg_pol_location"] = th.zeros(self.action_spec.shape, dtype=self.float_type, device=device)
+        vessel_state["agg_pod_location"] = th.zeros_like(vessel_state["agg_pol_location"])
+        vessel_state["lcg"] = th.ones_like(time, dtype=self.float_type)
+        vessel_state["vcg"] = th.ones_like(time, dtype=self.float_type)
+        vessel_state["excess_pod_locations"] = th.zeros(*batch_size, self.B * self.BL, dtype=self.float_type)
+        pod_locations = th.zeros((*batch_size, self.B, self.D, self.BL, self.P), dtype=self.float_type, device=device)
 
-        # Constraints
-        # todo: A_lhs,A_rhs not included in IJCAI paper
-        lhs_A = self.create_lhs_A(self.A_lhs, time,)
-        rhs = self.create_rhs(utilization.to(self.float_type), current_demand, self.swap_signs_stability, self.A_rhs,
-            self.n_constraints, self.n_demand, self.n_locations, batch_size)
-        # Init tds - state: internal state
-        # todo: hardcoded shapes; use spec instead
-        print(td["observation",])
-        breakpoint()
+        # Action state
+        action_state = TensorDict({}, batch_size=batch_size, device=device)
+        action_state["action"] = th.zeros(self.action_spec.shape, dtype=self.float_type, device=device)
+        action_state["clip_min"] = th.zeros(self.action_spec.shape, dtype=self.float_type, device=device)
+        action_state["clip_max"] = vessel_state["residual_capacity"].view(*batch_size, self.n_locations)
+        # todo: A_lhs,A_rhs not included in this paper - what does this change; check it!
+        action_state["lhs_A"] = self.create_lhs_A(self.A_lhs, time).view(*batch_size, self.n_constraints, self.n_locations)
+        action_state["rhs"] = self.create_rhs(
+            vessel_state["utilization"].to(self.float_type), current_demand, self.swap_signs_stability,
+            self.A_rhs, self.n_constraints, self.n_demand, self.n_locations, batch_size)
+        action_state["violation"] = th.zeros_like(action_state["rhs"], dtype=self.float_type)
+        if self.stowage_mask:
+            action_mask = generate_POD_mask(realized_demand[..., tau, :] @ self.teus, vessel_state["residual_capacity"],
+                                            self.capacity, pod_locations, pod, batch_size)
+        else:
+            action_mask = th.ones((*batch_size, self.n_locations), dtype=th.bool, device=device)
 
+        # Init tds
         initial_state = TensorDict({
+            **demand_state,
+            **flatten_values_td(vessel_state, batch_size=batch_size),
             "timestep": time,
-            # Demand
-            "observed_demand": observed_demand.view(*batch_size, self.T * self.K),
-            "realized_demand": td["observation", "realized_demand"].view(*batch_size, self.T * self.K),
-            "expected_demand": expected_demand.view(*batch_size, self.T * self.K),
-            "std_demand": std_demand.view(*batch_size, self.T * self.K),
-            "init_expected_demand": td["observation", "init_expected_demand"].view(*batch_size, self.T * self.K),
-            "batch_updates": td["observation", "batch_updates"],
-            # Vessel
-            "utilization": utilization.view(*batch_size, self.B * self.D * self.T * self.K),
-            "target_long_crane": target_long_crane,
-            "long_crane_moves_discharge": th.zeros_like(residual_lc_capacity).view(*batch_size, self.B - 1),
-            "residual_capacity": residual_capacity.view(*batch_size, self.B * self.D),
-            "lcg": th.ones_like(time, dtype=self.float_type).view(*batch_size, 1),
-            "vcg": th.ones_like(time, dtype=self.float_type).view(*batch_size, 1),
-            "residual_lc_capacity": residual_lc_capacity.view(*batch_size, self.B - 1),
-            "agg_pol_location": th.zeros_like(locations_utilization),
-            "agg_pod_location": th.zeros_like(locations_utilization),
+            "action_mask": action_mask,
+            "total_profit":th.zeros_like(time, dtype=self.float_type).view(*batch_size, 1),
+            "max_total_profit":th.zeros_like(time, dtype=self.float_type).view(*batch_size, 1),
         }, batch_size=batch_size, device=device,)
 
         # Init tds - full td
         out = TensorDict({
-            # State
             "observation": initial_state,
-            # # Action mask
-            "action": th.zeros_like(action_mask, dtype=self.float_type),
-            # "action_mask": action_mask.view(*batch_size, -1),
-            # # Constraints
-            "clip_min": th.zeros_like(residual_capacity, dtype=self.float_type).view(*batch_size, self.B * self.D, ),
-            "clip_max": residual_capacity.view(*batch_size, self.B * self.D),
-            "lhs_A": lhs_A.view(*batch_size, self.n_constraints, self.B * self.D),
-            "rhs":  rhs.view(*batch_size, self.n_constraints),
-            "violation": th.zeros_like(rhs, dtype=self.float_type),
-            # Performance
+            **action_state,
+            # Performance and environment
             "profit": th.zeros_like(time, dtype=self.float_type).view(*batch_size, 1),
             "revenue": th.zeros_like(time, dtype=self.float_type).view(*batch_size, 1),
             "cost": th.zeros_like(time, dtype=self.float_type).view(*batch_size, 1),
-            # Reward, done and step
             "done": th.zeros_like(time, dtype=th.bool).view(*batch_size, 1),
         }, batch_size=batch_size, device=device,)
         return out
+
+
+
+        # # Demand:
+        # realized_demand = td["observation", "realized_demand"].view(*batch_size, self.T, self.K).clone()
+        # if self.demand_uncertainty:
+        #     observed_demand = th.zeros_like(realized_demand)
+        #     load_idx = self.load_transport[pol]
+        #     observed_demand[..., load_idx, :] = realized_demand[..., load_idx, :]
+        #     expected_demand = td["observation", "expected_demand"].clone()
+        #     std_demand = td["observation", "std_demand"].clone()
+        # else:
+        #     observed_demand = realized_demand.clone()
+        #     expected_demand = td["observation", "expected_demand"].clone()
+        #     std_demand = td["observation", "std_demand"].clone()
+        # current_demand = observed_demand[..., tau, k].view(*batch_size, 1).clone() # clone to prevent in-place!
+        #
+        # # State and mask
+        # action_mask = th.ones((*batch_size, self.B*self.D), dtype=th.bool, device=device)
+        # # Vessel
+        # utilization = th.zeros((*batch_size, self.B, self.D, self.T, self.K), device=device, dtype=self.float_type)
+        # residual_capacity = th.clamp(self.capacity - utilization.sum(dim=-2) @ self.teus, min=self.zero)
+        # target_long_crane = compute_target_long_crane(realized_demand.to(self.float_type), self.moves_idx[time[0]],
+        #                                                 self.capacity, self.B, self.CI_target).view(*batch_size, 1)
+        # residual_lc_capacity = target_long_crane.repeat(1, self.B - 1)
+        # locations_utilization = th.zeros_like(action_mask, dtype=self.float_type)
+        #
+        # # Constraints # todo: A_lhs,A_rhs not included in this paper - what does this change; check it!
+        # lhs_A = self.create_lhs_A(self.A_lhs, time,)
+        # rhs = self.create_rhs(utilization.to(self.float_type), current_demand, self.swap_signs_stability, self.A_rhs,
+        #     self.n_constraints, self.n_demand, self.n_locations, batch_size)
+        # # Init tds - state: internal state
+        # # todo: hardcoded shapes; use spec instead
+        # print(td["observation",])
+        # breakpoint()
+        #
+        # initial_state = TensorDict({
+        #     "timestep": time,
+        #     # Demand
+        #     "observed_demand": observed_demand.view(*batch_size, self.T * self.K),
+        #     "realized_demand": td["observation", "realized_demand"].view(*batch_size, self.T * self.K),
+        #     "expected_demand": expected_demand.view(*batch_size, self.T * self.K),
+        #     "std_demand": std_demand.view(*batch_size, self.T * self.K),
+        #     "init_expected_demand": td["observation", "init_expected_demand"].view(*batch_size, self.T * self.K),
+        #     "batch_updates": td["observation", "batch_updates"],
+        #     # Vessel
+        #     "utilization": utilization.view(*batch_size, self.B * self.D * self.T * self.K),
+        #     "target_long_crane": target_long_crane,
+        #     "long_crane_moves_discharge": th.zeros_like(residual_lc_capacity).view(*batch_size, self.B - 1),
+        #     "residual_capacity": residual_capacity.view(*batch_size, self.B * self.D),
+        #     "lcg": th.ones_like(time, dtype=self.float_type).view(*batch_size, 1),
+        #     "vcg": th.ones_like(time, dtype=self.float_type).view(*batch_size, 1),
+        #     "residual_lc_capacity": residual_lc_capacity.view(*batch_size, self.B - 1),
+        #     "agg_pol_location": th.zeros_like(locations_utilization),
+        #     "agg_pod_location": th.zeros_like(locations_utilization),
+        # }, batch_size=batch_size, device=device,)
+        #
+        # # Init tds - full td
+        # out = TensorDict({
+        #     # State
+        #     "observation": initial_state,
+        #     # # Action mask
+        #     "action": th.zeros_like(action_mask, dtype=self.float_type),
+        #     # "action_mask": action_mask.view(*batch_size, -1),
+        #     # # Constraints
+        #     "clip_min": th.zeros_like(residual_capacity, dtype=self.float_type).view(*batch_size, self.B * self.D, ),
+        #     "clip_max": residual_capacity.view(*batch_size, self.B * self.D),
+        #     "lhs_A": lhs_A.view(*batch_size, self.n_constraints, self.B * self.D),
+        #     "rhs":  rhs.view(*batch_size, self.n_constraints),
+        #     "violation": th.zeros_like(rhs, dtype=self.float_type),
+        #     # Performance
+        #     "profit": th.zeros_like(time, dtype=self.float_type).view(*batch_size, 1),
+        #     "revenue": th.zeros_like(time, dtype=self.float_type).view(*batch_size, 1),
+        #     "cost": th.zeros_like(time, dtype=self.float_type).view(*batch_size, 1),
+        #     # Reward, done and step
+        #     "done": th.zeros_like(time, dtype=th.bool).view(*batch_size, 1),
+        # }, batch_size=batch_size, device=device,)
+        # return out
 
     def _set_seed(self, seed: Optional[int] = None) -> int:
         """
@@ -712,20 +779,21 @@ class MasterPlanningEnv(EnvBase):
         return out
 
 class BlockMasterPlanningEnv(MasterPlanningEnv):
-    """Reinforcement learning environment for solving the Master Planning Problem (MPP) in container vessel stowage planning.
-    The environment extends the MasterPlanningEnv class and implements a block-based stowage representation, hence
-    the locations of the MPP have coordinates (Bay, Deck, Block).
+    """Reinforcement learning environment for solving the Master Planning Problem (MPP) in container vessel stowage
+    planning. The environment extends the MasterPlanningEnv class and implements a block-based stowage
+    representation, hence the locations of the MPP have coordinates (Bay, Deck, Block).
 
 
-    This environment simulates realistic stowage scenarios characterized by uncertain cargo demand, vessel capacity constraints,
-    seaworthiness requirements, paired block stowage patterns, and operational cost minimization.
-    It models the problem as a Markov Decision Process (MDP) and is designed for training and evaluating  RL policies, such as AI2STOW.
+    This environment simulates realistic stowage scenarios characterized by uncertain cargo demand, vessel capacity
+    constraints, seaworthiness requirements, paired block stowage patterns, and operational cost minimization. It
+    models the problem as a Markov Decision Process (MDP) and is designed for training and evaluating  RL policies,
+    such as AI2STOW.
 
     Key Features:
         - Block-based stowage representation, including support for paired block stowage patterns.
         - Demand uncertainty modeling across multiple time steps and ports.
         - Revenue optimization and cost evaluation, including penalties for overstowage and excess crane operations.
-        - Action masking for non-convex constraints, and projection layers to enforce feasibility under convex constraints.
+        - Action masking for non-convex constraints, and projection layers to enforce convex constraints.
         - Scalable interface suitable for realistic-sized vessel planning horizons.
 
     The environment provides a platform for testing ML4CO (Machine Learning for Combinatorial Optimization) methods
@@ -736,7 +804,7 @@ class BlockMasterPlanningEnv(MasterPlanningEnv):
     name = "block_mpp"
     batch_locked = False
 
-    def __init__(self, device="cuda", batch_size=[], td_gen=None, **kwargs):
+    def __init__(self, device="cuda", batch_size=(), td_gen=None, **kwargs):
         # Kwargs and super
         self.BL = kwargs.get("blocks", 2)  # Number of paired blocks: 2 (wings + center), 3 (wings + center1 + center2)
         super().__init__(device=device, batch_size=batch_size, **kwargs)
