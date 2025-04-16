@@ -116,14 +116,26 @@ class ProjectionProbabilisticActor(ProbabilisticActor):
         y = out["ub"]
 
         # Shapes
-        batch, n = x.shape
+        x_dim = x.dim()
+        if x_dim == 2:
+            batch, n = x.shape
+            seq = 1
+        elif x_dim == 3:
+            batch, seq, n = x.shape
+            # treat as batch of sequences
+            x = x.view(batch * seq, n)
+            y = y.view(batch * seq,)
+        else:
+            raise ValueError(f"Invalid dimension of x: {x.dim()}")
 
         # Compute
         sum_x = x.sum(dim=-1, keepdim=True)
         scaling_factor = y.unsqueeze(-1) / (sum_x)**2 # Shape: (batch_size, n)
-        kronecker_delta = torch.eye(n).unsqueeze(0).expand(batch, n, n).to(x.device)  # Shape: (batch_size, n, n)
+        kronecker_delta = torch.eye(n).unsqueeze(0).expand(batch*seq, n, n).to(x.device)  # Shape: (batch_size, n, n)
         x_product = x.unsqueeze(-1) * torch.ones(x.size(-1), device=x.device)  # Shape: (batch_size, n, n)
         jacobian = scaling_factor.unsqueeze(-1) * (kronecker_delta * sum_x.unsqueeze(-1)) - x_product # Shape: (batch_size, n, n)
+        if x_dim == 3:
+            jacobian = jacobian.view(batch, seq, n, n)
         return jacobian
 
     def jacobian_violation(self, out:TensorDict) -> Tensor:
