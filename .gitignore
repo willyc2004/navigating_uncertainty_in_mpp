@@ -4,7 +4,7 @@
 /lightning_logs/
 /__pycache__/
 /environment/__pycache__/
-/models/__pycache__/ls
+/models/__pycache__/
 /.idea/
 /EDA/
 /not_on_git/
