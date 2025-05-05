@@ -249,7 +249,7 @@ def main(config: Optional[DotMap] = None, **kwargs) -> None:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Script with WandB integration.")
-    parser.add_argument('--folder', type=str, default='sac-vp', help="Folder name for the run.")
+    parser.add_argument('--folder', type=str, default='sac-cp', help="Folder name for the run.")
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -266,6 +266,9 @@ if __name__ == "__main__":
         config.training.projection_type = "linear_violation"
     elif almost_projection_type == "ws+pc" or almost_projection_type == "fr+ws+pc":
         config.training.projection_type = "weighted_scaling_policy_clipping"
+    elif almost_projection_type == "cp":
+        config.training.projection_type = "convex_program"
+        config.testing.folder = config.testing.folder.split("-")[0] + "-vp"
     else:
         raise ValueError(f"Unsupported projection type: {almost_projection_type}")
     print(f"Running with folder: {config.testing.folder} and projection type: {config.training.projection_type}")
