@@ -73,13 +73,14 @@ training:
   lr: 0.00014690714579803494
   optimizer: Adam
   projection_kwargs:
-    alpha: 0.015 #0.01 #0.00987804770039214
-    delta: 0.015 #0.01 #0.023908679032053855
+    alpha: 0.010 #0.01 #0.00987804770039214
+    delta: 0.010 #0.01 #0.023908679032053855
     max_iter: 300 #300 #273
     n_action: 20 #80
     n_constraints: 25 #85
-    scale: 0.00025463040788043916
+    scale: 0.00015463040788043916
     slack_penalty: 1000
+    use_early_stopping: true
   projection_type: linear_violation
   # None, weighted_scaling_policy_clipping, linear_violation, linear_violation_policy_clipping, convex_program, convex_program_policy_clipping
   test_data_size: 5000
