@@ -260,7 +260,16 @@ if __name__ == "__main__":
     # Parse command-line arguments for dynamic configuration
     args = parse_args()
     config.testing.folder = args.folder
-    print(f"Running with folder: {config.testing.folder}")
+    # Adapt projection_type to the folder name
+    almost_projection_type = config.testing.folder.split("-")[-1]
+    if almost_projection_type == "vp" or almost_projection_type == "fr+vp":
+        config.training.projection_type = "linear_violation"
+    elif almost_projection_type == "ws+pc" or almost_projection_type == "ws+pc+vp":
+        config.training.projection_type = "weighted_scaling_policy_clipping"
+    else:
+        raise ValueError(f"Unsupported projection type: {almost_projection_type}")
+    print(f"Running with folder: {config.testing.folder} and projection type: {config.training.projection_type}")
+
 
     # Call your main() function
     ## todo: Likely a bunch of warnings will be thrown, but they are not critical. Should be fixed soon.
