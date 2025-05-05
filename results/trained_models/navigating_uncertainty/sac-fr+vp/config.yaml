@@ -102,7 +102,7 @@ model:
   num_encoder_layers: 3
   num_heads: 8
   out_bias_pointer_attn: false
-  phase: train
+  phase: test
   scale_max: 1.931286785557626
   tanh_clipping: 0
   tanh_squashing: false

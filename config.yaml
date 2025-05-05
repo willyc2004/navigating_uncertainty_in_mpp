@@ -31,7 +31,7 @@ env:
   generalization: false
   hatch_overstowage_costs: 0.333333
   hatch_overstowage_mask: false
-  block_stowage_mask: true
+  block_stowage_mask: false
   iid_demand: true
   limit_revenue: true
   long_crane_costs: 0.5
@@ -56,11 +56,11 @@ model:
   logger: wandb
   lr_end_factor: 0.5
   normalization: layer
-  num_decoder_layers: 4
+  num_decoder_layers: 3
   num_encoder_layers: 3
   num_heads: 8
   phase: test
-  scale_max: 9.459951968688712
+  scale_max: 1.931286785557626 #9.459951968688712
   tanh_clipping: 0
   tanh_squashing: false
   temperature: 0.11243639449117128
@@ -77,7 +77,7 @@ training:
     delta: 0.05 #0.01 #0.023908679032053855
     max_iter: 100 #300 #273
     n_action: 20 #80
-    n_constraints: 45 #85
+    n_constraints: 25 #85
     scale: 0.00025463040788043916
     slack_penalty: 1000
   projection_type: linear_violation
