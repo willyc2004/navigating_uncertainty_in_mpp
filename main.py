@@ -260,6 +260,7 @@ if __name__ == "__main__":
     # Parse command-line arguments for dynamic configuration
     args = parse_args()
     config.testing.folder = args.folder
+    print(f"Running with folder: {config.testing.folder}")
 
     # Call your main() function
     ## todo: Likely a bunch of warnings will be thrown, but they are not critical. Should be fixed soon.
