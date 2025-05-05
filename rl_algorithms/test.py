@@ -68,12 +68,15 @@ def evaluate_model(policy:nn.Module, config:DotMap, device:Union[str,torch.devic
     num_episodes = kwargs.get("num_episodes", 10)
 
     # Create the test environment
+    # stages = config.env.ports - 1  # Number of load ports (P-1)
+    # max_scenarios_per_stage = 28  # Number of scenarios per stage
+    # max_paths = max_scenarios_per_stage ** (stages-1) + 1
     max_paths = 2 # Run small batch, as we care about instances
     test_env = make_env(env_kwargs, batch_size=[max_paths], device=device)
     n_step = test_env.T * test_env.K  # Maximum steps per episode (T x K)
     feas_threshold = 1.0
     delta = 1.0
-    num_rollouts = 5  # Number of rollouts per episode
+    num_rollouts = 1  # Number of rollouts per episode
 
     # Set policy to evaluation mode
     policy.eval()  # Set policy to evaluation mode
