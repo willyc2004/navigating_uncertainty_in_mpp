@@ -249,8 +249,16 @@ def main(config: Optional[DotMap] = None, **kwargs) -> None:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Script with WandB integration.")
-    parser.add_argument('--folder', type=str, default='sac-cp', help="Folder name for the run.")
+    parser.add_argument('--folder', type=str, default='sac-fr+vp', help="Folder name for the run.")
     return parser.parse_args()
+
+def deep_update(base, updates):
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            deep_update(base[key], value)
+        else:
+            base[key] = value
+
 
 if __name__ == "__main__":
     # Load static configuration from the YAML file
@@ -260,6 +268,17 @@ if __name__ == "__main__":
     # Parse command-line arguments for dynamic configuration
     args = parse_args()
     config.testing.folder = args.folder
+
+    # If config file exists in folder path, load it and update the config with dynamic values
+    # todo: use of local config needed for sac-fr+vp results
+    folder_path = os.path.join(file_path, config.testing.path, config.testing.folder)
+    config_path = os.path.join(folder_path, "config.yaml")
+    if os.path.exists(config_path):
+        new_config = load_config(config_path)
+        config = copy.deepcopy(config)
+        deep_update(config, new_config)
+        print(f"Config loaded from {config_path}")
+
     # Adapt projection_type to the folder name
     almost_projection_type = config.testing.folder.split("-")[-1]
     if almost_projection_type == "vp" or almost_projection_type == "fr+vp":
