@@ -264,7 +264,7 @@ if __name__ == "__main__":
     almost_projection_type = config.testing.folder.split("-")[-1]
     if almost_projection_type == "vp" or almost_projection_type == "fr+vp":
         config.training.projection_type = "linear_violation"
-    elif almost_projection_type == "ws+pc" or almost_projection_type == "ws+pc+vp":
+    elif almost_projection_type == "ws+pc" or almost_projection_type == "fr+ws+pc":
         config.training.projection_type = "weighted_scaling_policy_clipping"
     else:
         raise ValueError(f"Unsupported projection type: {almost_projection_type}")
