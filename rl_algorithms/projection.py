@@ -66,7 +66,7 @@ class LinearViolationAdaption(nn.Module):
 
             # Apply penalty gradient update only for active batches/steps
             # scale = 1 / (torch.std(penalty_gradient, dim=0, keepdim=True) + 1e-6)
-            lr = self.alpha / (1 + self.scale * penalty_gradient)
+            lr = self.alpha #/ (1 + self.scale * penalty_gradient)
             x_ = torch.where(active_mask.unsqueeze(2), x_ - lr * penalty_gradient, x_)
             x_ = torch.clamp(x_, min=0) # Ensure non-negativity
 
