@@ -28,7 +28,7 @@ env:
   demand_uncertainty: true
   env_name: mpp #block_mpp #mpp
   episode_order: standard
-  generalization: false
+  generalization: true
   hatch_overstowage_costs: 0.333333
   hatch_overstowage_mask: false
   block_stowage_mask: false
