@@ -1,6 +1,7 @@
 ## Imports
 import os
 import copy
+import argparse
 
 # Datatypes
 import yaml
@@ -246,10 +247,20 @@ def main(config: Optional[DotMap] = None, **kwargs) -> None:
         with open(f"{path}/{file_name}", "w") as file:
                         yaml.dump(summary_stats, file)
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Script with WandB integration.")
+    parser.add_argument('--folder', type=str, default='sac-vp', help="Folder name for the run.")
+    return parser.parse_args()
+
 if __name__ == "__main__":
     # Load static configuration from the YAML file
     file_path = os.getcwd()
     config = load_config(f'{file_path}/config.yaml')
+
+    # Parse command-line arguments for dynamic configuration
+    args = parse_args()
+    config.testing.folder = args.folder
+
     # Call your main() function
     ## todo: Likely a bunch of warnings will be thrown, but they are not critical. Should be fixed soon.
     try:
