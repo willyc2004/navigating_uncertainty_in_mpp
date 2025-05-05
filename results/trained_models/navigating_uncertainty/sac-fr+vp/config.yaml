@@ -98,7 +98,7 @@ model:
   logger: wandb
   lr_end_factor: 0.5
   normalization: layer
-  num_decoder_layers: 3
+  num_decoder_layers: 4
   num_encoder_layers: 3
   num_heads: 8
   out_bias_pointer_attn: false
