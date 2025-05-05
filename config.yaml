@@ -15,11 +15,7 @@ algorithm:
 env:
   CI_target: 1.25
   LCG_target: 0.95
-<<<<<<< HEAD
-  TEU: 20000
-=======
   TEU: 1000 # 20000
->>>>>>> 201d07a0f937a7330b6d3841997ad3cf03ce4613
   VCG_target: 1.05
   bays: 10
   blocks: 1
@@ -30,11 +26,7 @@ env:
   cv_demand: 0.5
   decks: 2
   demand_uncertainty: true
-<<<<<<< HEAD
-  env_name: block_mpp #block_mpp #mpp
-=======
   env_name: mpp #block_mpp #mpp
->>>>>>> 201d07a0f937a7330b6d3841997ad3cf03ce4613
   episode_order: standard
   generalization: false
   hatch_overstowage_costs: 0.333333
@@ -58,13 +50,8 @@ model:
   dropout_rate: 0.008972135903337364
   embed_dim: 128
   encoder_type: attention
-<<<<<<< HEAD
-  dyn_embed: self_attention # ffn, self_attention
-  hidden_dim: 512
-=======
   dyn_embed: ffn # ffn, self_attention
   hidden_dim: 128
->>>>>>> 201d07a0f937a7330b6d3841997ad3cf03ce4613
   init_dim: 8
   logger: wandb
   lr_end_factor: 0.5
@@ -79,30 +66,18 @@ model:
   temperature: 0.11243639449117128
 testing:
   num_episodes: 30
-<<<<<<< HEAD
-  folder: 'sac-ws+pc' #'SA_AM'
-=======
   folder: 'sac-vp' #'sac-ws+pc' #'SA_AM'
->>>>>>> 201d07a0f937a7330b6d3841997ad3cf03ce4613
   path: results/trained_models/navigating_uncertainty #AI2STOW
   feasibility_recovery: false
 training:
   lr: 0.00014690714579803494
   optimizer: Adam
   projection_kwargs:
-<<<<<<< HEAD
-    alpha: 0.01 #0.00987804770039214
-    delta: 0.01 #0.023908679032053855
-    max_iter: 300 #273
-    n_action: 80
-    n_constraints: 85
-=======
     alpha: 0.01 #0.01 #0.00987804770039214
     delta: 0.01 #0.01 #0.023908679032053855
     max_iter: 300 #273
     n_action: 20 #80
     n_constraints: 45 #85
->>>>>>> 201d07a0f937a7330b6d3841997ad3cf03ce4613
     scale: 0.00025463040788043916
     slack_penalty: 1000
   projection_type: linear_violation_policy_clipping

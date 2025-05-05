@@ -198,10 +198,6 @@ class DynamicSelfAttentionEmbedding(nn.Module):
         self.seq_dim = seq_dim
         self.train_max_demand = self.env.generator.train_max_demand
         self.self_attention = DemandSelfAttention(embed_dim)  # Add self-attention layer
-<<<<<<< HEAD
-        # self.project_dynamic = nn.Linear(embed_dim + 1, 3 * embed_dim)
-=======
->>>>>>> 201d07a0f937a7330b6d3841997ad3cf03ce4613
         self.project_dynamic = nn.Linear(2 * embed_dim, 3 * embed_dim)
 
     def forward(self, latent_state: Optional[Tensor], td: TensorDict) -> Tuple[Tensor, Tensor, Tensor]:
