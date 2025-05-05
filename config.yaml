@@ -66,7 +66,7 @@ model:
   temperature: 0.11243639449117128
 testing:
   num_episodes: 30
-  folder: 'sac-fr+vp' #'sac-ws+pc' #'SA_AM'
+  folder: 'sac-vp' #'sac-ws+pc' #'SA_AM'
   path: results/trained_models/navigating_uncertainty #AI2STOW
   feasibility_recovery: false
 training:
