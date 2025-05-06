@@ -294,7 +294,7 @@ if __name__ == "__main__":
     # config.testing.folder = args.folder
     # config.algorithm.type, almost_projection_type = config.testing.folder.split("-")
 
-    for almost_projection_type in ["fr"]: #"fr+vp", "vp", "fr+ws+pc", "ws+pc", "cp"]: # "fr",
+    for almost_projection_type in ["cp"]: #"fr+vp", "vp", "fr+ws+pc", "ws+pc", "cp"]: # "fr",
         for gen in [True, False]:
             for alg in ["sac", "ppo"]:
                 config.testing.folder = f'{alg}-{almost_projection_type}'
@@ -308,7 +308,7 @@ if __name__ == "__main__":
                     config.training.projection_type = "weighted_scaling_policy_clipping"
                 elif almost_projection_type == "cp":
                     config.training.projection_type = "convex_program"
-                    config.testing.folder = config.algorithm.type + "-vp"
+                    config.testing.folder = config.algorithm.type + "-ws+pc"
                 elif almost_projection_type == "fr":
                     config.training.projection_type = "None"
                 else:
