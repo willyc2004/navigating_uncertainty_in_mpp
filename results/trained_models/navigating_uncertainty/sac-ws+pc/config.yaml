@@ -1,100 +1,142 @@
-# Environment settings
-env:
-  ports: 4 # [4, 5, 6]
-  bays: 10 # [10, 20,]
-  decks: 2
-  cargo_classes: 6
-  weight_classes: 3
-  customer_classes: 2
-  capacity: [50] # [50, 500]
-  TEU: 1000  # 1000, 20000
-  LCG_target: 0.95
-  VCG_target: 1.05
-  stability_difference: 0.10
-  CI_target: 1.25
-  hatch_overstowage_costs: 0.333333
-  hatch_overstowage_mask: False
-  long_crane_costs: 0.5
-  episode_order: "standard" # greedy_revenue, priority_then_greedy, max_distance_then_priority, standard
-  normalize_obs: True
-
-  # Generator
-  seed: 42
-  utilization_rate_initial_demand: 1.1
-  spot_percentage: 0.3
-  iid_demand: True
-  cv_demand: 0.5
-  demand_uncertainty: True
-  generalization: False
-  env_name: "mpp" # mpp, block_mpp
-
-# Model settings
-model:
-  lr_end_factor: 0.5
-  batch_size: 128
-  init_dim: 8
-  dyn_embed: ffn # ffn, self_attention
-  embed_dim: 128
-  hidden_dim: 128
-  num_encoder_layers: 3
-  num_decoder_layers: 2
-  num_heads: 8
-  dropout_rate: 0.09866208728742974
-  normalization: "layer" # layer, batch
-  out_bias_pointer_attn: False
-  temperature: 1.0
-  critic_temperature: 1.0
-  tanh_clipping: 0
-  tanh_squashing: False
-  scale_max: 0.75
-  train_decode_type: "continuous_sampling"
-  val_decode_type: "continuous_projection"
-  test_decode_type: "continuous_projection"
-  phase: "train" # train, test
-  encoder_type: "attention" # mlp, attention
-  decoder_type: "attention" # mlp, attention
-  demand_aggregation: "full" # sum, self_attn, full
-  logger: "wandb" #"wandb" # None, wandb
-
-# PPO parameters
 algorithm:
-  type: "sac" # ppo, ddpg, sac
+  adaptive_feasibility_lambda: false
   clip_range: 0.2
-  ppo_epochs: 5 # 2, 3, 5, 7, 10
-  mini_batch_size: 0.5
-  normalize_adv: False
-  normalize_return: False
-  max_grad_norm: 0.5
-  tau: 0.005
-  kl_threshold: None #0.01 - 0.1
-  kl_penalty_lambda: None # 1.0
-  gamma: 0.99
-  gae_lambda: 0.95
-  vf_lambda: 0.5
-  entropy_lambda: 0.01
-  feasibility_lambda: 0.14387397215952227
   demand_lambda: 1.0
-  stability_lambda: 1.0
+  entropy_lambda: 0.010071090711145904
+  feasibility_lambda: 0.06773126513364854
+  gae_lambda: 0.95
+  gamma: 0.99
+  kl_penalty_lambda: None
+  kl_threshold: None
+  lagrangian_multiplier_0: 1.0
+  lagrangian_multiplier_1: 1.0
+  lagrangian_multiplier_10: 1.0
+  lagrangian_multiplier_11: 1.0
+  lagrangian_multiplier_12: 1.0
+  lagrangian_multiplier_13: 1.0
+  lagrangian_multiplier_14: 1.0
+  lagrangian_multiplier_15: 1.0
+  lagrangian_multiplier_16: 1.0
+  lagrangian_multiplier_17: 1.0
+  lagrangian_multiplier_18: 1.0
+  lagrangian_multiplier_19: 1.0
+  lagrangian_multiplier_2: 1.0
+  lagrangian_multiplier_20: 1.0
+  lagrangian_multiplier_21: 1.0
+  lagrangian_multiplier_22: 1.0
+  lagrangian_multiplier_23: 1.0
+  lagrangian_multiplier_24: 1.0
+  lagrangian_multiplier_3: 1.0
+  lagrangian_multiplier_4: 1.0
+  lagrangian_multiplier_5: 1.0
+  lagrangian_multiplier_6: 1.0
+  lagrangian_multiplier_7: 1.0
+  lagrangian_multiplier_8: 1.0
+  lagrangian_multiplier_9: 1.0
+  max_grad_norm: 0.5
+  mini_batch_size: 0.25
+  normalize_adv: false
+  normalize_return: false
+  ppo_epochs: 5
   projection_lambda: 0.01
-  adaptive_feasibility_lambda: False
-  n_step: 72
-
-# AM PPO parameters
+  stability_lambda: 1.0
+  tau: 0.005
+  type: sac
+  vf_lambda: 0.5
+alpha:
+  value: 0.05
+batch_size:
+  value: 64
+dropout_rate:
+  value: 0.008972135903337364
+entropy_lambda:
+  value: 0.010071090711145904
+env:
+  CI_target: 1.25
+  LCG_target: 0.95
+  TEU: 1000
+  VCG_target: 1.05
+  bays: 10
+  capacity:
+  - 50
+  cargo_classes: 6
+  customer_classes: 2
+  cv_demand: 0.5
+  decks: 2
+  demand_uncertainty: true
+  episode_order: standard
+  generalization: false
+  hatch_overstowage_costs: 0.333333
+  hatch_overstowage_mask: false
+  iid_demand: true
+  long_crane_costs: 0.5
+  normalize_obs: true
+  ports: 4
+  seed: 42
+  spot_percentage: 0.3
+  stability_difference: 0.1
+  utilization_rate_initial_demand: 1.1
+  weight_classes: 3
+feasibility_lambda:
+  value: 0.06773126513364854
+hidden_dim:
+  value: 128
+lr:
+  value: 0.00020407622212291503
+mini_batch_size:
+  value: 0.25
+model:
+  batch_size: 64
+  critic_temperature: 1.0
+  decoder_type: attention
+  demand_aggregation: full
+  dropout_rate: 0.008972135903337364
+  embed_dim: 128
+  encoder_type: attention
+  hidden_dim: 128
+  init_dim: 8
+  logger: wandb
+  lr_end_factor: 0.5
+  normalization: layer
+  num_decoder_layers: 4
+  num_encoder_layers: 3
+  num_heads: 8
+  out_bias_pointer_attn: false
+  phase: test
+  scale_max: 1.931286785557626
+  tanh_clipping: 0
+  tanh_squashing: false
+  temperature: 1.0
+  test_decode_type: continuous_projection
+  train_decode_type: continuous_sampling
+  val_decode_type: continuous_projection
+num_decoder_layers:
+  value: 3
+num_encoder_layers:
+  value: 3
+num_heads:
+  value: 8
+ppo_epochs:
+  value: 5
+scale_max:
+  value: 1.931286785557626
+testing:
+  num_episodes: 30
+  timestamp: '20250123_171145'
 training:
-  lr: 0.00012077516375897934
-  projection_type: "weighted_scaling_policy_clipping" #"linear_violation", "weighted_scaling_policy_clipping", "None"
-  #todo: not implemented logprob adaptations - convex_program, worst_case_violation, linear_violation, linear_program
+  lr: 0.00020407622212291503
+  optimizer: Adam
   projection_kwargs:
-    alpha: 0.001
-    iters: 5
-    project_per_port: False
-  optimizer: "Adam"   #AdamW, Adam
+    alpha: 0.05
+    delta: 0.05
+    max_iter: 100
+    n_action: 20
+    n_constraints: 25
+    project_per_port: false
+  projection_type: weighted_scaling_policy_clipping
+  test_data_size: 5000
+  train_data_size: 72000000
+  val_data_size: 5000
   validation_freq: 0.2
   validation_patience: 2
-  train_data_size: 72_000_000  #5_000_000 # 3_000_000
-  val_data_size: 5000
-  test_data_size: 5000
-
-testing:
-  timestamp: "20250123_171145"
-  num_episodes: 30
+wandb_version: 1
