@@ -88,6 +88,7 @@ def evaluate_model(policy:nn.Module, config:DotMap, device:Union[str,torch.devic
         "capacity_violations": torch.zeros(num_episodes, device=device),  # [num_episodes]
         "stability_violations": torch.zeros(num_episodes, device=device),  # [num_episodes]
         "pbs_violations": torch.zeros(num_episodes, device=device),  # [num_episodes]
+        "max_revenues": torch.zeros(num_episodes, device=device),  # [num_episodes]
     }
 
     with torch.no_grad():
@@ -168,6 +169,7 @@ def evaluate_model(policy:nn.Module, config:DotMap, device:Union[str,torch.devic
             metrics["total_violations"][episode] = best["total_violation"]
             metrics["inference_times"][episode] = end_time - start_time
             metrics["feasible_instance"][episode] = 1.0 if best["feasible"] else 0.0
+            metrics["max_revenues"][episode] = best["max_revenue"]
 
             # Detailed violation metrics
             violation_adjusted = trajectory["violation"][0].clone()
