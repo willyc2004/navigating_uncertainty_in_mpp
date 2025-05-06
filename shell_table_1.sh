@@ -33,10 +33,10 @@ do
             # Pass the --gpu argument to the inner script and wait for it to finish
             if [ -n "$GPU" ]; then
                 # Run the inner script synchronously
-                ./shell_main.sh --gpu "$GPU" --folder "$folder" --ports "$ports" --gen "$gen"
+                nohup ./shell_main.sh --gpu "$GPU" --folder "$folder" --ports "$ports" --gen "$gen" > /dev/null 2>&1
             else
                 # Run the inner script synchronously
-                ./shell_main.sh --folder "$folder" --ports "$ports" --gen "$gen"
+                nohup ./shell_main.sh --folder "$folder" --ports "$ports" --gen "$gen" > /dev/null 2>&1
             fi
 
             # Wait for the last job to finish before starting the next one
