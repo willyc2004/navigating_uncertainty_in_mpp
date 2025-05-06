@@ -258,9 +258,10 @@ def main(config: Optional[DotMap] = None, **kwargs) -> None:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Script with WandB integration.")
-    parser.add_argument('--folder', type=str, default='ppo-ws+pc', help="Folder name for the run.")
+    parser.add_argument('--folder', type=str, default='sac-fr', help="Folder name for the run.")
     parser.add_argument('--ports', type=int, default=4, help="Number of ports in env.")
     parser.add_argument('--gen', type=lambda x: x == 'True', default=False)
+    parser.add_argument('--ur', type=float, default=1.1)
     return parser.parse_args()
 
 def deep_update(base, updates):
@@ -294,6 +295,7 @@ if __name__ == "__main__":
     config.algorithm.type, almost_projection_type = config.testing.folder.split("-")
     config.env.ports = args.ports
     config.env.generalization = args.gen
+    config.env.utilization_rate_initial_demand = args.ur
 
     # Adapt projection_type to the folder name
     if almost_projection_type == "vp" or almost_projection_type == "fr+vp":
