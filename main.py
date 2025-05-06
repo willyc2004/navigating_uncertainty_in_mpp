@@ -262,6 +262,7 @@ def parse_args():
     parser.add_argument('--ports', type=int, default=4, help="Number of ports in env.")
     parser.add_argument('--gen', type=lambda x: x == 'True', default=False)
     parser.add_argument('--ur', type=float, default=1.1)
+    parser.add_argument('--cv', type=float, default=0.5)
     return parser.parse_args()
 
 def deep_update(base, updates):
@@ -296,6 +297,7 @@ if __name__ == "__main__":
     config.env.ports = args.ports
     config.env.generalization = args.gen
     config.env.utilization_rate_initial_demand = args.ur
+    config.env.cv_demand = args.cv
 
     # Adapt projection_type to the folder name
     if almost_projection_type == "vp" or almost_projection_type == "fr+vp":
