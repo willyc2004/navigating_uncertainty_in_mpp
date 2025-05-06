@@ -30,12 +30,15 @@ do
         do
             echo "Running experiment with folder=$folder, ports=$ports, gen=$gen"
 
-            # Pass the --gpu argument to the inner script
+            # Pass the --gpu argument to the inner script and wait for it to finish
             if [ -n "$GPU" ]; then
-                nohup ./shell_main.sh --gpu "$GPU" --folder "$folder" --ports "$ports" --gen "$gen" > /dev/null 2>&1 &
+                nohup ./shell_main.sh --gpu "$GPU" --folder "$folder" --ports "$ports" --gen "$gen" > /dev/null 2>&1
             else
-                nohup ./shell_main.sh --folder "$folder" --ports "$ports" --gen "$gen" > /dev/null 2>&1 &
+                nohup ./shell_main.sh --folder "$folder" --ports "$ports" --gen "$gen" > /dev/null 2>&1
             fi
+
+            # Wait for the last job to finish before starting the next one
+            wait $!
         done
     done
 done
