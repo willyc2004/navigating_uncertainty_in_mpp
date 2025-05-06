@@ -209,6 +209,7 @@ def main(config: Optional[DotMap] = None, **kwargs) -> None:
 
     ## Main loop
     path = f"{config.testing.path}/{config.testing.folder}"
+    gen = config.env.generalization
 
     if config.model.phase in {"train", "tuned_training"}:
         # Initialize models and run training
@@ -223,7 +224,15 @@ def main(config: Optional[DotMap] = None, **kwargs) -> None:
         vp_str = f"{alpha}_{delta}_{max_iter}"
 
         # Use if you want to load config from a trained model folder:
-        # config = load_trained_hyperparameters(path)
+        if config.training.projection_type == "None":
+            config = load_trained_hyperparameters(path)
+            config.env.env_name = "mpp"
+            config.env.block_stowage_mask = False
+            config.env.generalization = gen
+            config.model.dyn_embed = "ffn"
+            config.testing.path = "results/trained_models/navigating_uncertainty"
+            config.training.projection_kwargs.slack_penalty = 1000
+
         policy, critic = initialize_policy_and_critic(config, env, device)
 
         # Evaluate policy
@@ -285,7 +294,7 @@ if __name__ == "__main__":
     # config.testing.folder = args.folder
     # config.algorithm.type, almost_projection_type = config.testing.folder.split("-")
 
-    for almost_projection_type in ["fr+vp", "vp", "fr+ws+pc", "ws+pc", "cp"]: # "fr",
+    for almost_projection_type in ["fr"]: #"fr+vp", "vp", "fr+ws+pc", "ws+pc", "cp"]: # "fr",
         for gen in [True, False]:
             for alg in ["sac", "ppo"]:
                 config.testing.folder = f'{alg}-{almost_projection_type}'
