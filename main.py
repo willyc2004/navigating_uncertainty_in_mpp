@@ -260,7 +260,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Script with WandB integration.")
     parser.add_argument('--folder', type=str, default='ppo-ws+pc', help="Folder name for the run.")
     parser.add_argument('--ports', type=int, default=4, help="Number of ports in env.")
-    parser.add_argument('--gen', type=bool, default=True, help="Generalization type.")
+    parser.add_argument('--flag', type=lambda x: x == 'True', default=False)
     return parser.parse_args()
 
 def deep_update(base, updates):

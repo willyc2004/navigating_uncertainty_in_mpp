@@ -3,7 +3,10 @@
 # Lists of possible argument values
 FOLDERS=("sac-vp" "sac-fr+vp" "sac-vp+cp" "sac-ws+pc" "sac-fr+ws+pc" "sac-ws+pc+cp" "ppo-vp" "ppo-fr+vp" "ppo-vp+cp" "ppo-ws+pc" "ppo-fr+ws+pc" "ppo-ws+pc+cp")
 PORTS=(4)  # You can add more ports if needed
-GENS=("True" "False")
+# Need to be boolean values: GEN=0 or GEN=1 (True or False)
+GENS=("False") #("True" "False")  # You can add more generations if needed
+
+
 
 # Default GPU (if none is specified in the command)
 GPU=""
