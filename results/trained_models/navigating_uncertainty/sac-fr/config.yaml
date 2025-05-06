@@ -37,7 +37,7 @@ env:
   hatch_overstowage_costs: 0.333333
   hatch_overstowage_mask: false
   iid_demand: true
-  limit_revenue: false
+  limit_revenue: true
   long_crane_costs: 0.5
   normalize_obs: true
   ports: 4
