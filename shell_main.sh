@@ -40,6 +40,9 @@ nohup python3 "$SCRIPT_PATH" "$@" > "$LOG_FILE" 2>&1 &
 # Capture the process ID of the last background command
 PID=$!
 
+# Wait for the process to finish
+wait $PID
+
 # Check if the PID is a valid number
 if [[ "$PID" =~ ^[0-9]+$ ]]; then
     # Rename the log file to include the process ID for uniqueness
