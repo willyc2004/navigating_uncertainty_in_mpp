@@ -350,6 +350,8 @@ if __name__ == "__main__":
 
     # Create generator
     generator = env.generator
+    dist = "Gaussian" if not generator.generalization else "Uniform"
+    print("Distribution is ", dist)
 
     # Generate demand
     td = generator(batch_size)
@@ -368,18 +370,21 @@ if __name__ == "__main__":
     # Histogram of aggregated demand
     demand_port = th.zeros((batch_size, env.P-1), device="cpu")
     teu_port = th.zeros((batch_size, env.P-1), device="cpu")
+    revenue_port = th.zeros((batch_size, env.P-1), device="cpu")
     for i in range(env.P-1):
         for j in range(i+1, env.P):
             condition = (env.transport_idx[:, 0] == i) & (env.transport_idx[:, 1] == j)
             index = th.where(condition)[0]  # get indices where the condition is true
             demand_port[:, i] += demand[:, index, :].sum(dim=(-1,)).squeeze()
             teu_port[:, i] += (env.teus * demand[:, index, :]).sum(dim=(-1,)).squeeze()
+            revenue_port[:, i] += (env.revenues_matrix[:, index].view(1,1,-1) * demand[:, index, :]).sum(dim=(-1,)).squeeze()
 
-    # Give mean, std, max, min of demand at each port
-    print("Mean of demand at each port: ", demand_port.mean(dim=0))
-    print("Std of demand at each port: ", demand_port.std(dim=0))
-    print("Max of demand at each port: ", demand_port.max(dim=0))
-    print("Min of demand at each port: ", demand_port.min(dim=0))
+    # Give mean, std, max, min of data
+    def ds_fn(data, name="data"):
+        print(f"Mean {name} at each port: ", data.mean(axis=0))
+        print(f"Std {name} at each port: ", data.std(axis=0))
+        print(f"Max {name} at each port: ", data.max(axis=0))
+        print(f"Min {name} at each port: ", data.min(axis=0))
 
     # (Batch, port) shape;
     # Plot boxplot at each port
@@ -388,15 +393,29 @@ if __name__ == "__main__":
     plt.boxplot(demand_port)
     plt.xlabel("Port")
     plt.ylabel("Containers")
-    plt.ylim(0, demand_port.max() + 1000)
+    plt.ylim(0, demand_port.max() + 100) # + 1000)
     plt.title("Container Demand at Each Port")
     plt.show()
+    ds_fn(demand_port, "demand")
+
     # Plot boxplot of TEU at each port
     teu_port = teu_port.detach().cpu().numpy()
     plt.figure()
     plt.boxplot(teu_port)
     plt.xlabel("Port")
     plt.ylabel("TEU")
-    plt.ylim(0, teu_port.max() + 1000)
+    plt.ylim(0, teu_port.max() + 100) # + 1000)
     plt.title("TEU Demand at Each Port")
     plt.show()
+    ds_fn(teu_port, "teu demand")
+
+    # Plot boxplot for Revenue
+    plt.figure()
+    revenue_port = revenue_port.detach().cpu().numpy()
+    plt.boxplot(revenue_port)
+    plt.xlabel("Port")
+    plt.ylabel("Revenue")
+    plt.ylim(0, revenue_port.max() + 100)
+    plt.title("Revenue at Each Port")
+    plt.show()
+    ds_fn(revenue_port, "revenue demand")
