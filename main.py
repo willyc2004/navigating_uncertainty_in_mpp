@@ -260,7 +260,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Script with WandB integration.")
     parser.add_argument('--folder', type=str, default='ppo-ws+pc', help="Folder name for the run.")
     parser.add_argument('--ports', type=int, default=4, help="Number of ports in env.")
-
+    parser.add_argument('--gen', type=bool, default=True, help="Generalization type.")
     return parser.parse_args()
 
 def deep_update(base, updates):
@@ -290,51 +290,46 @@ if __name__ == "__main__":
 
     # Parse command-line arguments for dynamic configuration
     args = parse_args()
-    # config.env.ports = args.ports
-    # config.testing.folder = args.folder
-    # config.algorithm.type, almost_projection_type = config.testing.folder.split("-")
+    config.testing.folder = args.folder
+    config.algorithm.type, almost_projection_type = config.testing.folder.split("-")
+    config.env.ports = args.ports
+    config.env.generalization = args.gen
 
-    for ports in [5, 6]:
-        for almost_projection_type in ["cp"]: #"fr+vp", "vp", "fr+ws+pc", "ws+pc", "cp"]: # "fr",
-            for gen in [False]: #[True, False]:
-                for alg in ["sac", "ppo"]:
-                    config.testing.folder = f'{alg}-{almost_projection_type}'
-                    config.algorithm.type = alg
-                    config.env.generalization = gen
-                    config.env.ports = ports
+    # Adapt projection_type to the folder name
+    if almost_projection_type == "vp" or almost_projection_type == "fr+vp":
+        config.training.projection_type = "linear_violation"
+    elif almost_projection_type == "ws+pc" or almost_projection_type == "fr+ws+pc":
+        config.training.projection_type = "weighted_scaling_policy_clipping"
+    elif almost_projection_type == "vp+cp":
+        config.training.projection_type = "convex_program"
+        config.testing.folder = config.algorithm.type + "-vp"
+    elif almost_projection_type == "ws+pc+cp":
+        config.training.projection_type = "weighted_scaling_policy_clipping"
+        config.testing.folder = config.algorithm.type + "-ws+pc"
+    elif almost_projection_type == "fr":
+        config.training.projection_type = "None"
+    else:
+        raise ValueError(f"Unsupported projection type: {almost_projection_type}")
+    print(f"Running with folder: {config.testing.folder}, "
+          f"algorithm type: {config.algorithm.type},"
+          f"generalization: {config.env.generalization}")
 
-                    # Adapt projection_type to the folder name
-                    if almost_projection_type == "vp" or almost_projection_type == "fr+vp":
-                        config.training.projection_type = "linear_violation"
-                    elif almost_projection_type == "ws+pc" or almost_projection_type == "fr+ws+pc":
-                        config.training.projection_type = "weighted_scaling_policy_clipping"
-                    elif almost_projection_type == "cp":
-                        config.training.projection_type = "convex_program"
-                        config.testing.folder = config.algorithm.type + "-vp" #"-ws+pc"
-                    elif almost_projection_type == "fr":
-                        config.training.projection_type = "None"
-                    else:
-                        raise ValueError(f"Unsupported projection type: {almost_projection_type}")
-                    print(f"Running with folder: {config.testing.folder}, "
-                          f"algorithm type: {config.algorithm.type},"
-                          f"generalization: {config.env.generalization}")
+    # Call your main() function
+    ## todo: Likely a bunch of warnings will be thrown, but they are not critical. Should be fixed soon.
+    try:
+        model = main(config)
+    except Exception as e:
+        # Log the error to WandB
+        wandb.log({"error": str(e)})
 
-                    # Call your main() function
-                    ## todo: Likely a bunch of warnings will be thrown, but they are not critical. Should be fixed soon.
-                    try:
-                        model = main(config)
-                    except Exception as e:
-                        # Log the error to WandB
-                        wandb.log({"error": str(e)})
+        # Optionally, use WandB alert for critical errors
+        wandb.alert(
+            title="Training Error",
+            text=f"An error occurred during training: {e}",
+            level="error"  # 'info' or 'warning' levels can be used as needed
+        )
 
-                        # Optionally, use WandB alert for critical errors
-                        wandb.alert(
-                            title="Training Error",
-                            text=f"An error occurred during training: {e}",
-                            level="error"  # 'info' or 'warning' levels can be used as needed
-                        )
-
-                        # Print the error for local console logging as well
-                        print(f"An error occurred during training: {e}")
-                    finally:
-                        wandb.finish()
+        # Print the error for local console logging as well
+        print(f"An error occurred during training: {e}")
+    finally:
+        wandb.finish()
