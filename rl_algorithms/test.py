@@ -128,7 +128,9 @@ def evaluate_model(policy:nn.Module, config:DotMap, device:Union[str,torch.devic
                 zero_idx = torch.where((traj["action"][0] == 0.0) & (traj["clip_max"][0] == 0.0))
                 traj["violation"][0][zero_idx] = 0.0
 
+                # Calculate profit and max revenue
                 profit = traj["profit"][0].sum().item()
+                max_revenue = (test_env.revenues * traj["observation", "realized_demand"][0,0]).sum().item()
 
                 # Feasibility check (same as your logic)
                 violation_adjusted = traj["violation"][0].clone()
@@ -143,6 +145,7 @@ def evaluate_model(policy:nn.Module, config:DotMap, device:Union[str,torch.devic
                     "profit": profit,
                     "total_violation": total_violation,
                     "feasible": is_feasible,
+                    "max_revenue": max_revenue,
                 }
 
                 if is_feasible:
