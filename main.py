@@ -294,7 +294,7 @@ if __name__ == "__main__":
     # config.testing.folder = args.folder
     # config.algorithm.type, almost_projection_type = config.testing.folder.split("-")
 
-    for ports in [4, 5, 6]:
+    for ports in [5, 6]:
         for almost_projection_type in ["cp"]: #"fr+vp", "vp", "fr+ws+pc", "ws+pc", "cp"]: # "fr",
             for gen in [False]: #[True, False]:
                 for alg in ["sac", "ppo"]:
