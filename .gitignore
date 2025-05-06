@@ -15,4 +15,5 @@
 /logs/
 /saved_models/
 /test_results/__pycache__/
+/scripts/
 *.pyc

@@ -1,7 +1,7 @@
 # Navigating Demand Uncertainty in Container Shipping: Deep Reinforcement Learning for Enabling Adaptive and Feasible Master Stowage Planning
 
 ## Overview
-This repository contains supplementary code for our double-blind submission to IJCAI 2025.
+This repository contains supplementary code for our double-blind submission(s).
 
 ## Submission Guidelines
 To ensure compliance with double-blind review requirements, we have taken the following measures:
@@ -12,17 +12,20 @@ To ensure compliance with double-blind review requirements, we have taken the fo
 ## Repository Structure
 ```
 📂 project_root
-├── 📂 environment/   # Environment setup scripts
-├── 📂 models/   # Model scripts
-├── 📂 rl_algorithms/   # Reinforcement learning algorithms
-├── 📂 trained_models/   # Trained models
-├── 📄 .gitignore      # This document
-├── 📄 README.md      # This document
-├── 📄 requirements.txt   # Required dependencies
-├── 📄 main.py   # Main script
-├── 📄 scenario_tree_mip.py   # SMIP script
-├── 📄 config.yaml   # Configuration file
-└── 📄 LICENSE   # License information
+├── 📂 environment/          # Environment setup scripts
+├── 📂 models/               # Model scripts
+├── 📂 rl_algorithms/        # Reinforcement learning algorithms
+├── 📂 results/              # Results of experiments
+├── 📄 .gitignore            # Git ignore file
+├── 📄 requirements.txt      # Required dependencies
+├── 📄 README.md             # This document
+├── 📄 config.yaml           # Configuration file
+├── 📄 sweep_config.yaml     # Configuration file for hyperparameter sweeps
+├── 📄 main.py               # Main script
+├── 📄 sweep.py              # Sweep script
+├── 📄 scenario_tree_mip.py  # SMIP script
+├── 📄 scenario_tree.py      # Scenario tree script
+└── 📄 LICENSE               # License information
 ```
 
 ## Running the Code
