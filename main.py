@@ -294,45 +294,47 @@ if __name__ == "__main__":
     # config.testing.folder = args.folder
     # config.algorithm.type, almost_projection_type = config.testing.folder.split("-")
 
-    for almost_projection_type in ["cp"]: #"fr+vp", "vp", "fr+ws+pc", "ws+pc", "cp"]: # "fr",
-        for gen in [True, False]:
-            for alg in ["sac", "ppo"]:
-                config.testing.folder = f'{alg}-{almost_projection_type}'
-                config.algorithm.type = alg
-                config.env.generalization = gen
+    for ports in [4, 5, 6]:
+        for almost_projection_type in ["cp"]: #"fr+vp", "vp", "fr+ws+pc", "ws+pc", "cp"]: # "fr",
+            for gen in [False]: #[True, False]:
+                for alg in ["sac", "ppo"]:
+                    config.testing.folder = f'{alg}-{almost_projection_type}'
+                    config.algorithm.type = alg
+                    config.env.generalization = gen
+                    config.env.ports = ports
 
-                # Adapt projection_type to the folder name
-                if almost_projection_type == "vp" or almost_projection_type == "fr+vp":
-                    config.training.projection_type = "linear_violation"
-                elif almost_projection_type == "ws+pc" or almost_projection_type == "fr+ws+pc":
-                    config.training.projection_type = "weighted_scaling_policy_clipping"
-                elif almost_projection_type == "cp":
-                    config.training.projection_type = "convex_program"
-                    config.testing.folder = config.algorithm.type + "-ws+pc"
-                elif almost_projection_type == "fr":
-                    config.training.projection_type = "None"
-                else:
-                    raise ValueError(f"Unsupported projection type: {almost_projection_type}")
-                print(f"Running with folder: {config.testing.folder}, "
-                      f"algorithm type: {config.algorithm.type},"
-                      f"generalization: {config.env.generalization}")
+                    # Adapt projection_type to the folder name
+                    if almost_projection_type == "vp" or almost_projection_type == "fr+vp":
+                        config.training.projection_type = "linear_violation"
+                    elif almost_projection_type == "ws+pc" or almost_projection_type == "fr+ws+pc":
+                        config.training.projection_type = "weighted_scaling_policy_clipping"
+                    elif almost_projection_type == "cp":
+                        config.training.projection_type = "convex_program"
+                        config.testing.folder = config.algorithm.type + "-ws+pc"
+                    elif almost_projection_type == "fr":
+                        config.training.projection_type = "None"
+                    else:
+                        raise ValueError(f"Unsupported projection type: {almost_projection_type}")
+                    print(f"Running with folder: {config.testing.folder}, "
+                          f"algorithm type: {config.algorithm.type},"
+                          f"generalization: {config.env.generalization}")
 
-                # Call your main() function
-                ## todo: Likely a bunch of warnings will be thrown, but they are not critical. Should be fixed soon.
-                try:
-                    model = main(config)
-                except Exception as e:
-                    # Log the error to WandB
-                    wandb.log({"error": str(e)})
+                    # Call your main() function
+                    ## todo: Likely a bunch of warnings will be thrown, but they are not critical. Should be fixed soon.
+                    try:
+                        model = main(config)
+                    except Exception as e:
+                        # Log the error to WandB
+                        wandb.log({"error": str(e)})
 
-                    # Optionally, use WandB alert for critical errors
-                    wandb.alert(
-                        title="Training Error",
-                        text=f"An error occurred during training: {e}",
-                        level="error"  # 'info' or 'warning' levels can be used as needed
-                    )
+                        # Optionally, use WandB alert for critical errors
+                        wandb.alert(
+                            title="Training Error",
+                            text=f"An error occurred during training: {e}",
+                            level="error"  # 'info' or 'warning' levels can be used as needed
+                        )
 
-                    # Print the error for local console logging as well
-                    print(f"An error occurred during training: {e}")
-                finally:
-                    wandb.finish()
+                        # Print the error for local console logging as well
+                        print(f"An error occurred during training: {e}")
+                    finally:
+                        wandb.finish()
