@@ -304,7 +304,7 @@ if __name__ == "__main__":
         config.training.projection_type = "convex_program"
         config.testing.folder = config.algorithm.type + "-vp"
     elif almost_projection_type == "ws+pc+cp":
-        config.training.projection_type = "weighted_scaling_policy_clipping"
+        config.training.projection_type = "convex_program"
         config.testing.folder = config.algorithm.type + "-ws+pc"
     elif almost_projection_type == "fr":
         config.training.projection_type = "None"
