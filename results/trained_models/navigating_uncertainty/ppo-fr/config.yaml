@@ -41,7 +41,7 @@ algorithm:
   projection_lambda: 0.01
   stability_lambda: 1.0
   tau: 0.005
-  type: ppo
+  type: sac
   vf_lambda: 0.5
 alpha:
   value: 0.05
@@ -80,7 +80,7 @@ env:
 feasibility_lambda:
   value: 0.06773126513364854
 hidden_dim:
-  value: 128
+  value: 256
 lr:
   value: 0.00020407622212291503
 mini_batch_size:
@@ -93,14 +93,14 @@ model:
   dropout_rate: 0.008972135903337364
   embed_dim: 128
   encoder_type: attention
-  hidden_dim: 128
+  hidden_dim: 256
   init_dim: 8
   logger: wandb
   lr_end_factor: 0.5
   normalization: layer
-  num_decoder_layers: 4
-  num_encoder_layers: 3
-  num_heads: 8
+  num_decoder_layers: 3
+  num_encoder_layers: 1
+  num_heads: 4
   out_bias_pointer_attn: false
   phase: test
   scale_max: 1.931286785557626
