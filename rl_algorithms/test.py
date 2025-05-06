@@ -132,6 +132,7 @@ def evaluate_model(policy:nn.Module, config:DotMap, device:Union[str,torch.devic
                 # Calculate profit and max revenue
                 profit = traj["profit"][0].sum().item()
                 max_revenue = (test_env.revenues * traj["observation", "realized_demand"][0,0]).sum().item()
+                print(f"Max Revenue: {max_revenue}")
 
                 # Feasibility check (same as your logic)
                 violation_adjusted = traj["violation"][0].clone()
@@ -146,7 +147,7 @@ def evaluate_model(policy:nn.Module, config:DotMap, device:Union[str,torch.devic
                     "profit": profit,
                     "total_violation": total_violation,
                     "feasible": is_feasible,
-                    "max_revenue": max_revenue,
+                    # "max_revenue": max_revenue,
                 }
 
                 if is_feasible:
@@ -169,7 +170,7 @@ def evaluate_model(policy:nn.Module, config:DotMap, device:Union[str,torch.devic
             metrics["total_violations"][episode] = best["total_violation"]
             metrics["inference_times"][episode] = end_time - start_time
             metrics["feasible_instance"][episode] = 1.0 if best["feasible"] else 0.0
-            metrics["max_revenues"][episode] = best["max_revenue"]
+            # metrics["max_revenues"][episode] = best["max_revenue"]
 
             # Detailed violation metrics
             violation_adjusted = trajectory["violation"][0].clone()
