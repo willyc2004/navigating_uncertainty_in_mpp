@@ -48,7 +48,7 @@ alpha:
 batch_size:
   value: 64
 dropout_rate:
-  value: 0.008972135903337364
+  value: 0.164
 entropy_lambda:
   value: 0.010071090711145904
 env:
@@ -90,7 +90,7 @@ model:
   critic_temperature: 1.0
   decoder_type: attention
   demand_aggregation: full
-  dropout_rate: 0.008972135903337364
+  dropout_rate: 0.164
   embed_dim: 128
   encoder_type: attention
   hidden_dim: 256
@@ -103,7 +103,7 @@ model:
   num_heads: 4
   out_bias_pointer_attn: false
   phase: test
-  scale_max: 1.931286785557626
+  scale_max: 1.779
   tanh_clipping: 0
   tanh_squashing: false
   temperature: 1.0
@@ -119,13 +119,13 @@ num_heads:
 ppo_epochs:
   value: 5
 scale_max:
-  value: 1.931286785557626
+  value: 1.779
 testing:
   num_episodes: 30
   timestamp: '20250123_171145'
   feasibility_recovery: false
 training:
-  lr: 0.00020407622212291503
+  lr: 0.000910
   optimizer: Adam
   projection_kwargs:
     alpha: 0.05
