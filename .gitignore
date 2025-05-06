@@ -15,5 +15,7 @@
 /logs/
 /saved_models/
 /test_results/__pycache__/
+/not_on_git/scripts/
 /scripts/
+
 *.pyc
