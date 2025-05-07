@@ -258,7 +258,7 @@ def main(config: Optional[DotMap] = None, **kwargs) -> None:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Script with WandB integration.")
-    parser.add_argument('--folder', type=str, default='sac-fr', help="Folder name for the run.")
+    parser.add_argument('--folder', type=str, default='sac-vp', help="Folder name for the run.")
     parser.add_argument('--ports', type=int, default=4, help="Number of ports in env.")
     parser.add_argument('--gen', type=lambda x: x == 'True', default=False)
     parser.add_argument('--ur', type=float, default=1.1)
