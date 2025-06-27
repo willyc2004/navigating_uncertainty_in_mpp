@@ -48,7 +48,7 @@ model:
   critic_temperature: 1.0
   decoder_type: attention
   dropout_rate: 0.008972135903337364
-  dyn_embed: self_attention # ffn, self_attention
+  dyn_embed: ffn # ffn, self_attention
   embed_dim: 128
   encoder_type: attention
   hidden_dim: 512 # 128
@@ -66,7 +66,7 @@ model:
   temperature: 0.11243639449117128
 testing:
   feasibility_recovery: false
-  folder: 'SA_AM' #'sac-ws+pc' #'SA_AM'
+  folder: 'FF_AM' #'sac-ws+pc' #'SA_AM'
   num_episodes: 30
   path: results/trained_models/AI2STOW_JOURNAL_VERSION #AI2STOW
 training:
