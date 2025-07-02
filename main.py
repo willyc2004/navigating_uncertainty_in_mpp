@@ -258,11 +258,24 @@ def main(config: Optional[DotMap] = None, **kwargs) -> None:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Script with WandB integration.")
-    parser.add_argument('--folder', type=str, default='sac-vp', help="Folder name for the run.")
+    # Environment parameters
+    parser.add_argument('--env_name', type=str, default='block_mpp', help="Name of the environment.")
     parser.add_argument('--ports', type=int, default=4, help="Number of ports in env.")
     parser.add_argument('--gen', type=lambda x: x == 'True', default=False)
     parser.add_argument('--ur', type=float, default=1.1)
     parser.add_argument('--cv', type=float, default=0.5)
+    parser.add_argument('--block_stowage_mask', type=lambda x: x == 'True', default=True, help="Block stowage mask.")
+
+    # Model parameters
+    parser.add_argument('--encoder_type', type=str, default='attention', help="Type of encoder to use.")
+    parser.add_argument('--decoder_type', type=str, default='attention', help="Type of decoder to use.")
+    parser.add_argument('--dyn_embed', type=str, default='self_attention', help="Dynamic embedding type.")
+    parser.add_argument('--projection_type', type=str, default='linear_violation', help="Projection type.")
+
+    # Run parameters
+    parser.add_argument('--testing_path', type=str, default='results', help="Path for testing results.")
+    parser.add_argument('--folder', type=str, default='SA_AM', help="Folder name for the run.")
+    parser.add_argument('--phase', type=str, default='train', help="WandB project name.")
     return parser.parse_args()
 
 def deep_update(base, updates):
@@ -280,23 +293,36 @@ if __name__ == "__main__":
     # Load config and possibly re-load config is one in results folder
     config = load_config(f'{file_path}/config.yaml')
     folder_path = os.path.join(file_path, config.testing.path, config.testing.folder)
+    if not os.path.exists(folder_path):
+        os.makedirs(folder_path)
+
+    # Check if a config file exists in the folder and load it
     config_path = os.path.join(folder_path, "config.yaml")
     if os.path.exists(config_path):
         config = load_config(config_path)
-        # add some missing
-        config.env.env_name = "mpp"
-        config.env.block_stowage_mask = False
-        config.model.dyn_embed = "ffn"
-        config.testing.path = "results/trained_models/navigating_uncertainty"
-        config.training.projection_kwargs.slack_penalty = 1000
+        # todo: remove this?
+        # config.env.env_name = "mpp"
+        # config.env.block_stowage_mask = False
+        # config.model.dyn_embed = "ffn"
+        # config.testing.path = "results/trained_models/navigating_uncertainty"
+        # config.training.projection_kwargs.slack_penalty = 1000
 
     # Parse command-line arguments for dynamic configuration
     args = parse_args()
-    config.testing.folder = args.folder
+    # Env
     config.env.ports = args.ports
     config.env.generalization = args.gen
     config.env.utilization_rate_initial_demand = args.ur
     config.env.cv_demand = args.cv
+    config.env.block_stowage_mask = args.block_stowage_mask
+    # Model
+    config.model.encoder_type = args.encoder_type
+    config.model.decoder_type = args.decoder_type
+    config.model.dyn_embed = args.dyn_embed
+    config.training.projection_type = args.projection_type
+    # Run
+    config.testing.folder = args.folder
+    config.model.phase = args.phase
 
     # Adapt projection_type to the folder name
     if config.env.env_name == "mpp":
