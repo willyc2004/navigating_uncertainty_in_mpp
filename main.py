@@ -293,30 +293,32 @@ if __name__ == "__main__":
     # Parse command-line arguments for dynamic configuration
     args = parse_args()
     config.testing.folder = args.folder
-    config.algorithm.type, almost_projection_type = config.testing.folder.split("-")
     config.env.ports = args.ports
     config.env.generalization = args.gen
     config.env.utilization_rate_initial_demand = args.ur
     config.env.cv_demand = args.cv
 
     # Adapt projection_type to the folder name
-    if almost_projection_type == "vp" or almost_projection_type == "fr+vp":
-        config.training.projection_type = "linear_violation"
-    elif almost_projection_type == "ws+pc" or almost_projection_type == "fr+ws+pc":
-        config.training.projection_type = "weighted_scaling_policy_clipping"
-    elif almost_projection_type == "vp+cp":
-        config.training.projection_type = "convex_program"
-        config.testing.folder = config.algorithm.type + "-vp"
-    elif almost_projection_type == "ws+pc+cp":
-        config.training.projection_type = "convex_program"
-        config.testing.folder = config.algorithm.type + "-ws+pc"
-    elif almost_projection_type == "fr":
-        config.training.projection_type = "None"
-    else:
-        raise ValueError(f"Unsupported projection type: {almost_projection_type}")
+    if config.env.env_name == "mpp":
+        config.algorithm.type, almost_projection_type = config.testing.folder.split("-")
+        if almost_projection_type == "vp" or almost_projection_type == "fr+vp":
+            config.training.projection_type = "linear_violation"
+        elif almost_projection_type == "ws+pc" or almost_projection_type == "fr+ws+pc":
+            config.training.projection_type = "weighted_scaling_policy_clipping"
+        elif almost_projection_type == "vp+cp":
+            config.training.projection_type = "convex_program"
+            config.testing.folder = config.algorithm.type + "-vp"
+        elif almost_projection_type == "ws+pc+cp":
+            config.training.projection_type = "convex_program"
+            config.testing.folder = config.algorithm.type + "-ws+pc"
+        elif almost_projection_type == "fr":
+            config.training.projection_type = "None"
+        else:
+            raise ValueError(f"Unsupported projection type: {almost_projection_type}")
     print(f"Running with folder: {config.testing.folder}, "
           f"algorithm type: {config.algorithm.type},"
-          f"generalization: {config.env.generalization}")
+          f"generalization: {config.env.generalization},"
+          f"projection type: {config.training.projection_type}")
 
     # Call your main() function
     ## todo: Likely a bunch of warnings will be thrown, but they are not critical. Should be fixed soon.
