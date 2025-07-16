@@ -320,9 +320,9 @@ if __name__ == "__main__":
     # Env
     config.env.env_name = args.env_name
     config.env.ports = args.ports
+    config.env.TEU = args.teu
     config.env.bays = args.bays
     config.env.capacity = args.capacity
-    config.env.teu = args.teu
     config.env.generalization = args.gen
     config.env.utilization_rate_initial_demand = args.ur
     config.env.cv_demand = args.cv
@@ -340,6 +340,7 @@ if __name__ == "__main__":
 
     # Adapt projection_type to the folder name
     if config.env.env_name == "mpp":
+        # todo: remove?
         config.algorithm.type, almost_projection_type = config.testing.folder.split("-")
         if almost_projection_type == "vp" or almost_projection_type == "fr+vp":
             config.training.projection_type = "linear_violation"
