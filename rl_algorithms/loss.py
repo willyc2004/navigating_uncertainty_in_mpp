@@ -178,6 +178,8 @@ class FeasibilitySACLoss(SACLoss):
         action = metadata_actor["action"]
         if "lhs_A" in tensordict and "rhs" in tensordict:
             feasibility_loss, mean_violation = loss_feasibility(tensordict, action, self.lagrangian_multiplier)
+        elif "lagrangian_multiplier" in metadata_actor:
+            feasibility_loss, mean_violation = loss_feasibility(tensordict, action, metadata_actor["lagrangian_multiplier"])
         else:
             raise ValueError("Feasibility loss requires 'lhs_A' and 'rhs' in tensordict.")
 
@@ -231,8 +233,8 @@ class FeasibilitySACLoss(SACLoss):
             raise RuntimeError(
                 f"Losses shape mismatch: {log_prob.shape} and {min_q_logprob.shape}"
             )
-
-        return self._alpha * log_prob - min_q_logprob, {"log_prob": log_prob.detach(), "action": tensordict["action"]}
+        return self._alpha * log_prob - min_q_logprob, {"log_prob": log_prob.detach(), "action": tensordict["action"],
+                                                        "lagrangian_multiplier": td_q["lagrangian_multiplier"]}
 
 class FeasibilityClipPPOLoss(PPOLoss):
     """Clipped PPO loss.
