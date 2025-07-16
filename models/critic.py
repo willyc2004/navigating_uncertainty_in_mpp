@@ -15,6 +15,9 @@ class CriticNetwork(nn.Module):
             self,
             encoder: nn.Module,
             value_head: Optional[nn.Module] = None,
+            dual_head: Optional[nn.Module] = None,
+            primal_dual: Optional[bool] = False,
+            n_constraints: int = 25,
             embed_dim: int = 128,
             hidden_dim: int = 512,
             decoder_layers: int = 1,
@@ -70,7 +73,25 @@ class CriticNetwork(nn.Module):
 
         self.value_head = value_head
 
-    def forward(self, obs: Union[Tensor, TensorDict], action:Optional=None,) -> Tensor:
+        # todo: Add Lagrangian multiplier predictor head
+        if primal_dual and dual_head == None:
+            # Create dual head with residual connections
+            layers = [
+                add_normalization_layer(normalization, embed_dim),
+                nn.Linear(embed_dim, hidden_dim),
+                nn.LeakyReLU(),  # nn.ReLU()
+            ]
+            for _ in range(decoder_layers - 1):
+                layers.append(ResidualBlock(hidden_dim, nn.LeakyReLU(), add_normalization_layer(normalization, hidden_dim), dropout_rate, ))
+
+            # Output layer with ReLU activation
+            layers.append(nn.Linear(hidden_dim, n_constraints))
+            layers.append(MinClampActivation(min_val=0.001))
+            dual_head = nn.Sequential(*layers)
+
+        self.dual_head = dual_head
+
+    def forward(self, obs: Union[Tensor, TensorDict], action:Optional=None,) -> (Tensor, Tensor):
         # Encode the input
         h, _ = self.encoder(obs)  # [batch_size, N, embed_dim] -> [batch_size, N]
         h = self.critic_embedding(h, obs)
@@ -86,7 +107,10 @@ class CriticNetwork(nn.Module):
         else:  # customized encoder and value head with hidden input
             output = self.value_head(h) # [batch_size, N] -> [batch_size, N]
         output = output / self.temperature
-        return output
+
+        # Compute the Lagrangian multiplier
+        lagrangian_multiplier = self.dual_head(h)
+        return output, lagrangian_multiplier
 
 def create_critic_from_actor(
     policy: nn.Module, backbone: str = "encoder", **critic_kwargs
@@ -101,3 +125,11 @@ def create_critic_from_actor(
         next(policy.parameters()).device
     )
     return critic
+
+class MinClampActivation(nn.Module):
+    def __init__(self, min_val=0.001):
+        super().__init__()
+        self.min_val = min_val
+
+    def forward(self, x):
+        return torch.maximum(x, torch.tensor(self.min_val, device=x.device, dtype=x.dtype))
