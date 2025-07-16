@@ -17,6 +17,7 @@ if __name__ == "__main__":
                 config = yaml.safe_load(file)
                 config = DotMap(config)
                 config = adapt_env_kwargs(config)
+                n_constraints = config.training.projection_kwargs.n_constraints
 
             # Initialize W&B
             wandb.init(config=config)
@@ -47,6 +48,12 @@ if __name__ == "__main__":
             config['training']['projection_kwargs']['max_iter'] = sweep_config.max_iter
             config['training']['projection_kwargs']['scale'] = sweep_config.scale
 
+            # Algorithm hyperparameters
+            for i in range(n_constraints):
+                config['algorithm'][f'lagrangian_multiplier_{i}'] = sweep_config[f'lagrangian_multiplier_{i}']
+                # Error handling for missing lagrangian multipliers
+                if f'lagrangian_multiplier_{i}' not in sweep_config:
+                    raise ValueError(f"Missing lagrangian_multiplier_{i} in sweep configuration")
 
             # Call your main() function
             model = main(config)
