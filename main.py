@@ -259,22 +259,28 @@ def main(config: Optional[DotMap] = None, **kwargs) -> None:
 def parse_args():
     parser = argparse.ArgumentParser(description="Script with WandB integration.")
     # Environment parameters
-    parser.add_argument('--env_name', type=str, default='block_mpp', help="Name of the environment.")
+    parser.add_argument('--env_name', type=str, default='mpp', help="Name of the environment.")
     parser.add_argument('--ports', type=int, default=4, help="Number of ports in env.")
     parser.add_argument('--gen', type=lambda x: x == 'True', default=False)
     parser.add_argument('--ur', type=float, default=1.1)
     parser.add_argument('--cv', type=float, default=0.5)
-    parser.add_argument('--block_stowage_mask', type=lambda x: x == 'True', default=True, help="Block stowage mask.")
+    parser.add_argument('--block_stowage_mask', type=lambda x: x == 'True', default=False, help="Block stowage mask.")
+
+    # Algorithm parameters
+    parser.add_argument('--type', type=str, default='sac', help="Type of algorithm to use.")
+    parser.add_argument('--feasibility_lambda', type=float, default=0.2828168389831236, help="Lambda for feasibility.")
+    # todo: implement primal-dual method!
+    # parser.add_argument('--primal_dual', type=lambda x: x == 'True', default=False, help="Use primal-dual method.")
 
     # Model parameters
     parser.add_argument('--encoder_type', type=str, default='attention', help="Type of encoder to use.")
     parser.add_argument('--decoder_type', type=str, default='attention', help="Type of decoder to use.")
     parser.add_argument('--dyn_embed', type=str, default='self_attention', help="Dynamic embedding type.")
-    parser.add_argument('--projection_type', type=str, default='linear_violation', help="Projection type.")
+    parser.add_argument('--projection_type', type=str, default='convex_program', help="Projection type.")
 
     # Run parameters
-    parser.add_argument('--testing_path', type=str, default='results', help="Path for testing results.")
-    parser.add_argument('--folder', type=str, default='SA_AM', help="Folder name for the run.")
+    parser.add_argument('--testing_path', type=str, default='results/trained_models/navigating_uncertainty', help="Path for testing results.")
+    parser.add_argument('--folder', type=str, default='sac-cp', help="Folder name for the run.")
     parser.add_argument('--phase', type=str, default='train', help="WandB project name.")
     return parser.parse_args()
 
@@ -326,6 +332,7 @@ if __name__ == "__main__":
 
     # Adapt projection_type to the folder name
     if config.env.env_name == "mpp":
+        print(config.testing.folder)
         config.algorithm.type, almost_projection_type = config.testing.folder.split("-")
         if almost_projection_type == "vp" or almost_projection_type == "fr+vp":
             config.training.projection_type = "linear_violation"
