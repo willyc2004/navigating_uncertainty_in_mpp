@@ -261,13 +261,13 @@ def parse_args():
     # Environment parameters
     parser.add_argument('--env_name', type=str, default='mpp', help="Name of the environment.")
     parser.add_argument('--ports', type=int, default=4, help="Number of ports in env.")
+    parser.add_argument('--teu', type=int, default=1000, help="Random seed for reproducibility.")
     parser.add_argument('--gen', type=lambda x: x == 'True', default=False)
     parser.add_argument('--ur', type=float, default=1.1)
     parser.add_argument('--cv', type=float, default=0.5)
     parser.add_argument('--block_stowage_mask', type=lambda x: x == 'True', default=False, help="Block stowage mask.")
 
     # Algorithm parameters
-    parser.add_argument('--type', type=str, default='sac', help="Type of algorithm to use.")
     parser.add_argument('--feasibility_lambda', type=float, default=0.2828168389831236, help="Lambda for feasibility.")
     # todo: implement primal-dual method!
     # parser.add_argument('--primal_dual', type=lambda x: x == 'True', default=False, help="Use primal-dual method.")
@@ -317,10 +317,13 @@ if __name__ == "__main__":
     args = parse_args()
     # Env
     config.env.ports = args.ports
+    config.env.teu = args.teu
     config.env.generalization = args.gen
     config.env.utilization_rate_initial_demand = args.ur
     config.env.cv_demand = args.cv
     config.env.block_stowage_mask = args.block_stowage_mask
+    # Algorithm
+    config.algorithm.feasibility_lambda = args.feasibility_lambda
     # Model
     config.model.encoder_type = args.encoder_type
     config.model.decoder_type = args.decoder_type
