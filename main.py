@@ -86,13 +86,13 @@ def initialize_critic(algorithm_type:str, encoder:nn.Module, critic_args:Dict, d
         return TensorDictModule(
             CriticNetwork(encoder, customized=True, use_q_value=True, **critic_args).to(device),
             in_keys=["observation", "action"],
-            out_keys=["state_action_value"])
+            out_keys=["state_action_value", "lagrangian_multiplier"])
     else:
         # Standard critic
         return TensorDictModule(
             CriticNetwork(encoder, customized=True, **critic_args).to(device),
             in_keys=["observation"],
-            out_keys=["state_value"]
+            out_keys=["state_value", "lagrangian_multiplier"]
         )
 
 def initialize_projection_layer(projection_type:str, projection_kwargs:DotMap,
@@ -158,6 +158,7 @@ def initialize_policy_and_critic(config: DotMap, env:nn.Module, device:Union[str
         "embed_dim": embed_dim,
         "action_dim": action_dim,
         "critic_embedding": critic_embed,
+        "primal_dual": config.algorithm.primal_dual,
         **config.model,
     }
 
@@ -271,8 +272,6 @@ def parse_args():
 
     # Algorithm parameters
     parser.add_argument('--feasibility_lambda', type=float, default=0.2828168389831236, help="Lambda for feasibility.")
-    # todo: implement primal-dual method!
-    # parser.add_argument('--primal_dual', type=lambda x: x == 'True', default=False, help="Use primal-dual method.")
 
     # Model parameters
     parser.add_argument('--encoder_type', type=str, default='attention', help="Type of encoder to use.")
@@ -282,7 +281,7 @@ def parse_args():
 
     # Run parameters
     parser.add_argument('--testing_path', type=str, default='results/trained_models/navigating_uncertainty', help="Path for testing results.")
-    parser.add_argument('--folder', type=str, default='sac-cp', help="Folder name for the run.")
+    parser.add_argument('--folder', type=str, default='sac-pd', help="Folder name for the run.")
     parser.add_argument('--phase', type=str, default='train', help="WandB project name.")
     return parser.parse_args()
 
@@ -342,22 +341,25 @@ if __name__ == "__main__":
     if config.env.env_name == "mpp":
         # todo: remove?
         config.algorithm.type, almost_projection_type = config.testing.folder.split("-")
-        if almost_projection_type == "vp" or almost_projection_type == "fr+vp":
-            config.training.projection_type = "linear_violation"
-        elif almost_projection_type == "ws+pc" or almost_projection_type == "fr+ws+pc":
-            config.training.projection_type = "weighted_scaling_policy_clipping"
-        elif almost_projection_type == "vp+cp":
-            config.training.projection_type = "convex_program"
-            config.testing.folder = config.algorithm.type + "-vp"
-        elif almost_projection_type == "ws+pc+cp":
-            config.training.projection_type = "convex_program"
-            config.testing.folder = config.algorithm.type + "-ws+pc"
-        elif almost_projection_type == "fr":
-            config.training.projection_type = "None"
-        elif almost_projection_type == "cp":
-            config.training.projection_type = "convex_program"
-        else:
-            raise ValueError(f"Unsupported projection type: {almost_projection_type}")
+    if almost_projection_type == "vp" or almost_projection_type == "fr+vp":
+        config.training.projection_type = "linear_violation"
+    elif almost_projection_type == "ws+pc" or almost_projection_type == "fr+ws+pc":
+        config.training.projection_type = "weighted_scaling_policy_clipping"
+    elif almost_projection_type == "vp+cp":
+        config.training.projection_type = "convex_program"
+        config.testing.folder = config.algorithm.type + "-vp"
+    elif almost_projection_type == "ws+pc+cp":
+        config.training.projection_type = "convex_program"
+        config.testing.folder = config.algorithm.type + "-ws+pc"
+    elif almost_projection_type == "fr":
+        config.training.projection_type = "None"
+    elif almost_projection_type == "pd":
+        config.training.projection_type = "None"
+        config.algorithm.primal_dual = True
+    elif almost_projection_type == "cp":
+        config.training.projection_type = "convex_program"
+    else:
+        raise ValueError(f"Unsupported projection type: {almost_projection_type}")
     print(f"Running with folder: {config.testing.folder}, "
           f"algorithm type: {config.algorithm.type},"
           f"generalization: {config.env.generalization},"
