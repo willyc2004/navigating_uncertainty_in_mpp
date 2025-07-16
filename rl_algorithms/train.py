@@ -124,11 +124,15 @@ def run_training(policy: nn.Module, critic: nn.Module, device:str="cuda", **kwar
     train_env = make_env(env_kwargs=kwargs["env"], batch_size=[batch_size], device=device)
     n_step = train_env.T * train_env.K
     n_constraints = train_env.n_constraints
-    if f"lagrangian_multiplier_0" in kwargs["algorithm"]:
-        lagrangian_multiplier = torch.tensor([
-            kwargs["algorithm"][f"lagrangian_multiplier_{i}"] for i in range(n_constraints)], device=device)
+    if kwargs["algorithm"]["primal_dual"]:
+        # todo: add hyperparameter lagrangian multipliers to kwargs["algorithm"]
+        NotImplementedError("Primal-dual training is not implemented yet.")
     else:
-        lagrangian_multiplier = torch.ones(n_constraints, device=device)
+        if f"lagrangian_multiplier_0" in kwargs["algorithm"]:
+            lagrangian_multiplier = torch.tensor([
+                kwargs["algorithm"][f"lagrangian_multiplier_{i}"] for i in range(n_constraints)], device=device)
+        else:
+            lagrangian_multiplier = torch.ones(n_constraints, device=device)
 
     # Optimizer, loss module, data collector, and scheduler
     advantage_module = GAE(gamma=gamma, lmbda=gae_lambda, value_network=critic, average_gae=True)
