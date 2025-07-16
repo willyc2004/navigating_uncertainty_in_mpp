@@ -4,7 +4,7 @@
 #SBATCH --error=output_files/gpu_job.%j.err    # Slurm job error log
 #SBATCH --cpus-per-task=32                     # CPUs per task
 #SBATCH --gres=gpu:1                           # GPU request
-#SBATCH --time=3-00:00:00                      # Job run time (d-hh:mm:ss)
+#SBATCH --time=1-00:00:00                      # Job run time (d-hh:mm:ss)
 #SBATCH --partition=acltr                      # Partition to run on
 #SBATCH --mail-type=FAIL,END                   # Email notification
 
