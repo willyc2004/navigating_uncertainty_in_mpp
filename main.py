@@ -261,6 +261,8 @@ def parse_args():
     # Environment parameters
     parser.add_argument('--env_name', type=str, default='mpp', help="Name of the environment.")
     parser.add_argument('--ports', type=int, default=4, help="Number of ports in env.")
+    parser.add_argument('--bays', type=int, default=10, help="Number of bays in env.")
+    parser.add_argument('--capacity', type=list, default=[50], help="Capacity of each bay in TEU.")
     parser.add_argument('--teu', type=int, default=1000, help="Random seed for reproducibility.")
     parser.add_argument('--gen', type=lambda x: x == 'True', default=False)
     parser.add_argument('--ur', type=float, default=1.1)
@@ -316,7 +318,10 @@ if __name__ == "__main__":
     # Parse command-line arguments for dynamic configuration
     args = parse_args()
     # Env
+    config.env.env_name = args.env_name
     config.env.ports = args.ports
+    config.env.bays = args.bays
+    config.env.capacity = args.capacity
     config.env.teu = args.teu
     config.env.generalization = args.gen
     config.env.utilization_rate_initial_demand = args.ur
@@ -335,7 +340,6 @@ if __name__ == "__main__":
 
     # Adapt projection_type to the folder name
     if config.env.env_name == "mpp":
-        print(config.testing.folder)
         config.algorithm.type, almost_projection_type = config.testing.folder.split("-")
         if almost_projection_type == "vp" or almost_projection_type == "fr+vp":
             config.training.projection_type = "linear_violation"
@@ -349,6 +353,8 @@ if __name__ == "__main__":
             config.testing.folder = config.algorithm.type + "-ws+pc"
         elif almost_projection_type == "fr":
             config.training.projection_type = "None"
+        elif almost_projection_type == "cp":
+            config.training.projection_type = "convex_program"
         else:
             raise ValueError(f"Unsupported projection type: {almost_projection_type}")
     print(f"Running with folder: {config.testing.folder}, "
