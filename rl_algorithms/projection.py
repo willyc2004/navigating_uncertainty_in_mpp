@@ -144,8 +144,22 @@ class CvxpyProjectionLayer(nn.Module):
         if upper.dim() == 1:
             upper = upper.unsqueeze(0).expand(batch_size, -1)
 
-        # Solve per batch item
+        # Handle batch and step dimensions
+        needs_flattening = x_raw.dim() == 3 # if [batch, n_step, n]
+        if needs_flattening:
+            # Flatten to [batch*n_step, ...] for processing
+            x_raw = x_raw.view(-1, x_raw.shape[-1])  # [batch*n_step, n]
+            A = A.view(-1, *A.shape[-2:])  # [batch*n_step, m, n]
+            b = b.view(-1, b.shape[-1])  # [batch*n_step, m]
+            lower = lower.view(-1, lower.shape[-1])  # [batch*n_step, n]
+            upper = upper.view(-1, upper.shape[-1])  # [batch*n_step, n]
+
+        # Call the CVXPY layer
         x_proj, = self.cvxpy_layer(x_raw, A, b, lower, upper)
+
+        # Reshape back if necessary
+        if needs_flattening:
+            x_proj = x_proj.view(batch_size, -1, x_raw.shape[-1])
         return x_proj
 
 class ProjectionFactory:
