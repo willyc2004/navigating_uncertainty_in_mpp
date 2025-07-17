@@ -306,10 +306,10 @@ def run_training(policy: nn.Module, critic: nn.Module, device:str="cuda", **kwar
             "gn_actor": loss_out.get("gn_actor", 0),
             "gn_critic": loss_out.get("gn_critic", 0),
             "clip_fraction": loss_out.get("clip_fraction", 0),
-            "lagrangian_multiplier": loss_out["lagrangian_multiplier"].mean().item(),
             **train_performance,
         }
         log["mean_total_violation"] = log["violation"].sum(dim=(-2, -1)).mean().item() if log["violation"].dim() > 1 else 0
+        log["lagrangian_multiplier"] = loss_out["lagrangian_multiplier"].mean().item() if loss_out.get("lagrangian_multiplier") is not None else 0.0
         pbar.update(1)
         # Log metrics
         pbar.set_description(
