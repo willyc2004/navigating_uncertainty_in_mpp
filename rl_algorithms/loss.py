@@ -176,12 +176,10 @@ class FeasibilitySACLoss(SACLoss):
 
         # Feasibility loss
         action = metadata_actor["action"]
-        if "lhs_A" in tensordict and "rhs" in tensordict:
-            feasibility_loss, mean_violation = loss_feasibility(tensordict, action, self.lagrangian_multiplier)
-        elif "lagrangian_multiplier" in metadata_actor:
-            feasibility_loss, mean_violation = loss_feasibility(tensordict, action, metadata_actor["lagrangian_multiplier"])
-        else:
+        if "lhs_A" not in tensordict or "rhs" not in tensordict:
             raise ValueError("Feasibility loss requires 'lhs_A' and 'rhs' in tensordict.")
+        lagrangian_multiplier = metadata_actor.get("lagrangian_multiplier", self.lagrangian_multiplier)
+        feasibility_loss, mean_violation = loss_feasibility(tensordict, action, lagrangian_multiplier)
 
         # Alpha loss
         loss_alpha = self._alpha_loss(metadata_actor["log_prob"])
@@ -196,6 +194,7 @@ class FeasibilitySACLoss(SACLoss):
             "entropy": entropy.detach().mean(),
             "loss_feasibility": feasibility_loss,
             "violation": mean_violation,
+            "lagrangian_multiplier": lagrangian_multiplier,
         }
 
         # Reduce outputs based on reduction mode
@@ -425,9 +424,13 @@ class FeasibilityClipPPOLoss(PPOLoss):
 
         # Feasibility loss based on policy mean
         loc = dist.loc if hasattr(dist, 'loc') else dist.base_dist.loc
-        feasibility_loss, mean_violation = loss_feasibility(tensordict, loc, self.lagrangian_multiplier)
+        if "lhs_A" not in tensordict or "rhs" not in tensordict:
+            raise ValueError("Feasibility loss requires 'lhs_A' and 'rhs' in tensordict.")
+        lagrangian_multiplier = tensordict.get("lagrangian_multiplier", self.lagrangian_multiplier)
+        feasibility_loss, mean_violation = loss_feasibility(tensordict, loc, lagrangian_multiplier)
         td_out.set("loss_feasibility", feasibility_loss)
         td_out.set("violation", mean_violation)
+        td_out.set("lagrangian_multiplier", lagrangian_multiplier)
 
         td_out.set("ESS", _reduce(ess, self.reduction) / batch)
         td_out = td_out.named_apply(

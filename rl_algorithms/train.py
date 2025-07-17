@@ -103,6 +103,7 @@ def run_training(policy: nn.Module, critic: nn.Module, device:str="cuda", **kwar
     """Train the policy using the specified algorithm."""
     # Algorithm hyperparameters
     lr = kwargs["training"]["lr"]
+    pd_lr = kwargs["training"]["pd_lr"] if "pd_lr" in kwargs["training"] else lr
     batch_size = kwargs["model"]["batch_size"]
     mini_batch_size = int(kwargs["algorithm"]["mini_batch_size"] * batch_size)
     num_epochs = kwargs["algorithm"]["ppo_epochs"]
@@ -204,7 +205,7 @@ def run_training(policy: nn.Module, critic: nn.Module, device:str="cuda", **kwar
         raise ValueError(f"Algorithm {kwargs['algorithm']['type']} not recognized.")
     if primal_dual:
         dual_params = critic.module.dual_head.parameters()
-        dual_optim = torch.optim.Adam(dual_params, lr=lr)
+        dual_optim = torch.optim.Adam(dual_params, lr=pd_lr)
 
     train_updates = train_data_size // (batch_size * n_step)
     pbar = tqdm.tqdm(range(train_updates))
@@ -284,7 +285,6 @@ def run_training(policy: nn.Module, critic: nn.Module, device:str="cuda", **kwar
                         loss_out["gn_dual"] = torch.nn.utils.clip_grad_norm_(dual_params, max_grad_norm)
 
                     # Step optimizers
-                    # todo: check if this works!
                     actor_critic_optim.step()
                     if primal_dual:
                         dual_optim.step()
@@ -303,9 +303,10 @@ def run_training(policy: nn.Module, critic: nn.Module, device:str="cuda", **kwar
             "loss_entropy": loss_out.get("loss_alpha", 0) or loss_out.get("loss_entropy", 0),
             # Supporting metrics
             "step": step,
-            "gn_actor": loss_out["gn_actor"].item(),
+            "gn_actor": loss_out.get("gn_actor", 0),
             "gn_critic": loss_out.get("gn_critic", 0),
             "clip_fraction": loss_out.get("clip_fraction", 0),
+            "lagrangian_multiplier": loss_out["lagrangian_multiplier"].mean().item(),
             **train_performance,
         }
         log["mean_total_violation"] = log["violation"].sum(dim=(-2, -1)).mean().item() if log["violation"].dim() > 1 else 0
@@ -324,6 +325,7 @@ def run_training(policy: nn.Module, critic: nn.Module, device:str="cuda", **kwar
             f"x: {log['x']: 4.4f}, "
             f"loc(x): {log['loc(x)']: 4.4f}, "
             f"scale(x): {log['scale(x)']: 4.4f}, "
+            f"lagrangian_multiplier: {log['lagrangian_multiplier']: 4.4f}, "
             # Performance
             f"total_profit: {log['total_profit']: 4.4f}, "
             f"violation: {log['total_violation']: 4.4f}, "
