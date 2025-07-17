@@ -83,16 +83,18 @@ def initialize_decoder(decoder_type:str, decoder_args:Dict, device:str) -> nn.Mo
 def initialize_critic(algorithm_type:str, encoder:nn.Module, critic_args:Dict, device:str) -> nn.Module:
     """Initialize the critic based on the algorithm type."""
     if algorithm_type == "sac":
+        out_keys = ["state_action_value", "lagrangian_multiplier"] if critic_args.get("primal_dual", True) else ["state_action_value"]
         return TensorDictModule(
             CriticNetwork(encoder, customized=True, use_q_value=True, **critic_args).to(device),
             in_keys=["observation", "action"],
-            out_keys=["state_action_value", "lagrangian_multiplier"])
+            out_keys=out_keys
+        )
     else:
-        # Standard critic
+        out_keys = ["state_value", "lagrangian_multiplier"] if critic_args.get("primal_dual", True) else ["state_value"]
         return TensorDictModule(
             CriticNetwork(encoder, customized=True, **critic_args).to(device),
             in_keys=["observation"],
-            out_keys=["state_value", "lagrangian_multiplier"]
+            out_keys=out_keys
         )
 
 def initialize_projection_layer(projection_type:str, projection_kwargs:DotMap,
