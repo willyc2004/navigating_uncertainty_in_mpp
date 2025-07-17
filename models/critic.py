@@ -86,7 +86,7 @@ class CriticNetwork(nn.Module):
 
             # Output layer with ReLU activation
             layers.append(nn.Linear(hidden_dim, n_constraints))
-            layers.append(MinClampActivation(min_val=0.001))
+            layers.append(nn.Softplus()) # layers.append(MinClampActivation(min_val=0.001))
             dual_head = nn.Sequential(*layers)
 
         self.dual_head = dual_head
@@ -109,7 +109,7 @@ class CriticNetwork(nn.Module):
         output = output / self.temperature
 
         # Compute the Lagrangian multiplier
-        lagrangian_multiplier = self.dual_head(h)
+        lagrangian_multiplier = self.dual_head(h) # todo: check if this also works for non primal-dual tasks
         return output, lagrangian_multiplier
 
 def create_critic_from_actor(
