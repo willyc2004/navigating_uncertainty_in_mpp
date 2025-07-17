@@ -9,6 +9,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--sweep", nargs="?", default=None, const=None,
                         help="Provide a sweep name to resume an existing sweep, or leave empty to create a new sweep.")
+    # path
+    parser.add_argument("--path", type=str, default="results/trained_models/navigating_uncertainty",
+                        help="Path to the directory containing the config.yaml and sweep_config.yaml files.")
+    parser.add_argument("--folder", type=str, default="sac-fr",
+                        help="Folder to save the sweep configuration and results.")
+    args = parser.parse_args()
 
     def train():
         try:
@@ -18,6 +24,8 @@ if __name__ == "__main__":
                 config = DotMap(config)
                 config = adapt_env_kwargs(config)
                 n_constraints = config.training.projection_kwargs.n_constraints
+                config.testing.folder = args.folder
+                config.testing.path = args.path
 
             # Initialize W&B
             wandb.init(config=config)
@@ -81,8 +89,8 @@ if __name__ == "__main__":
         sweep_config = yaml.safe_load(file)
 
     # Initialize the sweep with W&B
-    if parser.parse_args().sweep:
-        sweep_id = parser.parse_args().sweep
+    if args.sweep:
+        sweep_id = args.sweep
     else:
         sweep_id = wandb.sweep(sweep=sweep_config, project="mpp_ppo")
 
