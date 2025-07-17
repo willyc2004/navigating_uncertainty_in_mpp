@@ -40,6 +40,8 @@ class CriticNetwork(nn.Module):
         self.critic_embedding = critic_embedding
         self.temperature = critic_temperature
         self.customized = customized
+        self.primal_dual = primal_dual
+        self.n_constraints = n_constraints
 
         if use_q_value:
             self.state_action_layer = nn.Linear(embed_dim+action_dim, embed_dim)
@@ -73,8 +75,7 @@ class CriticNetwork(nn.Module):
 
         self.value_head = value_head
 
-        # todo: Add Lagrangian multiplier predictor head
-        if primal_dual and dual_head == None:
+        if self.primal_dual and dual_head == None:
             # Create dual head with residual connections
             layers = [
                 add_normalization_layer(normalization, embed_dim),
@@ -109,8 +110,11 @@ class CriticNetwork(nn.Module):
         output = output / self.temperature
 
         # Compute the Lagrangian multiplier
-        lagrangian_multiplier = self.dual_head(h) # todo: check if this also works for non primal-dual tasks
-        return output, lagrangian_multiplier
+        if self.primal_dual:
+            lagrangian_multiplier = self.dual_head(h)
+            return output, lagrangian_multiplier
+        else:
+            return output
 
 def create_critic_from_actor(
     policy: nn.Module, backbone: str = "encoder", **critic_kwargs
