@@ -227,13 +227,13 @@ class FeasibilitySACLoss(SACLoss):
         min_q_logprob = (
             td_q.get(self.tensor_keys.state_action_value).min(0)[0].squeeze(-1)
         )
-
+        lagrangian_multiplier = td_q.get("lagrangian_multiplier", self.lagrangian_multiplier)
         if log_prob.shape != min_q_logprob.shape:
             raise RuntimeError(
                 f"Losses shape mismatch: {log_prob.shape} and {min_q_logprob.shape}"
             )
         return self._alpha * log_prob - min_q_logprob, {"log_prob": log_prob.detach(), "action": tensordict["action"],
-                                                        "lagrangian_multiplier": td_q["lagrangian_multiplier"]}
+                                                        "lagrangian_multiplier": lagrangian_multiplier}
 
 class FeasibilityClipPPOLoss(PPOLoss):
     """Clipped PPO loss.
