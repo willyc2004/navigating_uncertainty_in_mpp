@@ -85,9 +85,9 @@ class CriticNetwork(nn.Module):
             for _ in range(decoder_layers - 1):
                 layers.append(ResidualBlock(hidden_dim, nn.LeakyReLU(), add_normalization_layer(normalization, hidden_dim), dropout_rate, ))
 
-            # Output layer with ReLU activation
+            # Output layer with log uniform activation in range [0.01,10]
             layers.append(nn.Linear(hidden_dim, n_constraints))
-            layers.append(nn.Softplus()) # layers.append(MinClampActivation(min_val=0.001))
+            layers.append(LogUniformActivation())
             dual_head = nn.Sequential(*layers)
 
         self.dual_head = dual_head
@@ -130,10 +130,11 @@ def create_critic_from_actor(
     )
     return critic
 
-class MinClampActivation(nn.Module):
-    def __init__(self, min_val=0.001):
+class LogUniformActivation(nn.Module):
+    def __init__(self, min_val=0.01, max_val=10.0):
         super().__init__()
         self.min_val = min_val
+        self.log_scale = torch.log(torch.tensor(max_val / min_val))
 
     def forward(self, x):
-        return torch.maximum(x, torch.tensor(self.min_val, device=x.device, dtype=x.dtype))
+        return self.min_val * torch.exp(torch.sigmoid(x) * self.log_scale)
