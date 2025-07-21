@@ -6,11 +6,10 @@
 #SBATCH --gres=gpu:1                           # GPU request
 #SBATCH --time=3-00:00:00                      # Job run time (d-hh:mm:ss)
 #SBATCH --mail-type=FAIL,END                   # Email notification
-#SBATCH --exclude=cn[1-5]                      # Exclude specific nodes
+#SBATCH --exclude=cn[1-6]                      # Exclude specific nodes
 #SBATCH --exclude=desktop[1-16]
-#SBATCH --exclude=cn[7-19]                        # Exclude specific node
-#SBATCH --nodelist=cn[6]                   # Specify the node to run on
-#SBATCH --partition=acltr
+#SBATCH --exclude=cn[8-19]                        # Exclude specific node
+#SBATCH --nodelist=cn[7]                   # Specify the node to run on
 
 # Ensure the output directory exists
 mkdir -p output_files
