@@ -7,7 +7,7 @@ algorithm:
   gamma: 0.99
   max_grad_norm: 0.5
   mini_batch_size: 0.5
-  primal_dual: true
+  primal_dual: false
   ppo_epochs: 5
   stability_lambda: 1.0
   tau: 0.005
@@ -67,7 +67,7 @@ model:
   temperature: 0.11243639449117128
 testing:
   feasibility_recovery: false
-  folder: 'ppo-pd' #'sac-ws+pc' #'SA_AM'
+  folder: 'ppo-fr' #'sac-ws+pc' #'SA_AM'
   num_episodes: 30
   path: results/trained_models/AI2STOW_JOURNAL_VERSION
   # results/trained_models/AI2STOW_JOURNAL_VERSION
