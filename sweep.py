@@ -12,7 +12,7 @@ if __name__ == "__main__":
     # path
     parser.add_argument("--path", type=str, default="results/trained_models/navigating_uncertainty",
                         help="Path to the directory containing the config.yaml and sweep_config.yaml files.")
-    parser.add_argument("--folder", type=str, default="sac-fr",
+    parser.add_argument("--folder", type=str, default="sac-pd",
                         help="Folder to save the sweep configuration and results.")
     args = parser.parse_args()
 
@@ -51,17 +51,18 @@ if __name__ == "__main__":
             # # # AM-PPO hyperparameters
             # config['algorithm']['feasibility_lambda'] = sweep_config.feasibility_lambda
             # config['training']['lr'] = sweep_config.lr
+            config['training']['pd_lr'] = sweep_config.pd_lr
             # config['training']['projection_kwargs']['alpha'] = sweep_config.alpha
             # config['training']['projection_kwargs']['delta'] = sweep_config.delta
             # config['training']['projection_kwargs']['max_iter'] = sweep_config.max_iter
             # config['training']['projection_kwargs']['scale'] = sweep_config.scale
 
-            # Algorithm hyperparameters
-            for i in range(n_constraints):
-                config['algorithm'][f'lagrangian_multiplier_{i}'] = sweep_config[f'lagrangian_multiplier_{i}']
-                # Error handling for missing lagrangian multipliers
-                if f'lagrangian_multiplier_{i}' not in sweep_config:
-                    raise ValueError(f"Missing lagrangian_multiplier_{i} in sweep configuration")
+            # # Algorithm hyperparameters
+            # for i in range(n_constraints):
+            #     config['algorithm'][f'lagrangian_multiplier_{i}'] = sweep_config[f'lagrangian_multiplier_{i}']
+            #     # Error handling for missing lagrangian multipliers
+            #     if f'lagrangian_multiplier_{i}' not in sweep_config:
+            #         raise ValueError(f"Missing lagrangian_multiplier_{i} in sweep configuration")
 
             # Call your main() function
             model = main(config)
