@@ -8,6 +8,7 @@
 #SBATCH --partition=acltr                      # Partition to run on
 #SBATCH --mail-type=FAIL,END                   # Email notification
 #SBATCH --exclude=cn[1-4]                      # Exclude specific nodes
+#SBATCH --nodelist=cn[5]
 
 # Ensure the output directory exists
 mkdir -p output_files
