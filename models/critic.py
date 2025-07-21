@@ -85,9 +85,8 @@ class CriticNetwork(nn.Module):
             for _ in range(decoder_layers - 1):
                 layers.append(ResidualBlock(hidden_dim, nn.LeakyReLU(), add_normalization_layer(normalization, hidden_dim), dropout_rate, ))
 
-            # Output layer with log uniform activation in range [0.01,10]
             layers.append(nn.Linear(hidden_dim, n_constraints))
-            layers.append(LogUniformActivation())
+            layers.append(LogUniformActivation(min_val=0.01, max_val=10.0))  # Log uniform activation
             dual_head = nn.Sequential(*layers)
 
         self.dual_head = dual_head
