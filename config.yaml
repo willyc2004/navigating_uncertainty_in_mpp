@@ -67,7 +67,7 @@ model:
   temperature: 0.11243639449117128
 testing:
   feasibility_recovery: false
-  folder: 'sac-fr' #'sac-ws+pc' #'SA_AM'
+  folder: 'sac-pd' #'sac-ws+pc' #'SA_AM'
   num_episodes: 30
   path: results/trained_models/AI2STOW_JOURNAL_VERSION
   # results/trained_models/AI2STOW_JOURNAL_VERSION
