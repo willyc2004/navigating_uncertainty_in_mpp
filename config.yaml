@@ -75,7 +75,7 @@ testing:
   # results/trained_models/AI2STOW
 training:
   lr: 0.00014690714579803494
-  pd_lr: 0.000014690714579803494
+  pd_lr: 0.000034690714579803494
   optimizer: Adam
   projection_kwargs:
     alpha: 0.01 #0.050 #0.01 #0.00987804770039214
