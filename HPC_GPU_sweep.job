@@ -10,6 +10,7 @@
 #SBATCH --exclude=desktop[1-16]
 #SBATCH --exclude=cn[8-19]                        # Exclude specific node
 #SBATCH --nodelist=cn[7]                   # Specify the node to run on
+#SBATCH --partition=acltr                        # Partition to run on
 
 # Ensure the output directory exists
 mkdir -p output_files
