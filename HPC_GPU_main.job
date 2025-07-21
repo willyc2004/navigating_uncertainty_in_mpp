@@ -1,4 +1,5 @@
 #!/bin/bash
+#SBATCH --nodelist=cn3                         # Node to run on
 #SBATCH --job-name=torchrl_main                # Job name
 #SBATCH --output=output_files/gpu_job.%j.out   # Slurm job output
 #SBATCH --error=output_files/gpu_job.%j.err    # Slurm job error log
@@ -7,6 +8,11 @@
 #SBATCH --time=1-00:00:00                      # Job run time (d-hh:mm:ss)
 #SBATCH --partition=acltr                      # Partition to run on
 #SBATCH --mail-type=FAIL,END                   # Email notification
+#SBATCH --exclusive                            # Exclusive node allocation
+#SBATCH --mem=0                                 # Memory allocation
+
+# exclusive, all memory, and other options can be added as needed
+
 
 # Ensure the output directory exists
 mkdir -p output_files
