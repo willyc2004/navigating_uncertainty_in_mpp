@@ -8,7 +8,6 @@
 #SBATCH --mail-type=FAIL,END                   # Email notification
 #SBATCH --exclude=cn[1-4]                      # Exclude specific nodes
 #SBATCH --exclude=desktop[1-16]
-#SBATCH --nodelist=cn[5-19]
 #SBATCH --partition=acltr
 
 # Ensure the output directory exists
