@@ -7,8 +7,6 @@
 #SBATCH --gres=gpu:1                           # GPU request
 #SBATCH --time=1-00:00:00                      # Job run time (d-hh:mm:ss)
 #SBATCH --mail-type=FAIL,END                   # Email notification
-#SBATCH --exclusive                            # Exclusive node allocation
-#SBATCH --mem=0                                 # Memory allocation
 
 # exclusive, all memory, and other options can be added as needed
 
