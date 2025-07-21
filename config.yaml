@@ -7,7 +7,7 @@ algorithm:
   gamma: 0.99
   max_grad_norm: 0.5
   mini_batch_size: 0.5
-  primal_dual: false
+  primal_dual: true
   ppo_epochs: 5
   stability_lambda: 1.0
   tau: 0.005
