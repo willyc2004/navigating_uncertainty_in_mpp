@@ -9,6 +9,31 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--sweep", nargs="?", default=None, const=None,
                         help="Provide a sweep name to resume an existing sweep, or leave empty to create a new sweep.")
+    # Environment parameters
+    parser.add_argument('--env_name', type=str, default='mpp', help="Name of the environment.")
+    parser.add_argument('--ports', type=int, default=4, help="Number of ports in env.")
+    parser.add_argument('--bays', type=int, default=10, help="Number of bays in env.")
+    parser.add_argument('--capacity', type=list, default=[50], help="Capacity of each bay in TEU.")
+    parser.add_argument('--teu', type=int, default=1000, help="Random seed for reproducibility.")
+    parser.add_argument('--gen', type=lambda x: x == 'True', default=False)
+    parser.add_argument('--ur', type=float, default=1.1)
+    parser.add_argument('--cv', type=float, default=0.5)
+    parser.add_argument('--block_stowage_mask', type=lambda x: x == 'True', default=False, help="Block stowage mask.")
+
+    # Algorithm parameters
+    parser.add_argument('--feasibility_lambda', type=float, default=0.2828168389831236, help="Lambda for feasibility.")
+
+    # Model parameters
+    parser.add_argument('--encoder_type', type=str, default='attention', help="Type of encoder to use.")
+    parser.add_argument('--decoder_type', type=str, default='attention', help="Type of decoder to use.")
+    parser.add_argument('--dyn_embed', type=str, default='self_attention', help="Dynamic embedding type.")
+    parser.add_argument('--projection_type', type=str, default='convex_program', help="Projection type.")
+
+    # Run parameters
+    parser.add_argument('--testing_path', type=str, default='results/trained_models/navigating_uncertainty', help="Path for testing results.")
+    parser.add_argument('--folder', type=str, default='sac-pd', help="Folder name for the run.")
+    parser.add_argument('--phase', type=str, default='train', help="WandB project name.")
+
     # path
     parser.add_argument("--path", type=str, default="results/trained_models/navigating_uncertainty",
                         help="Path to the directory containing the config.yaml and sweep_config.yaml files.")
@@ -23,9 +48,55 @@ if __name__ == "__main__":
                 config = yaml.safe_load(file)
                 config = DotMap(config)
                 config = adapt_env_kwargs(config)
-                n_constraints = config.training.projection_kwargs.n_constraints
-                config.testing.folder = args.folder
-                config.testing.path = args.path
+
+            # Adjust configuration based on command line arguments
+            # Env
+            config.env.env_name = args.env_name
+            config.env.ports = args.ports
+            config.env.TEU = args.teu
+            config.env.bays = args.bays
+            config.env.capacity = args.capacity
+            config.env.generalization = args.gen
+            config.env.utilization_rate_initial_demand = args.ur
+            config.env.cv_demand = args.cv
+            config.env.block_stowage_mask = args.block_stowage_mask
+            # Algorithm
+            config.algorithm.feasibility_lambda = args.feasibility_lambda
+            # Model
+            config.model.encoder_type = args.encoder_type
+            config.model.decoder_type = args.decoder_type
+            config.model.dyn_embed = args.dyn_embed
+            config.training.projection_type = args.projection_type
+            # Run
+            config.testing.folder = args.folder
+            config.model.phase = args.phase
+            n_constraints = config.training.projection_kwargs.n_constraints
+
+            if config.env.env_name == "mpp":
+                config.algorithm.type, almost_projection_type = config.testing.folder.split("-")
+            if almost_projection_type == "vp" or almost_projection_type == "fr+vp":
+                config.training.projection_type = "linear_violation"
+            elif almost_projection_type == "ws+pc" or almost_projection_type == "fr+ws+pc":
+                config.training.projection_type = "weighted_scaling_policy_clipping"
+            elif almost_projection_type == "vp+cp":
+                config.training.projection_type = "convex_program"
+                config.testing.folder = config.algorithm.type + "-vp"
+            elif almost_projection_type == "ws+pc+cp":
+                config.training.projection_type = "convex_program"
+                config.testing.folder = config.algorithm.type + "-ws+pc"
+            elif almost_projection_type == "fr":
+                config.training.projection_type = "None"
+            elif almost_projection_type == "pd":
+                config.training.projection_type = "None"
+                config.algorithm.primal_dual = True
+            elif almost_projection_type == "cp":
+                config.training.projection_type = "convex_program"
+            else:
+                raise ValueError(f"Unsupported projection type: {almost_projection_type}")
+            print(f"Running with folder: {config.testing.folder}, "
+                  f"algorithm type: {config.algorithm.type},"
+                  f"generalization: {config.env.generalization},"
+                  f"projection type: {config.training.projection_type}")
 
             # Initialize W&B
             wandb.init(config=config)
@@ -64,31 +135,6 @@ if __name__ == "__main__":
             #     if f'lagrangian_multiplier_{i}' not in sweep_config:
             #         raise ValueError(f"Missing lagrangian_multiplier_{i} in sweep configuration")
 
-            if config.env.env_name == "mpp":
-                config.algorithm.type, almost_projection_type = config.testing.folder.split("-")
-            if almost_projection_type == "vp" or almost_projection_type == "fr+vp":
-                config.training.projection_type = "linear_violation"
-            elif almost_projection_type == "ws+pc" or almost_projection_type == "fr+ws+pc":
-                config.training.projection_type = "weighted_scaling_policy_clipping"
-            elif almost_projection_type == "vp+cp":
-                config.training.projection_type = "convex_program"
-                config.testing.folder = config.algorithm.type + "-vp"
-            elif almost_projection_type == "ws+pc+cp":
-                config.training.projection_type = "convex_program"
-                config.testing.folder = config.algorithm.type + "-ws+pc"
-            elif almost_projection_type == "fr":
-                config.training.projection_type = "None"
-            elif almost_projection_type == "pd":
-                config.training.projection_type = "None"
-                config.algorithm.primal_dual = True
-            elif almost_projection_type == "cp":
-                config.training.projection_type = "convex_program"
-            else:
-                raise ValueError(f"Unsupported projection type: {almost_projection_type}")
-            print(f"Running with folder: {config.testing.folder}, "
-                  f"algorithm type: {config.algorithm.type},"
-                  f"generalization: {config.env.generalization},"
-                  f"projection type: {config.training.projection_type}")
 
             # Call your main() function
             model = main(config)
