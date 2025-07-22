@@ -64,6 +64,32 @@ if __name__ == "__main__":
             #     if f'lagrangian_multiplier_{i}' not in sweep_config:
             #         raise ValueError(f"Missing lagrangian_multiplier_{i} in sweep configuration")
 
+            if config.env.env_name == "mpp":
+                config.algorithm.type, almost_projection_type = config.testing.folder.split("-")
+            if almost_projection_type == "vp" or almost_projection_type == "fr+vp":
+                config.training.projection_type = "linear_violation"
+            elif almost_projection_type == "ws+pc" or almost_projection_type == "fr+ws+pc":
+                config.training.projection_type = "weighted_scaling_policy_clipping"
+            elif almost_projection_type == "vp+cp":
+                config.training.projection_type = "convex_program"
+                config.testing.folder = config.algorithm.type + "-vp"
+            elif almost_projection_type == "ws+pc+cp":
+                config.training.projection_type = "convex_program"
+                config.testing.folder = config.algorithm.type + "-ws+pc"
+            elif almost_projection_type == "fr":
+                config.training.projection_type = "None"
+            elif almost_projection_type == "pd":
+                config.training.projection_type = "None"
+                config.algorithm.primal_dual = True
+            elif almost_projection_type == "cp":
+                config.training.projection_type = "convex_program"
+            else:
+                raise ValueError(f"Unsupported projection type: {almost_projection_type}")
+            print(f"Running with folder: {config.testing.folder}, "
+                  f"algorithm type: {config.algorithm.type},"
+                  f"generalization: {config.env.generalization},"
+                  f"projection type: {config.training.projection_type}")
+
             # Call your main() function
             model = main(config)
 
