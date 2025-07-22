@@ -69,7 +69,7 @@ testing:
   feasibility_recovery: false
   folder: 'sac-pd' #'sac-ws+pc' #'SA_AM'
   num_episodes: 30
-  path: results/trained_models/AI2STOW_JOURNAL_VERSION
+  path: results/trained_models/navigating_uncertainty
   # results/trained_models/AI2STOW_JOURNAL_VERSION
   # results/trained_models/navigating_uncertainty
   # results/trained_models/AI2STOW
