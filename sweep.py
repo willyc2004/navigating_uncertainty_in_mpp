@@ -99,6 +99,18 @@ if __name__ == "__main__":
             wandb.init(config=config)
             sweep_config = wandb.config
 
+            if almost_projection_type == "pd":
+                config['training']['pd_lr'] = sweep_config.pd_lr
+            elif almost_projection_type == "fr":
+                config['algorithm']['feasibility_lambda'] = sweep_config.feasibility_lambda
+                for i in range(n_constraints):
+                    config['algorithm'][f'lagrangian_multiplier_{i}'] = sweep_config[f'lagrangian_multiplier_{i}']
+                    # Error handling for missing lagrangian multipliers
+                    if f'lagrangian_multiplier_{i}' not in sweep_config:
+                        raise ValueError(f"Missing lagrangian_multiplier_{i} in sweep configuration")
+            else:
+                raise ValueError(f"Unsupported feasibility mechanism type: {almost_projection_type}")
+
             # # Model hyperparameters
             # # config['model']['num_heads'] = sweep_config.num_heads
             # # config['model']['dropout_rate'] = sweep_config.dropout_rate
@@ -119,7 +131,7 @@ if __name__ == "__main__":
             # # # AM-PPO hyperparameters
             # config['algorithm']['feasibility_lambda'] = sweep_config.feasibility_lambda
             # config['training']['lr'] = sweep_config.lr
-            config['training']['pd_lr'] = sweep_config.pd_lr
+            # config['training']['pd_lr'] = sweep_config.pd_lr
             # config['training']['projection_kwargs']['alpha'] = sweep_config.alpha
             # config['training']['projection_kwargs']['delta'] = sweep_config.delta
             # config['training']['projection_kwargs']['max_iter'] = sweep_config.max_iter
