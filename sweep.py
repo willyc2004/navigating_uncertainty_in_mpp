@@ -101,8 +101,10 @@ if __name__ == "__main__":
 
             if almost_projection_type == "pd":
                 config['training']['pd_lr'] = sweep_config.pd_lr
+                config['algorithm']['feasibility_lambda'] = 1.0
             elif almost_projection_type == "fr":
-                config['algorithm']['feasibility_lambda'] = sweep_config.feasibility_lambda
+                # config['algorithm']['feasibility_lambda'] = sweep_config.feasibility_lambda
+                config['algorithm']['feasibility_lambda'] = 1.0
                 for i in range(n_constraints):
                     config['algorithm'][f'lagrangian_multiplier_{i}'] = sweep_config[f'lagrangian_multiplier_{i}']
                     # Error handling for missing lagrangian multipliers
