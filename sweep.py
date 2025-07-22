@@ -29,7 +29,7 @@ if __name__ == "__main__":
     parser.add_argument('--dyn_embed', type=str, default='self_attention', help="Dynamic embedding type.")
     parser.add_argument('--projection_type', type=str, default='convex_program', help="Projection type.")
     # scale_max
-    parser.add_argument('--scale_max', type=float, default=1.93, help="Maximum scale for the model.") # PPO=1.93, SAC=9.46
+    parser.add_argument('--scale_max', type=float, default=9.46, help="Maximum scale for the model.") # PPO=1.93, SAC=9.46
 
     # Run parameters
     parser.add_argument('--testing_path', type=str, default='results/trained_models/navigating_uncertainty', help="Path for testing results.")
