@@ -65,8 +65,8 @@ if __name__ == "__main__":
             config.model.encoder_type = args.encoder_type
             config.model.decoder_type = args.decoder_type
             config.model.dyn_embed = args.dyn_embed
+            config.model.scale_max = args.scale_max
             config.training.projection_type = args.projection_type
-            config.training.scale_max = args.scale_max
             # Run
             config.testing.folder = args.folder
             config.model.phase = args.phase
