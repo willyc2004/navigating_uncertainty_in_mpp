@@ -1,16 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=torchrl_main               # Job name
+#SBATCH --job-name=torchrl_main                # Job name
 #SBATCH --output=output_files/gpu_job.%j.out   # Slurm job output
 #SBATCH --error=output_files/gpu_job.%j.err    # Slurm job error log
 #SBATCH --cpus-per-task=32                     # CPUs per task
 #SBATCH --gres=gpu:1                           # GPU request
 #SBATCH --time=3-00:00:00                      # Job run time (d-hh:mm:ss)
 #SBATCH --mail-type=FAIL,END                   # Email notification
-#SBATCH --exclude=cn[1-6]                      # Exclude specific nodes
-#SBATCH --exclude=desktop[1-16]
-#SBATCH --exclude=cn[8-19]                        # Exclude specific node
-#SBATCH --nodelist=cn[7]                   # Specify the node to run on
-#SBATCH --partition=acltr                        # Partition to run on
+#SBATCH --partition=pcn345                     # Partition to run on
 
 # Ensure the output directory exists
 mkdir -p output_files
