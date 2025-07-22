@@ -61,7 +61,7 @@ model:
   num_encoder_layers: 3
   num_heads: 8
   phase: train
-  scale_max: 9.459951968688712 #1.931286785557626
+  scale_max: 1.931286785557626 #9.459951968688712 # 1.931286785557626 # 0.25
   tanh_clipping: 0
   tanh_squashing: false
   temperature: 0.11243639449117128
