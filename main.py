@@ -226,15 +226,15 @@ def main(config: Optional[DotMap] = None, **kwargs) -> None:
         max_iter = config.training.projection_kwargs.max_iter
         vp_str = f"{alpha}_{delta}_{max_iter}"
 
-        # Use if you want to load config from a trained model folder:
-        if config.training.projection_type == "None":
-            config = load_trained_hyperparameters(path)
-            config.env.env_name = "mpp"
-            config.env.block_stowage_mask = False
-            config.env.generalization = gen
-            config.model.dyn_embed = "ffn"
-            config.testing.path = "results/trained_models/navigating_uncertainty"
-            config.training.projection_kwargs.slack_penalty = 1000
+        # # Use if you want to load config from a trained model folder:
+        # if config.training.projection_type == "None":
+        #     config = load_trained_hyperparameters(path)
+        #     config.env.env_name = "mpp"
+        #     config.env.block_stowage_mask = False
+        #     config.env.generalization = gen
+        #     # config.model.dyn_embed = "ffn"
+        #     config.testing.path = "results/trained_models/navigating_uncertainty"
+        #     config.training.projection_kwargs.slack_penalty = 1000
 
         policy, critic = initialize_policy_and_critic(config, env, device)
 
