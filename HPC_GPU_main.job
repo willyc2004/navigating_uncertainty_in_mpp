@@ -5,7 +5,7 @@
 #SBATCH --cpus-per-task=32                     # CPUs per task
 #SBATCH --gres=gpu:1                           # GPU request
 #SBATCH --time=1-00:00:00                      # Job run time (d-hh:mm:ss)
-#SBATCH --partition=acltr                      # Partition to run on
+#SBATCH --partition=acltr                      # Partition to run on (acltr, pcn345)
 #SBATCH --mail-type=FAIL,END                   # Email notification
 
 # Ensure the output directory exists
