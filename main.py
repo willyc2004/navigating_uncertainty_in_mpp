@@ -272,6 +272,7 @@ def parse_args():
     parser.add_argument('--testing_path', type=str, default='results/trained_models/navigating_uncertainty', help="Path for testing results.")
     parser.add_argument('--folder', type=str, default='sac-pd', help="Folder name for the run.")
     parser.add_argument('--phase', type=str, default='test', help="WandB project name.")
+    parser.add_argument('--feasibility_recovery', type=lambda x: x == 'True', default=False, help="Enable feasibility recovery.")
     return parser.parse_args()
 
 def deep_update(base, updates):
@@ -325,6 +326,7 @@ if __name__ == "__main__":
     # Run
     config.testing.folder = args.folder
     config.model.phase = args.phase
+    config.testing.feasibility_recovery = args.feasibility_recovery
 
     # Adapt projection_type to the folder name
     if config.env.env_name == "mpp":
