@@ -351,6 +351,10 @@ if __name__ == "__main__":
         config.training.projection_type = "convex_program"
     else:
         raise ValueError(f"Unsupported projection type: {almost_projection_type}")
+
+    if args.feasibility_recovery:
+        config.training.projection_type = "convex_program"
+
     print(f"Running with folder: {config.testing.folder}, "
           f"algorithm type: {config.algorithm.type},"
           f"generalization: {config.env.generalization},"
