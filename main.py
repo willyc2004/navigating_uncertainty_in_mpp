@@ -353,7 +353,8 @@ if __name__ == "__main__":
         raise ValueError(f"Unsupported projection type: {almost_projection_type}")
 
     if args.feasibility_recovery:
-        config.training.projection_type = "weighted_scaling_policy_clipping"
+        config.training.projection_type = "convex_program"
+        # config.training.projection_type = "weighted_scaling_policy_clipping"
 
     print(f"Running with folder: {config.testing.folder}, "
           f"algorithm type: {config.algorithm.type},"
