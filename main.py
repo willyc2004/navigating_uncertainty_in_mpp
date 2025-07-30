@@ -212,8 +212,6 @@ def main(config: Optional[DotMap] = None, **kwargs) -> None:
 
     ## Main loop
     path = f"{config.testing.path}/{config.testing.folder}"
-    gen = config.env.generalization
-
     if config.model.phase in {"train", "tuned_training"}:
         # Initialize models and run training
         wandb.init(config=config)
