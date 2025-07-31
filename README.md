@@ -9,13 +9,13 @@ To ensure compliance with double-blind review requirements, we have taken the fo
 - **Metadata in scripts and documentation** has been scrubbed of personal information.
 - **Code comments and version control history** do not contain author-identifying information.
 
-## Repository Structure
+## Repository Structure with reference to the paper
 ```
 📂 project_root
-├── 📂 environment/          # Environment setup scripts
-├── 📂 models/               # Model scripts
-├── 📂 rl_algorithms/        # Reinforcement learning algorithms
-├── 📂 results/              # Results of experiments
+├── 📂 environment/          # Environment scripts (Section 4)
+├── 📂 models/               # Model scripts (Section 5)
+├── 📂 rl_algorithms/        # Reinforcement learning algorithms (Appendix E)
+├── 📂 results/              # Results of experiments (Section 6)
 ├── 📄 .gitignore            # Git ignore file
 ├── 📄 requirements.txt      # Required dependencies
 ├── 📄 README.md             # This document
