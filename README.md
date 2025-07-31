@@ -12,19 +12,18 @@ To ensure compliance with double-blind review requirements, we have taken the fo
 ## Repository Structure with reference to the paper
 ```
 📂 project_root
-├── 📂 environment/          # Environment scripts (Section 4)
+├── 📂 environment/          # Environment scripts (Section 4, Appendix A, Appendix C)
 ├── 📂 models/               # Model scripts (Section 5)
-├── 📂 rl_algorithms/        # Reinforcement learning algorithms (Appendix E)
-├── 📂 results/              # Results of experiments (Section 6)
-├── 📄 .gitignore            # Git ignore file
-├── 📄 requirements.txt      # Required dependencies
+├── 📂 rl_algorithms/        # Reinforcement learning algorithms (Appendix B, Appendix E - DRL Algorithms)
+├── 📂 results/              # Results of experiments (Section 6, Appendix F)
+├── 📄 main.py               # Main script (Appendix E - Main Execution Script)
+├── 📄 sweep.py              # Sweep script (Appendix G)
+├── 📄 scenario_tree_mip.py  # SMIP script (Appendix D)
+├── 📄 requirements.txt      # Required dependencies (Software Requirements)
+├── 📄 config.yaml           # Configuration file (Appendix E - Hyperparameter Configuration)
+├── 📄 sweep_config.yaml     # Configuration file for hyperparameter sweeps (Appendix E - Hyperparameter Ranges)
 ├── 📄 README.md             # This document
-├── 📄 config.yaml           # Configuration file
-├── 📄 sweep_config.yaml     # Configuration file for hyperparameter sweeps
-├── 📄 main.py               # Main script
-├── 📄 sweep.py              # Sweep script
-├── 📄 scenario_tree_mip.py  # SMIP script
-├── 📄 scenario_tree.py      # Scenario tree script
+├── 📄 .gitignore            # Git ignore files
 └── 📄 LICENSE               # License information
 ```
 
